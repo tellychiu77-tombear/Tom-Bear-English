@@ -3,130 +3,135 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-export default function ChatPage() {
+export default function Chat() {
+    const router = useRouter();
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
-    const [currentUserEmail, setCurrentUserEmail] = useState('');
+    const [userId, setUserId] = useState<string | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const router = useRouter();
 
-    // 1. 載入歷史訊息
+    useEffect(() => {
+        // Get current user
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session?.user) {
+                setUserId(session.user.id);
+            }
+        });
+
+        fetchMessages();
+
+        // Realtime Subscription
+        const channel = supabase
+            .channel('public:messages')
+            .on(
+                'postgres_changes',
+                { event: 'INSERT', schema: 'public', table: 'messages' },
+                (payload) => {
+                    setMessages((current) => [...current, payload.new]);
+                    scrollToBottom();
+                }
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    }, []);
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    };
+
     const fetchMessages = async () => {
         const { data, error } = await supabase
             .from('messages')
             .select('*')
             .order('created_at', { ascending: true });
 
-        if (error) console.error('Error:', error);
+        if (error) console.error('Error fetching messages:', error);
         else setMessages(data || []);
     };
 
-    // 2. 初始化與監聽
-    useEffect(() => {
-        const init = async () => {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-                // 如果沒登入，暫時不踢人，方便您測試 (但實務上要踢)
-                // router.push('/'); 
-                setCurrentUserEmail('Guest');
-            } else {
-                setCurrentUserEmail(session.user.email || 'Unknown');
-            }
-            fetchMessages();
-        };
-        init();
+    const handleSendMessage = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newMessage.trim() || !userId) return;
 
-        // 開啟即時監聽
-        const channel = supabase
-            .channel('realtime_chat')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-                setMessages((prev) => [...prev, payload.new]);
-            })
-            .subscribe();
-
-        return () => { supabase.removeChannel(channel); };
-    }, []);
-
-    // 3. 自動捲動到底部
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
-
-    // 4. 發送訊息
-    const handleSendMessage = async () => {
-        if (!newMessage.trim()) return;
-
-        const msgToSend = newMessage;
-        setNewMessage(''); // 秒清空，提升體驗
-
-        // 寫入資料庫
-        const { error } = await supabase
-            .from('messages')
-            .insert([{
-                content: msgToSend,
-                user_email: currentUserEmail
-            }]);
+        const { error } = await (supabase.from('messages') as any).insert([
+            { content: newMessage, sender_id: userId }
+        ]);
 
         if (error) {
-            alert('發送失敗: ' + error.message);
-            console.error(error);
+            console.error('Error sending message:', error);
+            alert('Error sending message');
+        } else {
+            setNewMessage('');
         }
     };
 
     return (
         <div className="flex flex-col h-screen bg-gray-100 font-sans">
-            {/* 標題列 */}
-            <div className="bg-white p-4 shadow-md flex justify-between items-center z-10">
-                <h1 className="text-xl font-bold text-gray-800">💬 親師溝通室 (Chat)</h1>
-                <button onClick={() => router.push('/dashboard')} className="text-blue-500 font-medium hover:underline">
-                    回儀表板
-                </button>
+            {/* Header */}
+            <div className="bg-white px-4 py-3 shadow-sm flex items-center justify-between z-10">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => router.push('/')}
+                        className="text-gray-500 hover:bg-gray-100 p-2 rounded-full transition-colors"
+                    >
+                        ←
+                    </button>
+                    <h1 className="text-xl font-bold text-gray-800">💬 親師對話 (Live)</h1>
+                </div>
             </div>
 
-            {/* 訊息顯示區 */}
+            {/* Messages Area */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {messages.map((msg) => {
-                    // 判斷是不是自己傳的
-                    const isMyMessage = msg.user_email === currentUserEmail;
-
+                {messages.map((msg, index) => {
+                    const isMyMessage = msg.sender_id === userId;
                     return (
-                        <div key={msg.id} className={`flex flex-col ${isMyMessage ? 'items-end' : 'items-start'}`}>
-                            <div className={`max-w-[75%] px-4 py-2 rounded-xl shadow-sm text-lg ${isMyMessage
-                                    ? 'bg-blue-500 text-white rounded-br-none'
-                                    : 'bg-white text-gray-800 rounded-bl-none'
-                                }`}>
-                                {msg.content}
+                        <div
+                            key={msg.id}
+                            className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+                        >
+                            <div className={`
+                                max-w-[70%] px-4 py-2 rounded-2xl shadow-sm
+                                ${isMyMessage
+                                    ? 'bg-green-500 text-white rounded-br-none'
+                                    : 'bg-white text-gray-800 rounded-bl-none'}
+                            `}>
+                                <p className="text-sm md:text-base leading-relaxed">{msg.content}</p>
+                                <p className={`text-[10px] mt-1 ${isMyMessage ? 'text-green-100' : 'text-gray-400'} text-right`}>
+                                    {new Date(msg.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
+                                </p>
                             </div>
-                            {/* 這裡就是修正的關鍵：改顯示 user_email，並加了防呆 (?.) */}
-                            <span className="text-xs text-gray-400 mt-1 px-1">
-                                {isMyMessage ? '我' : (msg.user_email?.split('@')[0] || 'System')}
-                            </span>
                         </div>
                     );
                 })}
                 <div ref={messagesEndRef} />
             </div>
 
-            {/* 輸入區 */}
-            <div className="bg-white p-4 border-t border-gray-200">
+            {/* Input Area */}
+            <form onSubmit={handleSendMessage} className="bg-white p-4 border-t border-gray-200">
                 <div className="flex gap-2 max-w-4xl mx-auto">
                     <input
                         type="text"
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
                         placeholder="輸入訊息..."
-                        className="flex-1 border border-gray-300 rounded-full px-4 py-3 focus:outline-none focus:border-blue-500 bg-gray-50 text-lg"
+                        className="flex-1 bg-gray-100 border-0 rounded-full px-5 py-3 focus:ring-2 focus:ring-green-500 focus:bg-white transition-all outline-none"
                     />
                     <button
-                        onClick={handleSendMessage}
+                        type="submit"
                         disabled={!newMessage.trim()}
-                        className="bg-blue-600 text-white rounded-full px-6 py-2 font-bold hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+                        className="bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-full p-3 w-12 h-12 flex items-center justify-center transition-all shadow-md active:scale-95"
                     >
-                        傳送
+                        ➤
                     </button>
                 </div>
-            </div>
+            </form>
         </div>
     );
 }
