@@ -12,21 +12,21 @@ export type Database = {
             users: {
                 Row: {
                     id: string
-                    role: 'admin' | 'teacher' | 'parent'
+                    role: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
                     name: string | null
                     contact_info: Json | null
                     created_at: string
                 }
                 Insert: {
                     id: string
-                    role?: 'admin' | 'teacher' | 'parent'
+                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
                     name?: string | null
                     contact_info?: Json | null
                     created_at?: string
                 }
                 Update: {
                     id?: string
-                    role?: 'admin' | 'teacher' | 'parent'
+                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
                     name?: string | null
                     contact_info?: Json | null
                     created_at?: string

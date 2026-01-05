@@ -4,7 +4,7 @@ create extension if not exists "uuid-ossp";
 -- 1. Users Table (Linked to Supabase Auth)
 create table users (
   id uuid references auth.users not null primary key,
-  role text check (role in ('admin', 'teacher', 'parent')) default 'parent',
+  role text check (role in ('admin', 'director', 'manager', 'teacher', 'parent', 'pending')) default 'pending',
   name text,
   contact_info jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
