@@ -9,13 +9,14 @@ import Link from 'next/link';
 export default function Home() {
     const [session, setSession] = useState<any>(null);
     const [role, setRole] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true); // 預設正在讀取，誰都不準進！
+    const [loading, setLoading] = useState(true); // 預設：鎖門狀態 (正在讀取)
 
     useEffect(() => {
+        // 1. 檢查有沒有登入
         supabase.auth.getSession().then(({ data: { session } }) => {
             setSession(session);
             if (session) fetchRole(session.user.id);
-            else setLoading(false);
+            else setLoading(false); // 沒登入，解除鎖定(顯示登入框)
         });
 
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -41,11 +42,12 @@ export default function Home() {
 
             if (error) {
                 console.error('Error fetching role:', error);
+                setRole('pending'); // 如果查不到或出錯，一律當作 pending (最安全)
             } else {
-                setRole(data?.role || 'pending'); // 如果沒抓到，預設當作 pending 處理
+                setRole(data?.role || 'pending');
             }
         } catch (error) {
-            console.error('Unexpected error:', error);
+            setRole('pending');
         } finally {
             setLoading(false); // 查完了，開門
         }
@@ -70,7 +72,7 @@ export default function Home() {
                         supabaseClient={supabase}
                         appearance={{ theme: ThemeSupa }}
                         providers={[]}
-                        showLinks={false} // 隱藏忘記密碼等雜項
+                        showLinks={false}
                     />
                 </div>
             </div>
@@ -88,7 +90,7 @@ export default function Home() {
                     onClick={() => window.location.reload()}
                     className="px-6 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700"
                 >
-                    重新整理狀態
+                    重新整理狀態 (Refresh)
                 </button>
                 <button
                     onClick={() => supabase.auth.signOut()}
