@@ -80,3 +80,36 @@ alter table exam_results enable row level security;
 create policy "Enable all access for now" on contact_books for all using (true) with check (true);
 create policy "Enable all access for now" on messages for all using (true) with check (true);
 create policy "Enable all access for now" on exam_results for all using (true) with check (true);
+
+-- 11. Leave Requests Table
+create table leave_requests (
+  id uuid default uuid_generate_v4() primary key,
+  student_id uuid references students(id) on delete cascade not null,
+  type text not null, -- 病假, 事假, etc.
+  reason text,
+  start_date date not null,
+  end_date date not null,
+  status text check (status in ('pending', 'approved', 'rejected')) default 'pending',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 12. Leave Requests View (Joined with Student Info)
+create or replace view leave_requests_view as
+select 
+  lr.id,
+  lr.student_id,
+  s.name as student_name,
+  s.parent_id,
+  lr.type,
+  lr.reason,
+  lr.start_date,
+  lr.end_date,
+  lr.status,
+  lr.created_at
+from leave_requests lr
+join students s on lr.student_id = s.id;
+
+-- 13. Enable Realtime & RLS
+alter publication supabase_realtime add table leave_requests;
+alter table leave_requests enable row level security;
+create policy "Enable all access for now" on leave_requests for all using (true) with check (true);

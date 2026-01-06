@@ -148,6 +148,12 @@ export default function Home() {
                         <div className="bg-pink-100 p-3 rounded-full text-2xl">🎓</div>
                         <div><h2 className="font-bold text-lg">學生檔案</h2><p className="text-gray-500 text-sm">Student Profiles</p></div>
                     </Link>
+
+                    {/* 6. 請假中心 */}
+                    <Link href="/leave" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-cyan-500">
+                        <div className="bg-cyan-100 p-3 rounded-full text-2xl">📅</div>
+                        <div><h2 className="font-bold text-lg">請假中心</h2><p className="text-gray-500 text-sm">Leave Requests</p></div>
+                    </Link>
                     <Link href="/chat" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-green-500">
                         <div className="bg-green-100 p-3 rounded-full text-2xl">💬</div>
                         <div><h2 className="font-bold text-lg">親師對話</h2><p className="text-gray-500 text-sm">Chat Room</p></div>
