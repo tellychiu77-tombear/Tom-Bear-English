@@ -104,14 +104,11 @@ export default function Home() {
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="w-full max-w-md p-8 bg-white shadow-lg rounded-lg">
                     <h1 className="text-2xl font-bold text-center mb-6">補習班系統</h1>
-                    {/* 👇 這裡修正了！移除了 showLinks={false}，
-             這樣 "Sign up (註冊)" 和 "Forgot Password (忘記密碼)" 的連結就會回來了 
-          */}
                     <Auth
                         supabaseClient={supabase}
                         appearance={{ theme: ThemeSupa }}
                         providers={[]}
-                    // showLinks={true} // 預設就是 true，不寫也可以
+                    // 這裡不加 showLinks={false}，這樣註冊按鈕才會出現
                     />
                 </div>
             </div>
@@ -233,7 +230,6 @@ export default function Home() {
                         <div className="bg-pink-100 p-3 rounded-full text-2xl">🎓</div>
                         <div><h2 className="font-bold text-lg">學生檔案</h2><p className="text-gray-500 text-sm">Student Profiles</p></div>
                     </Link>
-                    {/* 其他功能先隱藏，讓畫面乾淨一點，之後再打開 */}
                 </div>
             </div>
         </main>
