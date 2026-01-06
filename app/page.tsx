@@ -72,21 +72,24 @@ export default function Home() {
         }
     }
 
-    // 提交詳細資料
+    // 提交詳細資料 (強力寫入版)
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         setSubmitting(true);
 
         const { error } = await supabase
             .from('profiles')
-            .update({
+            .upsert({ // ⬅️ 這裡改成 upsert (有就更新，沒有就新增)
+                id: session.user.id,
+                email: session.user.email, // 確保 Email 也寫入
                 full_name: formData.full_name,
                 phone: formData.phone,
                 user_type: formData.user_type,
                 child_name: formData.user_type === 'parent' ? formData.child_name : null,
                 child_class: formData.user_type === 'parent' ? formData.child_class : null,
-            })
-            .eq('id', session.user.id);
+                role: 'pending', // 強制設定為待審核 (避免資料缺失)
+                updated_at: new Date().toISOString(),
+            });
 
         if (error) {
             alert('儲存失敗: ' + error.message);
