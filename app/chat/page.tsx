@@ -7,11 +7,13 @@ import { useRouter } from 'next/navigation';
 export default function ChatPage() {
     const [role, setRole] = useState<string | null>(null);
     const [userId, setUserId] = useState<string>('');
-    const [assignedClass, setAssignedClass] = useState<string | null>(null); // 老師負責的班級
+    const [assignedClass, setAssignedClass] = useState<string | null>(null);
 
-    // 資料
-    const [students, setStudents] = useState<any[]>([]); // 學生列表
-    const [selectedStudent, setSelectedStudent] = useState<any>(null); // 目前聊天的對象
+    // 狀態
+    const [students, setStudents] = useState<any[]>([]);       // 老師用：學生列表
+    const [selectedStudent, setSelectedStudent] = useState<any>(null); // 目前聊天的學生
+    const [activeChannel, setActiveChannel] = useState<'teacher' | 'director'>('teacher'); // 🟢 目前的頻道
+
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState('');
 
@@ -22,10 +24,10 @@ export default function ChatPage() {
         init();
     }, []);
 
-    // 監聽聊天室
+    // 監聽聊天室 (當 學生 或 頻道 改變時)
     useEffect(() => {
         if (!selectedStudent) return;
-        fetchMessages(selectedStudent.id);
+        fetchMessages(selectedStudent.id, activeChannel);
 
         const channel = supabase
             .channel('chat_room')
@@ -34,15 +36,17 @@ export default function ChatPage() {
                 schema: 'public',
                 table: 'messages',
                 filter: `student_id=eq.${selectedStudent.id}`
-            }, () => {
-                fetchMessages(selectedStudent.id);
+            }, (payload) => {
+                // 當有新訊息，若是屬於當前頻道的，才更新
+                if (payload.new.channel === activeChannel) {
+                    fetchMessages(selectedStudent.id, activeChannel);
+                }
             })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [selectedStudent]);
+    }, [selectedStudent, activeChannel]); // 🟢 頻道改變也要重抓
 
-    // 自動捲動
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
@@ -52,10 +56,9 @@ export default function ChatPage() {
         if (!session) { router.push('/'); return; }
         setUserId(session.user.id);
 
-        // 1. 抓取使用者的身分 & 負責班級
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role, assigned_class') // 🟢 多抓這個欄位
+            .select('role, assigned_class')
             .eq('id', session.user.id)
             .single();
 
@@ -64,34 +67,35 @@ export default function ChatPage() {
         setRole(userRole);
         setAssignedClass(userClass);
 
-        // 2. 根據身分決定要顯示哪些學生
+        // 根據身分初始化
         if (userRole === 'parent') {
-            // 家長：只抓自己的小孩
+            // 家長：抓自己小孩，並預設選擇第一個
             const { data } = await supabase.from('students').select('*').eq('parent_id', session.user.id);
-            if (data && data.length > 0) setSelectedStudent(data[0]);
-
+            if (data && data.length > 0) {
+                setSelectedStudent(data[0]);
+            }
         } else if (userRole === 'director' || userRole === 'manager') {
-            // 園長/主任：上帝視角，抓「所有」學生
+            // 園長：抓所有學生
             const { data } = await supabase.from('students').select('*').order('grade');
             setStudents(data || []);
-
         } else if (userRole === 'teacher') {
-            // 老師：只抓「自己班級」的學生
+            // 老師：只抓自己班級，且強制鎖定在 'teacher' 頻道
+            setActiveChannel('teacher');
             if (userClass) {
-                const { data } = await supabase
-                    .from('students')
-                    .select('*')
-                    .eq('grade', userClass) // 🟢 關鍵篩選：班級必須對上
-                    .order('chinese_name');
+                const { data } = await supabase.from('students').select('*').eq('grade', userClass).order('chinese_name');
                 setStudents(data || []);
-            } else {
-                alert("您是老師帳號，但尚未分配班級，請聯繫園長。");
             }
         }
     }
 
-    async function fetchMessages(studentId: string) {
-        const { data } = await supabase.from('messages_view').select('*').eq('student_id', studentId).order('created_at', { ascending: true });
+    // 🟢 抓取訊息時，多加一個 channel 篩選
+    async function fetchMessages(studentId: string, channel: string) {
+        const { data } = await supabase
+            .from('messages_view')
+            .select('*')
+            .eq('student_id', studentId)
+            .eq('channel', channel) // 只抓當前頻道的
+            .order('created_at', { ascending: true });
         setMessages(data || []);
     }
 
@@ -102,7 +106,8 @@ export default function ChatPage() {
         const { error } = await supabase.from('messages').insert({
             student_id: selectedStudent.id,
             sender_id: userId,
-            content: newMessage
+            content: newMessage,
+            channel: activeChannel // 🟢 寫入當前頻道
         });
 
         if (error) alert('發送失敗: ' + error.message);
@@ -114,61 +119,117 @@ export default function ChatPage() {
             <div className="bg-white p-4 shadow flex justify-between items-center z-10">
                 <div className="flex items-center gap-2">
                     <h1 className="text-xl font-bold text-green-700">💬 親師對話</h1>
-                    {role === 'teacher' && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">班級: {assignedClass}</span>}
-                    {role === 'director' && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">身分: 園長 (全校檢視)</span>}
+                    {role === 'parent' && <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">家長端</span>}
+                    {role === 'teacher' && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">班導師: {assignedClass}</span>}
+                    {role === 'director' && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">園長 (全校檢視)</span>}
                 </div>
                 <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-400 text-white rounded text-sm">回首頁</button>
             </div>
 
             <div className="flex-1 flex overflow-hidden">
 
-                {/* 左側列表：只有教職員看得到 */}
-                {role !== 'parent' && (
-                    <div className="w-1/3 bg-white border-r overflow-y-auto">
-                        <div className="p-4 font-bold text-gray-500 border-b flex justify-between">
-                            <span>學生列表</span>
-                            <span className="text-xs font-normal bg-gray-100 px-2 rounded flex items-center">{students.length} 人</span>
+                {/* ============ 左側選單 ============ */}
+
+                {/* 1. 如果是家長：顯示「聯絡對象」選擇 */}
+                {role === 'parent' && (
+                    <div className="w-1/3 max-w-[250px] bg-white border-r overflow-y-auto flex flex-col">
+                        <div className="p-4 font-bold text-gray-500 border-b">選擇聯絡對象</div>
+
+                        {/* 選項 A: 班導師 */}
+                        <div
+                            onClick={() => setActiveChannel('teacher')}
+                            className={`p-4 border-b cursor-pointer transition flex items-center gap-3 ${activeChannel === 'teacher' ? 'bg-green-100 border-l-4 border-green-600' : 'hover:bg-gray-50'}`}
+                        >
+                            <div className="bg-green-200 p-2 rounded-full text-xl">👩‍🏫</div>
+                            <div>
+                                <div className="font-bold text-gray-800">班級導師</div>
+                                <div className="text-xs text-gray-500">一般事務、作業請假</div>
+                            </div>
                         </div>
-                        {students.length === 0 ? (
-                            <div className="p-4 text-center text-gray-400 text-sm">此班級尚無學生</div>
-                        ) : (
-                            students.map(s => (
-                                <div
-                                    key={s.id}
-                                    onClick={() => setSelectedStudent(s)}
-                                    className={`p-4 border-b cursor-pointer hover:bg-green-50 transition ${selectedStudent?.id === s.id ? 'bg-green-100 border-l-4 border-green-600' : ''}`}
-                                >
-                                    <div className="font-bold text-gray-800">{s.chinese_name}</div>
-                                    <div className="text-xs text-gray-500 flex justify-between mt-1">
-                                        <span>{s.grade}</span>
-                                        <span>{s.english_name}</span>
-                                    </div>
-                                </div>
-                            ))
-                        )}
+
+                        {/* 選項 B: 園長/主任 */}
+                        <div
+                            onClick={() => setActiveChannel('director')}
+                            className={`p-4 border-b cursor-pointer transition flex items-center gap-3 ${activeChannel === 'director' ? 'bg-purple-100 border-l-4 border-purple-600' : 'hover:bg-gray-50'}`}
+                        >
+                            <div className="bg-purple-200 p-2 rounded-full text-xl">🏫</div>
+                            <div>
+                                <div className="font-bold text-gray-800">園長 / 主任</div>
+                                <div className="text-xs text-gray-500">學費、投訴、行政</div>
+                            </div>
+                        </div>
                     </div>
                 )}
 
-                {/* 右側聊天區 */}
-                <div className="flex-1 flex flex-col bg-gray-200">
+                {/* 2. 如果是老師/園長：顯示「學生列表」 */}
+                {role !== 'parent' && (
+                    <div className="w-1/3 max-w-[250px] bg-white border-r overflow-y-auto">
+                        <div className="p-4 font-bold text-gray-500 border-b">學生列表 ({activeChannel === 'director' ? '行政頻道' : '班級頻道'})</div>
+                        {/* 園長可以切換頻道看不同訊息 */}
+                        {role === 'director' && (
+                            <div className="flex p-2 gap-2 border-b bg-gray-50">
+                                <button onClick={() => setActiveChannel('teacher')} className={`flex-1 text-xs py-1 rounded ${activeChannel === 'teacher' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}>看班級對話</button>
+                                <button onClick={() => setActiveChannel('director')} className={`flex-1 text-xs py-1 rounded ${activeChannel === 'director' ? 'bg-purple-600 text-white' : 'bg-gray-200'}`}>看行政對話</button>
+                            </div>
+                        )}
+
+                        {students.map(s => (
+                            <div
+                                key={s.id}
+                                onClick={() => setSelectedStudent(s)}
+                                className={`p-4 border-b cursor-pointer hover:bg-green-50 transition ${selectedStudent?.id === s.id ? 'bg-green-100 border-l-4 border-green-600' : ''}`}
+                            >
+                                <div className="font-bold text-gray-800">{s.chinese_name}</div>
+                                <div className="text-xs text-gray-500">{s.grade}</div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* ============ 右側聊天區 ============ */}
+                <div className="flex-1 flex flex-col bg-gray-200 relative">
+                    {/* 背景浮水印 (選填) */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
+                        <div className="text-6xl font-bold text-gray-400">
+                            {activeChannel === 'director' ? '行政專線' : '親師熱線'}
+                        </div>
+                    </div>
+
                     {selectedStudent ? (
                         <>
-                            <div className="bg-green-50 p-2 text-center text-sm text-green-800 border-b shadow-sm">
-                                正在與 <strong>{selectedStudent.chinese_name}</strong> 的家長 ({role === 'parent' ? '您' : '已連線'}) 對話
+                            {/* 頂部標題 */}
+                            <div className={`p-3 text-center text-sm border-b shadow-sm z-10 flex justify-between items-center px-6 ${activeChannel === 'director' ? 'bg-purple-100 text-purple-900' : 'bg-green-100 text-green-900'
+                                }`}>
+                                <span>
+                                    {role === 'parent' ? '正在聯絡：' : '對話對象：'}
+                                    <strong className="text-lg mx-2">
+                                        {activeChannel === 'director' ? '🏫 園長/行政主任' : `👩‍🏫 ${selectedStudent.grade} 班導師`}
+                                    </strong>
+                                </span>
+                                {role !== 'parent' && <span className="text-xs bg-white/50 px-2 py-1 rounded">學生: {selectedStudent.chinese_name}</span>}
                             </div>
 
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                                {messages.length === 0 && <div className="text-center text-gray-400 mt-10">👋 這裡是 {selectedStudent.chinese_name} 的專屬親師溝通頻道</div>}
+                            {/* 訊息列表 */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4 z-10">
+                                {messages.length === 0 && (
+                                    <div className="text-center text-gray-400 mt-10 p-8 bg-white/50 rounded-xl mx-10 border border-dashed">
+                                        👋 這裡是
+                                        {activeChannel === 'director' ? '【行政專用頻道】' : '【班級親師頻道】'} <br />
+                                        {role === 'parent' && activeChannel === 'director' && '任何學費、行政問題請在此提出，班導師不會看到。'}
+                                        {role === 'parent' && activeChannel === 'teacher' && '作業、請假、班級事務請在此與老師溝通。'}
+                                    </div>
+                                )}
 
                                 {messages.map(m => {
                                     const isMe = m.sender_id === userId;
                                     return (
                                         <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%]`}>
-                                                {/* 顯示發言者名字 (如果不是自己) */}
                                                 {!isMe && <span className="text-[10px] text-gray-500 mb-1 ml-1">{m.sender_role === 'parent' ? '家長' : m.sender_name}</span>}
 
-                                                <div className={`px-4 py-2 rounded-xl shadow-sm ${isMe ? 'bg-green-500 text-white rounded-tr-none' : 'bg-white text-gray-800 rounded-tl-none'
+                                                <div className={`px-4 py-2 rounded-xl shadow-sm ${isMe
+                                                        ? (activeChannel === 'director' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-green-500 text-white rounded-tr-none')
+                                                        : 'bg-white text-gray-800 rounded-tl-none'
                                                     }`}>
                                                     <div className="text-sm break-words">{m.content}</div>
                                                 </div>
@@ -182,23 +243,27 @@ export default function ChatPage() {
                                 <div ref={messagesEndRef} />
                             </div>
 
-                            <form onSubmit={handleSend} className="p-4 bg-white border-t flex gap-2">
+                            {/* 輸入框 */}
+                            <form onSubmit={handleSend} className="p-4 bg-white border-t flex gap-2 z-10">
                                 <input
                                     type="text"
-                                    className="flex-1 p-3 border rounded-full focus:outline-none focus:border-green-500"
-                                    placeholder="輸入訊息..."
+                                    className={`flex-1 p-3 border rounded-full focus:outline-none border-gray-300 ${activeChannel === 'director' ? 'focus:border-purple-500' : 'focus:border-green-500'
+                                        }`}
+                                    placeholder={`傳送訊息給${activeChannel === 'director' ? '園長' : '老師'}...`}
                                     value={newMessage}
                                     onChange={e => setNewMessage(e.target.value)}
                                 />
-                                <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded-full font-bold hover:bg-green-700 transition">
+                                <button type="submit" className={`px-6 py-2 rounded-full font-bold text-white transition ${activeChannel === 'director' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'
+                                    }`}>
                                     發送
                                 </button>
                             </form>
                         </>
                     ) : (
+                        // 未選擇學生時 (老師/園長端)
                         <div className="flex-1 flex items-center justify-center text-gray-400 flex-col gap-2">
                             <div className="text-4xl">👈</div>
-                            <div>請選擇一位學生開始對話</div>
+                            <div>請從左側選擇一位學生</div>
                         </div>
                     )}
                 </div>
