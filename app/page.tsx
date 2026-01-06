@@ -33,16 +33,13 @@ export default function Home() {
     async function checkUserRole(session: any) {
         setLoading(true);
 
-        // 👑 園長無敵後門：如果是您的 Email，直接賦予最高權限，不查資料庫！
-        // 這樣可以繞過所有權限錯誤
+        // 👑 園長無敵後門 (保留這個以免又被擋)
         if (session.user.email === 'teacheryoyo@demo.com') {
-            console.log("園長駕到，強制開門！");
             setRole('director');
             setLoading(false);
-            return; // 直接結束，不走下面的檢查
+            return;
         }
 
-        // 其他人照常檢查
         try {
             const { data, error } = await supabase
                 .from('profiles')
@@ -62,12 +59,8 @@ export default function Home() {
         }
     }
 
-    // 1. 讀取畫面
-    if (loading) {
-        return <div className="min-h-screen flex items-center justify-center text-xl">正在驗證身分...</div>;
-    }
+    if (loading) return <div className="min-h-screen flex items-center justify-center">驗證中...</div>;
 
-    // 2. 登入畫面
     if (!session) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -79,63 +72,44 @@ export default function Home() {
         );
     }
 
-    // 3. 等待審核畫面 (附帶除錯資訊)
     if (role === 'pending') {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-yellow-50 p-6">
-                <div className="text-6xl mb-4">🚧</div>
-                <h1 className="text-2xl font-bold text-yellow-800">帳號審核中 (Debug Mode)</h1>
-                <p className="mt-2 text-gray-600">您的身分目前無法讀取。</p>
-
-                {/* 把錯誤原因顯示出來，讓我們知道發生什麼事 */}
-                <div className="bg-white p-4 mt-6 rounded border border-yellow-200 text-left text-sm font-mono">
-                    <p><strong>Debug Info:</strong></p>
-                    <p>Email: {session.user.email}</p>
-                    <p>ID: {session.user.id}</p>
-                    <p>Detected Role: {role}</p>
-                </div>
-
-                <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-yellow-600 text-white rounded">
-                    重新整理
-                </button>
-                <button onClick={() => supabase.auth.signOut()} className="mt-2 text-sm text-gray-500 underline">
-                    登出
-                </button>
+                <div className="text-6xl mb-4">⏳</div>
+                <h1 className="text-2xl font-bold text-yellow-800">帳號審核中</h1>
+                <p className="mt-2 text-gray-600">請等待園長開通權限。</p>
+                <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-yellow-600 text-white rounded">重新整理</button>
             </div>
         );
     }
 
-    // 4. 正式主選單
     return (
         <main className="min-h-screen bg-gray-100 p-4">
             <div className="max-w-md mx-auto">
-                <div className="bg-white p-4 rounded-lg shadow mb-4 flex justify-between items-center">
+                {/* 頂部資訊欄 */}
+                <div className="bg-white p-4 rounded-lg shadow mb-6 flex justify-between items-center">
                     <div>
-                        <div className="font-bold text-lg">歡迎回來，園長！</div>
-                        <div className="text-sm text-gray-500">{session.user.email}</div>
+                        <div className="text-sm text-gray-500">歡迎回來!</div>
+                        <div className="font-bold">{session.user.email}</div>
+                        <div className="text-xs text-blue-600 uppercase font-bold mt-1">
+                            身分: {role === 'director' ? '園長' : role === 'manager' ? '主任' : '老師'}
+                        </div>
                     </div>
-                    <button onClick={() => supabase.auth.signOut()} className="text-sm border px-3 py-1 rounded">登出</button>
+                    <button onClick={() => supabase.auth.signOut()} className="text-sm border px-3 py-1 rounded hover:bg-gray-50">登出</button>
                 </div>
 
-                {/* 園長專屬的人事管理入口 */}
+                {/* 園長專屬區塊 (只有園長看得到) */}
                 {role === 'director' && (
-                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-4 flex items-center gap-4">
+                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-6 flex items-center gap-4 transform transition hover:scale-105">
                         <div className="text-3xl">👮‍♂️</div>
                         <div>
                             <h2 className="font-bold text-xl">人事管理中心</h2>
-                            <p className="text-gray-400 text-sm">審核新進老師</p>
+                            <p className="text-gray-400 text-sm">審核新進老師與權限管理</p>
                         </div>
                     </Link>
                 )}
 
+                {/* 一般功能區塊 (所有人都有) */}
                 <div className="grid grid-cols-1 gap-4">
-                    <Link href="/students" className="bg-white p-6 rounded-xl shadow hover:shadow-md flex items-center gap-4 border-l-4 border-pink-500">
-                        <div className="bg-pink-100 p-3 rounded-full text-2xl">🎓</div>
-                        <div><h2 className="font-bold">學生檔案</h2></div>
-                    </Link>
-                    {/* 其他按鈕先省略，確認能進去再加回來 */}
-                </div>
-            </div>
-        </main>
-    );
-}
+                    <Link href="/pickup" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-blue-500">
+                        <div className="bg-blue-100 p
