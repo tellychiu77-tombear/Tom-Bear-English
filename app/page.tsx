@@ -12,11 +12,11 @@ export default function Home() {
     const [profileData, setProfileData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
-    // 表單資料
+    // 📝 表單資料 (註冊後填寫用)
     const [formData, setFormData] = useState({
         full_name: '',
         phone: '',
-        user_type: 'parent',
+        user_type: 'parent', // 預設家長
         child_name: '',
         child_class: ''
     });
@@ -44,7 +44,7 @@ export default function Home() {
     async function fetchProfile(session: any) {
         setLoading(true);
 
-        // 👑 園長後門 (保持方便測試)
+        // 👑 園長無敵後門 (方便您測試)
         if (session.user.email === 'teacheryoyo@demo.com') {
             setRole('director');
             setLoading(false);
@@ -72,6 +72,7 @@ export default function Home() {
         }
     }
 
+    // 提交詳細資料
     async function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
         setSubmitting(true);
@@ -90,20 +91,28 @@ export default function Home() {
         if (error) {
             alert('儲存失敗: ' + error.message);
         } else {
-            window.location.reload();
+            window.location.reload(); // 成功後重新整理
         }
         setSubmitting(false);
     }
 
     if (loading) return <div className="min-h-screen flex items-center justify-center">載入中...</div>;
 
-    // 1. 登入畫面
+    // 1. 登入/註冊畫面
     if (!session) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50">
                 <div className="w-full max-w-md p-8 bg-white shadow-lg rounded-lg">
-                    <h1 className="text-2xl font-bold text-center mb-6">補習班系統登入</h1>
-                    <Auth supabaseClient={supabase} appearance={{ theme: ThemeSupa }} providers={[]} showLinks={false} />
+                    <h1 className="text-2xl font-bold text-center mb-6">補習班系統</h1>
+                    {/* 👇 這裡修正了！移除了 showLinks={false}，
+             這樣 "Sign up (註冊)" 和 "Forgot Password (忘記密碼)" 的連結就會回來了 
+          */}
+                    <Auth
+                        supabaseClient={supabase}
+                        appearance={{ theme: ThemeSupa }}
+                        providers={[]}
+                    // showLinks={true} // 預設就是 true，不寫也可以
+                    />
                 </div>
             </div>
         );
@@ -111,56 +120,59 @@ export default function Home() {
 
     // 2. 待審核 / 資料補全流程
     if (role === 'pending') {
-        // A. 如果沒填過名字 -> 顯示註冊表單
+        // A. 如果沒填過名字 -> 顯示「資料補全表單」
         if (!profileData?.full_name) {
             return (
                 <div className="min-h-screen bg-blue-50 py-10 px-4">
                     <div className="max-w-md mx-auto bg-white p-8 rounded-xl shadow-lg">
                         <h1 className="text-2xl font-bold text-blue-900 mb-2">👋 歡迎加入！</h1>
-                        <p className="text-gray-600 mb-6">請填寫基本資料，以利園長審核。</p>
+                        <p className="text-gray-600 mb-6">初次登入，請填寫基本資料。</p>
 
                         <form onSubmit={handleSubmit} className="space-y-4">
                             <div>
-                                <label className="block text-sm font-bold text-gray-700">真實姓名</label>
-                                <input required type="text" className="w-full p-2 border rounded mt-1"
+                                <label className="block text-sm font-bold text-gray-700">您的真實姓名</label>
+                                <input required type="text" placeholder="例如: 陳大文" className="w-full p-2 border rounded mt-1"
                                     value={formData.full_name} onChange={e => setFormData({ ...formData, full_name: e.target.value })} />
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-700">手機號碼</label>
-                                <input required type="text" className="w-full p-2 border rounded mt-1"
+                                <input required type="text" placeholder="例如: 0912345678" className="w-full p-2 border rounded mt-1"
                                     value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} />
                             </div>
                             <div>
-                                <label className="block text-sm font-bold text-gray-700">身分</label>
+                                <label className="block text-sm font-bold text-gray-700">申請身分</label>
                                 <div className="flex gap-4 mt-1">
-                                    <label className="flex items-center gap-2 cursor-pointer">
+                                    <label className="flex items-center gap-2 cursor-pointer bg-gray-50 px-4 py-2 rounded border hover:bg-blue-50">
                                         <input type="radio" name="type" value="parent" checked={formData.user_type === 'parent'}
-                                            onChange={() => setFormData({ ...formData, user_type: 'parent' })} /> 家長
+                                            onChange={() => setFormData({ ...formData, user_type: 'parent' })} />
+                                        👨‍👩‍👧 家長
                                     </label>
-                                    <label className="flex items-center gap-2 cursor-pointer">
+                                    <label className="flex items-center gap-2 cursor-pointer bg-gray-50 px-4 py-2 rounded border hover:bg-green-50">
                                         <input type="radio" name="type" value="teacher" checked={formData.user_type === 'teacher'}
-                                            onChange={() => setFormData({ ...formData, user_type: 'teacher' })} /> 老師
+                                            onChange={() => setFormData({ ...formData, user_type: 'teacher' })} />
+                                        👩‍🏫 老師
                                     </label>
                                 </div>
                             </div>
 
+                            {/* 只有選家長才出現小孩欄位 */}
                             {formData.user_type === 'parent' && (
-                                <div className="bg-gray-50 p-4 rounded border border-gray-200">
+                                <div className="bg-gray-50 p-4 rounded border border-gray-200 animate-fade-in">
                                     <div className="mb-3">
                                         <label className="block text-sm font-bold text-gray-700">小孩姓名</label>
-                                        <input required type="text" className="w-full p-2 border rounded mt-1"
+                                        <input required type="text" placeholder="例如: 陳小明" className="w-full p-2 border rounded mt-1"
                                             value={formData.child_name} onChange={e => setFormData({ ...formData, child_name: e.target.value })} />
                                     </div>
                                     <div>
                                         <label className="block text-sm font-bold text-gray-700">小孩班級/年級</label>
-                                        <input required type="text" className="w-full p-2 border rounded mt-1"
+                                        <input required type="text" placeholder="例如: 英文A班" className="w-full p-2 border rounded mt-1"
                                             value={formData.child_class} onChange={e => setFormData({ ...formData, child_class: e.target.value })} />
                                     </div>
                                 </div>
                             )}
 
-                            <button disabled={submitting} type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">
-                                {submitting ? '提交中...' : '提交申請'}
+                            <button disabled={submitting} type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition">
+                                {submitting ? '提交中...' : '確認送出'}
                             </button>
                         </form>
                     </div>
@@ -181,13 +193,13 @@ export default function Home() {
                         <p className="mb-2"><strong>小孩:</strong> {profileData.child_name} ({profileData.child_class})</p>
                     )}
                 </div>
-                <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-yellow-600 text-white rounded">重新整理狀態</button>
+                <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 transition">重新整理狀態</button>
                 <button onClick={() => supabase.auth.signOut()} className="mt-2 text-sm text-gray-500 underline">登出</button>
             </div>
         );
     }
 
-    // 3. 正式主選單 (維持不變)
+    // 3. 正式主選單 (園長/老師/主任)
     return (
         <main className="min-h-screen bg-gray-100 p-4">
             <div className="max-w-md mx-auto">
@@ -203,11 +215,11 @@ export default function Home() {
                 </div>
 
                 {role === 'director' && (
-                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-6 flex items-center gap-4">
+                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-6 flex items-center gap-4 hover:bg-gray-700 transition">
                         <div className="text-3xl">👮‍♂️</div>
                         <div>
                             <h2 className="font-bold text-xl">人事管理中心</h2>
-                            <p className="text-gray-400 text-sm">審核新進人員</p>
+                            <p className="text-gray-400 text-sm">審核新進人員與權限</p>
                         </div>
                     </Link>
                 )}
@@ -221,6 +233,7 @@ export default function Home() {
                         <div className="bg-pink-100 p-3 rounded-full text-2xl">🎓</div>
                         <div><h2 className="font-bold text-lg">學生檔案</h2><p className="text-gray-500 text-sm">Student Profiles</p></div>
                     </Link>
+                    {/* 其他功能先隱藏，讓畫面乾淨一點，之後再打開 */}
                 </div>
             </div>
         </main>
