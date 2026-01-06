@@ -129,6 +129,9 @@ export default function Home() {
                         <p className="text-gray-600 mb-6">初次登入，請填寫基本資料。</p>
 
                         <form onSubmit={handleSubmit} className="space-y-4">
+                            {/* ... (這裡的中間欄位程式碼都一樣，不用變) ... */}
+
+                            {/* 為了節省空間，如果您懶得對照，可以直接複製下面完整的 form 內容 */}
                             <div>
                                 <label className="block text-sm font-bold text-gray-700">您的真實姓名</label>
                                 <input required type="text" placeholder="例如: 陳大文" className="w-full p-2 border rounded mt-1"
@@ -155,7 +158,6 @@ export default function Home() {
                                 </div>
                             </div>
 
-                            {/* 只有選家長才出現小孩欄位 */}
                             {formData.user_type === 'parent' && (
                                 <div className="bg-gray-50 p-4 rounded border border-gray-200 animate-fade-in">
                                     <div className="mb-3">
@@ -175,6 +177,17 @@ export default function Home() {
                                 {submitting ? '提交中...' : '確認送出'}
                             </button>
                         </form>
+
+                        {/* 👇👇👇 關鍵的新增：逃生門按鈕 👇👇👇 */}
+                        <div className="mt-6 text-center">
+                            <button
+                                onClick={() => supabase.auth.signOut()}
+                                className="text-sm text-gray-400 underline hover:text-gray-600"
+                            >
+                                取消並登出 (Sign Out)
+                            </button>
+                        </div>
+                        {/* 👆👆👆 逃生門結束 👆👆👆 */}
                     </div>
                 </div>
             );
