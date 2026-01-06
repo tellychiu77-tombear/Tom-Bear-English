@@ -38,9 +38,7 @@ export default function ContactBookPage() {
     }
 
     async function fetchMyBooks(userId: string) {
-        // 透過 View 抓取資料 (比較方便)
         const { data } = await supabase.from('contact_book_view').select('*');
-        // 因為 RLS 已經過濾過了，這裡直接拿到的就是自己的
         setMyBooks(data || []);
     }
 
