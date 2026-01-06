@@ -33,7 +33,7 @@ export default function Home() {
     async function checkUserRole(session: any) {
         setLoading(true);
 
-        // 👑 園長無敵後門 (保留這個以免又被擋)
+        // 👑 園長無敵通道 (保留著以防萬一)
         if (session.user.email === 'teacheryoyo@demo.com') {
             setRole('director');
             setLoading(false);
@@ -86,7 +86,6 @@ export default function Home() {
     return (
         <main className="min-h-screen bg-gray-100 p-4">
             <div className="max-w-md mx-auto">
-                {/* 頂部資訊欄 */}
                 <div className="bg-white p-4 rounded-lg shadow mb-6 flex justify-between items-center">
                     <div>
                         <div className="text-sm text-gray-500">歡迎回來!</div>
@@ -98,18 +97,44 @@ export default function Home() {
                     <button onClick={() => supabase.auth.signOut()} className="text-sm border px-3 py-1 rounded hover:bg-gray-50">登出</button>
                 </div>
 
-                {/* 園長專屬區塊 (只有園長看得到) */}
+                {/* 園長專屬區塊 */}
                 {role === 'director' && (
-                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-6 flex items-center gap-4 transform transition hover:scale-105">
+                    <Link href="/admin" className="block bg-gray-800 text-white p-6 rounded-xl shadow-md mb-6 flex items-center gap-4">
                         <div className="text-3xl">👮‍♂️</div>
                         <div>
                             <h2 className="font-bold text-xl">人事管理中心</h2>
-                            <p className="text-gray-400 text-sm">審核新進老師與權限管理</p>
+                            <p className="text-gray-400 text-sm">審核新進老師</p>
                         </div>
                     </Link>
                 )}
 
-                {/* 一般功能區塊 (所有人都有) */}
                 <div className="grid grid-cols-1 gap-4">
                     <Link href="/pickup" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-blue-500">
-                        <div className="bg-blue-100 p
+                        <div className="bg-blue-100 p-3 rounded-full text-2xl">🚌</div>
+                        <div><h2 className="font-bold text-lg">接送管理</h2><p className="text-gray-500 text-sm">Pickup System</p></div>
+                    </Link>
+
+                    <Link href="/chat" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-green-500">
+                        <div className="bg-green-100 p-3 rounded-full text-2xl">💬</div>
+                        <div><h2 className="font-bold text-lg">親師對話</h2><p className="text-gray-500 text-sm">Chat Room</p></div>
+                    </Link>
+
+                    <Link href="/contact" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-orange-500">
+                        <div className="bg-orange-100 p-3 rounded-full text-2xl">📝</div>
+                        <div><h2 className="font-bold text-lg">電子聯絡簿</h2><p className="text-gray-500 text-sm">Contact Book</p></div>
+                    </Link>
+
+                    <Link href="/grades" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-purple-500">
+                        <div className="bg-purple-100 p-3 rounded-full text-2xl">📊</div>
+                        <div><h2 className="font-bold text-lg">成績管理</h2><p className="text-gray-500 text-sm">Grades & Exams</p></div>
+                    </Link>
+
+                    <Link href="/students" className="bg-white p-6 rounded-xl shadow-sm hover:shadow-md transition flex items-center gap-4 border-l-4 border-pink-500">
+                        <div className="bg-pink-100 p-3 rounded-full text-2xl">🎓</div>
+                        <div><h2 className="font-bold text-lg">學生檔案</h2><p className="text-gray-500 text-sm">Student Profiles</p></div>
+                    </Link>
+                </div>
+            </div>
+        </main>
+    );
+}
