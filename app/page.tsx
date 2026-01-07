@@ -24,13 +24,9 @@ export default function Home() {
         const { data: profile } = await supabase.from('profiles').select('role, full_name, email').eq('id', session.user.id).single();
 
         if (profile) {
-            // 🟢 修正邏輯：判斷是否真的「完成」了申請
-            // 我們在 Onboarding 頁面送出時，會在名字後面加上 "(申請家長)" 或 "(申請老師)"
-            // 如果名字裡沒有這個標記，代表他雖然是 pending，但還沒填寫資料 -> 踢去填資料
+            // 檢查是否已完成註冊申請 (名字有無備註)
             const isApplicationSubmitted = profile.full_name && (profile.full_name.includes('申請') || profile.full_name.includes('家長') || profile.full_name.includes('老師'));
 
-            // 1. 如果完全沒身分 (null) -> 去註冊
-            // 2. 如果是 pending 但還沒填過表單 (名字沒變) -> 去註冊
             if (!profile.role || (profile.role === 'pending' && !isApplicationSubmitted)) {
                 router.push('/onboarding');
                 return;
@@ -49,26 +45,18 @@ export default function Home() {
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
-    // ⏳ 審核中畫面 (只有當真的送出申請後才會顯示)
+    // ⏳ 審核中畫面
     if (role === 'pending') {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
                 <div className="bg-white p-8 rounded-xl shadow-lg max-w-md text-center animate-fade-in">
                     <div className="text-6xl mb-4">⏳</div>
                     <h1 className="text-2xl font-bold text-gray-800 mb-2">帳號審核中</h1>
-                    <p className="text-gray-500 mb-6">
-                        您的註冊申請已送出，請耐心等待行政人員開通權限。<br />
-                        如果您急需使用，請聯繫櫃檯。
-                    </p>
+                    <p className="text-gray-500 mb-6">您的註冊申請已送出，請耐心等待行政人員開通權限。<br />如果您急需使用，請聯繫櫃檯。</p>
                     <div className="text-sm bg-gray-100 p-3 rounded text-gray-600 border border-gray-200">
                         申請人：<span className="font-bold text-blue-600">{userName}</span>
                     </div>
-                    <button
-                        onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
-                        className="mt-6 text-red-500 underline text-sm hover:text-red-700"
-                    >
-                        登出
-                    </button>
+                    <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="mt-6 text-red-500 underline text-sm hover:text-red-700">登出</button>
                 </div>
             </div>
         );
@@ -76,7 +64,6 @@ export default function Home() {
 
     return (
         <div className="min-h-screen bg-gray-100 font-sans">
-            {/* 頂部歡迎區 */}
             <div className="bg-white p-6 shadow-sm border-b">
                 <div className="max-w-md mx-auto flex justify-between items-center">
                     <div>
@@ -85,17 +72,11 @@ export default function Home() {
                             {role === 'director' || role === 'manager' ? '校務戰情中心' : role === 'teacher' ? '教學管理後台' : '家長專區'}
                         </p>
                     </div>
-                    <button
-                        onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }}
-                        className="text-sm text-red-500 border border-red-200 px-3 py-1 rounded hover:bg-red-50"
-                    >
-                        登出
-                    </button>
+                    <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="text-sm text-red-500 border border-red-200 px-3 py-1 rounded hover:bg-red-50">登出</button>
                 </div>
             </div>
 
             <div className="max-w-md mx-auto p-4 space-y-6">
-                {/* 戰情數據卡 (僅教職員) */}
                 {role !== 'parent' && (
                     <div className="grid grid-cols-3 gap-3">
                         <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-blue-500 text-center">
@@ -119,7 +100,6 @@ export default function Home() {
                     </div>
                 )}
 
-                {/* 快速入口 */}
                 <div className="space-y-3">
                     <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider ml-1">快速入口</h2>
                     <Link href="/pickup" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-yellow-300">
@@ -130,10 +110,13 @@ export default function Home() {
                         <div className="bg-green-100 p-3 rounded-full text-2xl">💬</div>
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">親師對話</div></div>
                     </Link>
-                    <Link href="/contact-book" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300">
+
+                    {/* 🟢 修正：這裡把 href 改成 /contact 以符合您的資料夾名稱 */}
+                    <Link href="/contact" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300">
                         <div className="bg-orange-100 p-3 rounded-full text-2xl">📝</div>
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">電子聯絡簿</div></div>
                     </Link>
+
                     <Link href="/grades" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-purple-300">
                         <div className="bg-purple-100 p-3 rounded-full text-2xl">📊</div>
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">成績管理</div></div>
