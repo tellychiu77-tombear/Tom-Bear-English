@@ -113,3 +113,13 @@ join students s on lr.student_id = s.id;
 alter publication supabase_realtime add table leave_requests;
 alter table leave_requests enable row level security;
 create policy "Enable all access for now" on leave_requests for all using (true) with check (true);
+
+-- 14. RPC to get profile ID by email (Secure helper)
+create or replace function get_profile_id_by_email(user_email text)
+returns uuid
+language sql
+security definer
+as $$
+  select id from auth.users where email = user_email limit 1;
+$$;
+
