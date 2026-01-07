@@ -24,7 +24,6 @@ export default function Home() {
         const { data: profile } = await supabase.from('profiles').select('role, full_name, email').eq('id', session.user.id).single();
 
         if (profile) {
-            // 檢查是否已完成註冊申請 (名字有無備註)
             const isApplicationSubmitted = profile.full_name && (profile.full_name.includes('申請') || profile.full_name.includes('家長') || profile.full_name.includes('老師'));
 
             if (!profile.role || (profile.role === 'pending' && !isApplicationSubmitted)) {
@@ -45,7 +44,6 @@ export default function Home() {
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
-    // ⏳ 審核中畫面
     if (role === 'pending') {
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
@@ -111,7 +109,7 @@ export default function Home() {
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">親師對話</div></div>
                     </Link>
 
-                    {/* 🟢 修正：這裡把 href 改成 /contact 以符合您的資料夾名稱 */}
+                    {/* 🟢 修正：統一改回 /contact-book */}
                     <Link href="/contact-book" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300">
                         <div className="bg-orange-100 p-3 rounded-full text-2xl">📝</div>
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">電子聯絡簿</div></div>
