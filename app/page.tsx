@@ -5,12 +5,14 @@ import { supabase } from '@/lib/supabaseClient';
 import { Auth } from '@supabase/auth-ui-react';
 import { ThemeSupa } from '@supabase/auth-ui-shared';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function Home() {
     const [session, setSession] = useState<any>(null);
     const [role, setRole] = useState<string | null>(null);
     const [profileData, setProfileData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const router = useRouter();
 
     // 📝 表單資料
     const [formData, setFormData] = useState({
@@ -40,9 +42,20 @@ export default function Home() {
             setRole('director'); setLoading(false); return;
         }
         try {
-            const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-            if (data) { setRole(data.role || 'pending'); setProfileData(data); }
-            else { setRole('pending'); }
+            // Updated to use 'users' table and 'name'
+            const { data } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+            if (data) {
+                setRole(data.role || 'pending');
+                setProfileData(data);
+
+                // Redirect if name is missing (Onboarding needed)
+                if (!data.name) {
+                    router.push('/onboarding');
+                }
+            } else {
+                setRole('pending');
+                router.push('/onboarding'); // No profile found -> Onboarding
+            }
         } catch { setRole('pending'); }
         finally { setLoading(false); }
     }
@@ -77,41 +90,23 @@ export default function Home() {
 
     // 2. 待審核 / 資料補全流程
     if (role === 'pending') {
-        if (!profileData?.full_name) {
+        // Build robust check: if no profile data or no name, we count as onboarding needed.
+        if (!profileData || !profileData.name) {
             return (
-                <div className="min-h-screen bg-blue-50 py-10 px-4">
-                    <div className="max-w-md mx-auto bg-white p-8 rounded-xl shadow-lg">
-                        <h1 className="text-2xl font-bold text-blue-900 mb-2">👋 歡迎加入！</h1>
-                        <p className="text-gray-600 mb-6">初次登入，請填寫基本資料。</p>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div><label className="block text-sm font-bold text-gray-700">真實姓名</label><input required type="text" className="w-full p-2 border rounded mt-1" value={formData.full_name} onChange={e => setFormData({ ...formData, full_name: e.target.value })} /></div>
-                            <div><label className="block text-sm font-bold text-gray-700">手機號碼</label><input required type="text" className="w-full p-2 border rounded mt-1" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} /></div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700">申請身分</label>
-                                <div className="flex gap-4 mt-1">
-                                    <label className="flex items-center gap-2"><input type="radio" name="type" value="parent" checked={formData.user_type === 'parent'} onChange={() => setFormData({ ...formData, user_type: 'parent' })} /> 家長</label>
-                                    <label className="flex items-center gap-2"><input type="radio" name="type" value="teacher" checked={formData.user_type === 'teacher'} onChange={() => setFormData({ ...formData, user_type: 'teacher' })} /> 老師</label>
-                                </div>
-                            </div>
-                            {formData.user_type === 'parent' && (
-                                <div className="bg-gray-50 p-4 rounded border"><div className="mb-3"><label className="block text-sm font-bold text-gray-700">小孩姓名</label><input required type="text" className="w-full p-2 border rounded mt-1" value={formData.child_name} onChange={e => setFormData({ ...formData, child_name: e.target.value })} /></div><div><label className="block text-sm font-bold text-gray-700">小孩班級</label><input required type="text" className="w-full p-2 border rounded mt-1" value={formData.child_class} onChange={e => setFormData({ ...formData, child_class: e.target.value })} /></div></div>
-                            )}
-                            <button disabled={submitting} type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">送出</button>
-                        </form>
-                        <div className="mt-6 text-center"><button onClick={() => supabase.auth.signOut()} className="text-sm text-gray-400 underline">取消並登出</button></div>
-                    </div>
+                <div className="min-h-screen flex items-center justify-center bg-gray-50">
+                    <div className="text-xl text-gray-500">Redirecting to Onboarding...</div>
                 </div>
             );
         }
+
+        // If has name but still pending:
         return (
             <div className="min-h-screen flex flex-col items-center justify-center bg-yellow-50 p-6 text-center">
                 <div className="text-6xl mb-4">⏳</div>
                 <h1 className="text-2xl font-bold text-yellow-800">資料已送出，審核中</h1>
                 <div className="bg-white p-6 rounded shadow-sm mt-4 text-left w-full max-w-sm">
-                    <p><strong>姓名:</strong> {profileData.full_name}</p>
-                    <p><strong>電話:</strong> {profileData.phone}</p>
-                    <p><strong>身分:</strong> {profileData.user_type === 'parent' ? '家長' : '老師'}</p>
-                    {profileData.user_type === 'parent' && <p><strong>小孩:</strong> {profileData.child_name}</p>}
+                    <p><strong>姓名:</strong> {profileData.name}</p>
+                    <p><strong>身分:</strong> {profileData.role === 'parent' ? '家長' : profileData.role === 'teacher' ? '老師' : '待定'}</p>
                 </div>
                 <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-yellow-600 text-white rounded">重新整理</button>
                 <button onClick={() => supabase.auth.signOut()} className="mt-2 text-sm text-gray-500 underline">登出</button>
