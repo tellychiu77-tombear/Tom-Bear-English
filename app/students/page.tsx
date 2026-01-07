@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-// 自動產生 CEI-A 到 CEI-Z 的選項陣列
+// 自動產生 CEI-A 到 CEI-Z 的選項
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
 
 export default function StudentManagement() {
@@ -20,8 +20,8 @@ export default function StudentManagement() {
     const [form, setForm] = useState({
         chinese_name: '',
         english_name: '',
-        english_grade: '', // 🟢 改名：專門存英文班級 (CEI-X)
-        is_after_school: false, // 🟢 新增：是否有參加課後輔導
+        english_grade: '', // 🟢 改成空字串，代表預設「無」
+        is_after_school: false,
         school: '',
         notes: '',
         parent_email: ''
@@ -62,11 +62,11 @@ export default function StudentManagement() {
     }
 
     function handleAddNew() {
-        // 初始化表單
+        // 初始化：預設英文班為空 (無)，課輔班為空
         setForm({
             chinese_name: '',
             english_name: '',
-            english_grade: 'CEI-A', // 預設選 A 班
+            english_grade: '', // 預設不參加英文班
             is_after_school: false,
             school: '',
             notes: '',
@@ -77,16 +77,16 @@ export default function StudentManagement() {
     }
 
     function handleEdit(student: any) {
-        // 🟢 解析班級資料：資料庫存的是 "CEI-A, 課後輔導班" 字串，我們要把它拆開
+        // 🟢 解析班級字串
         const fullGrade = student.grade || '';
         const hasCare = fullGrade.includes('課後輔導班');
-        // 把 "課後輔導班" 拿掉，剩下的就是英文班級 (如果不乾淨再 trim 一下)
+
+        // 把 "課後輔導班" 拿掉，剩下的就是英文班級
         let engClass = fullGrade.replace('課後輔導班', '').replace(',', '').trim();
 
-        // 如果原本是空的或格式不對，預設給 CEI-A
+        // 如果剩下的字串不在標準英文班級列表內 (例如是空的，或是其他怪怪的字)，就視為「無」
         if (!ENGLISH_CLASSES.includes(engClass)) {
-            // 嘗試模糊比對或直接預設，這裡簡單處理，若沒對到就保持原樣(顯示在選單外)或是預設
-            if (!engClass) engClass = 'CEI-A';
+            engClass = '';
         }
 
         setForm({
@@ -126,16 +126,22 @@ export default function StudentManagement() {
             }
         }
 
-        // 🟢 組合班級字串： "CEI-A" + ", 課後輔導班"
-        let finalGrade = form.english_grade;
-        if (form.is_after_school) {
-            finalGrade += ', 課後輔導班';
+        // 🟢 智慧組合班級字串
+        const parts = [];
+        if (form.english_grade) {
+            parts.push(form.english_grade); // 加入英文班 (如果有的話)
         }
+        if (form.is_after_school) {
+            parts.push('課後輔導班'); // 加入課輔班 (如果有的話)
+        }
+
+        // 如果兩個都沒選，就會變成空字串 (或者您可以給個預設值 '未分班')
+        const finalGrade = parts.join(', ') || '未分班';
 
         const payload = {
             chinese_name: form.chinese_name,
             english_name: form.english_name,
-            grade: finalGrade, // 存入組合好的字串
+            grade: finalGrade,
             school: form.school,
             notes: form.notes,
             ...(parentId && { parent_id: parentId })
@@ -189,14 +195,19 @@ export default function StudentManagement() {
                                         <td className="p-3">
                                             <div className="flex flex-col gap-1 items-start">
                                                 {/* 顯示班級標籤：如果有課後輔導，顯示兩個標籤 */}
-                                                {s.grade && s.grade.split(',').map((g: string, i: number) => (
-                                                    <span key={i} className={`px-2 py-0.5 rounded text-xs font-bold w-fit mb-1 ${g.trim() === '課後輔導班'
-                                                            ? 'bg-orange-100 text-orange-800'
-                                                            : 'bg-blue-100 text-blue-800'
-                                                        }`}>
-                                                        {g.trim()}
-                                                    </span>
-                                                ))}
+                                                {s.grade && s.grade.split(',').map((g: string, i: number) => {
+                                                    const cleanG = g.trim();
+                                                    if (!cleanG || cleanG === '未分班') return <span key={i} className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">未分班</span>;
+
+                                                    return (
+                                                        <span key={i} className={`px-2 py-0.5 rounded text-xs font-bold w-fit mb-1 ${cleanG === '課後輔導班'
+                                                                ? 'bg-orange-100 text-orange-800'
+                                                                : 'bg-blue-100 text-blue-800'
+                                                            }`}>
+                                                            {cleanG}
+                                                        </span>
+                                                    );
+                                                })}
                                                 <span className="text-xs text-gray-400 mt-1">{s.school || '-'}</span>
                                             </div>
                                         </td>
@@ -253,7 +264,7 @@ export default function StudentManagement() {
                         <div className="space-y-4">
                             <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🏫 班級設定</h3>
 
-                            {/* 1. 英文主修班級 (下拉選單) */}
+                            {/* 1. 英文主修班級 (下拉選單 - 增加「無」選項) */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">英文主修班級</label>
                                 <select
@@ -261,6 +272,7 @@ export default function StudentManagement() {
                                     value={form.english_grade}
                                     onChange={e => setForm({ ...form, english_grade: e.target.value })}
                                 >
+                                    <option value="">(無) 僅參加安親 / 不參加英文</option>
                                     {ENGLISH_CLASSES.map(cls => (
                                         <option key={cls} value={cls}>{cls}</option>
                                     ))}
@@ -268,12 +280,19 @@ export default function StudentManagement() {
                             </div>
 
                             {/* 2. 課後輔導 (勾選框) */}
-                            <div className="flex items-center gap-3 p-3 border rounded bg-orange-50 cursor-pointer" onClick={() => setForm({ ...form, is_after_school: !form.is_after_school })}>
+                            <div className="flex items-center gap-3 p-3 border rounded bg-orange-50 cursor-pointer hover:bg-orange-100 transition" onClick={() => setForm({ ...form, is_after_school: !form.is_after_school })}>
                                 <div className={`w-5 h-5 border-2 rounded flex items-center justify-center transition ${form.is_after_school ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
                                     {form.is_after_school && <span className="text-white text-xs">✓</span>}
                                 </div>
-                                <label className="text-sm font-bold text-gray-700 cursor-pointer select-none">同時參加「課後輔導班」</label>
+                                <label className="text-sm font-bold text-gray-700 cursor-pointer select-none flex-1">
+                                    參加「課後輔導班」 (安親班)
+                                </label>
                             </div>
+                            {form.english_grade === '' && form.is_after_school && (
+                                <div className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                                    💡 目前設定：該學生 **只參加課後輔導** (無英文班級)
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1 mt-2">就讀國小</label>
