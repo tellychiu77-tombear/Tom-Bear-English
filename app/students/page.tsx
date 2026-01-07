@@ -20,11 +20,11 @@ export default function StudentManagement() {
     const [form, setForm] = useState({
         chinese_name: '',
         english_name: '',
-        english_grade: '', // 🟢 改成空字串，代表預設「無」
+        english_grade: '', // 預設無
         is_after_school: false,
         school: '',
         notes: '',
-        parent_email: ''
+        parent_email: '' // 這裡可能是綁定的帳號 Email，也可能是老師預填的 Email
     });
 
     const router = useRouter();
@@ -51,6 +51,7 @@ export default function StudentManagement() {
 
     async function fetchStudents() {
         setLoading(true);
+        // 抓取 parent_email (預約的) 和 parent (已綁定的)
         const { data } = await supabase
             .from('students')
             .select(`*, parent:profiles(email)`)
@@ -62,11 +63,10 @@ export default function StudentManagement() {
     }
 
     function handleAddNew() {
-        // 初始化：預設英文班為空 (無)，課輔班為空
         setForm({
             chinese_name: '',
             english_name: '',
-            english_grade: '', // 預設不參加英文班
+            english_grade: '',
             is_after_school: false,
             school: '',
             notes: '',
@@ -77,17 +77,16 @@ export default function StudentManagement() {
     }
 
     function handleEdit(student: any) {
-        // 🟢 解析班級字串
+        // 解析班級字串
         const fullGrade = student.grade || '';
         const hasCare = fullGrade.includes('課後輔導班');
-
-        // 把 "課後輔導班" 拿掉，剩下的就是英文班級
         let engClass = fullGrade.replace('課後輔導班', '').replace(',', '').trim();
-
-        // 如果剩下的字串不在標準英文班級列表內 (例如是空的，或是其他怪怪的字)，就視為「無」
         if (!ENGLISH_CLASSES.includes(engClass)) {
             engClass = '';
         }
+
+        // 優先顯示「已綁定帳號」的 Email，如果沒有就顯示「預約」的 Email
+        const displayEmail = student.parent?.email || student.parent_email || '';
 
         setForm({
             chinese_name: student.chinese_name,
@@ -96,7 +95,7 @@ export default function StudentManagement() {
             is_after_school: hasCare,
             school: student.school || '',
             notes: student.notes || '',
-            parent_email: student.parent?.email || ''
+            parent_email: displayEmail
         });
         setIsEditing(true);
         setCurrentId(student.id);
@@ -117,25 +116,22 @@ export default function StudentManagement() {
         e.preventDefault();
 
         let parentId = null;
-        if (form.parent_email) {
-            const { data: parentData } = await supabase.from('profiles').select('id').eq('email', form.parent_email).single();
+        let targetEmail = form.parent_email.trim();
+
+        // 1. 檢查這個 Email 是否已經註冊過
+        if (targetEmail) {
+            const { data: parentData } = await supabase.from('profiles').select('id').eq('email', targetEmail).single();
+
             if (parentData) {
-                parentId = parentData.id;
-            } else {
-                alert('注意：找不到此 Email 的家長帳號。資料將先存檔，家長欄位將保持空白。');
+                parentId = parentData.id; // 🎉 家長已註冊，直接綁定 ID
             }
+            // 若沒找到，parentId 維持 null，但我們會把 email 存到 parent_email 欄位
         }
 
-        // 🟢 智慧組合班級字串
+        // 組合班級
         const parts = [];
-        if (form.english_grade) {
-            parts.push(form.english_grade); // 加入英文班 (如果有的話)
-        }
-        if (form.is_after_school) {
-            parts.push('課後輔導班'); // 加入課輔班 (如果有的話)
-        }
-
-        // 如果兩個都沒選，就會變成空字串 (或者您可以給個預設值 '未分班')
+        if (form.english_grade) parts.push(form.english_grade);
+        if (form.is_after_school) parts.push('課後輔導班');
         const finalGrade = parts.join(', ') || '未分班';
 
         const payload = {
@@ -144,7 +140,8 @@ export default function StudentManagement() {
             grade: finalGrade,
             school: form.school,
             notes: form.notes,
-            ...(parentId && { parent_id: parentId })
+            parent_email: targetEmail, // 🟢 不管有沒有註冊，都先把 Email 存下來！
+            parent_id: parentId        // 有註冊存 ID，沒註冊存 null
         };
 
         if (currentId) {
@@ -194,15 +191,11 @@ export default function StudentManagement() {
                                     <tr key={s.id} className="border-b hover:bg-blue-50 transition cursor-pointer" onClick={() => handleEdit(s)}>
                                         <td className="p-3">
                                             <div className="flex flex-col gap-1 items-start">
-                                                {/* 顯示班級標籤：如果有課後輔導，顯示兩個標籤 */}
                                                 {s.grade && s.grade.split(',').map((g: string, i: number) => {
                                                     const cleanG = g.trim();
                                                     if (!cleanG || cleanG === '未分班') return <span key={i} className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded">未分班</span>;
-
                                                     return (
-                                                        <span key={i} className={`px-2 py-0.5 rounded text-xs font-bold w-fit mb-1 ${cleanG === '課後輔導班'
-                                                                ? 'bg-orange-100 text-orange-800'
-                                                                : 'bg-blue-100 text-blue-800'
+                                                        <span key={i} className={`px-2 py-0.5 rounded text-xs font-bold w-fit mb-1 ${cleanG === '課後輔導班' ? 'bg-orange-100 text-orange-800' : 'bg-blue-100 text-blue-800'
                                                             }`}>
                                                             {cleanG}
                                                         </span>
@@ -214,6 +207,16 @@ export default function StudentManagement() {
                                         <td className="p-3">
                                             <div className="font-bold text-gray-800">{s.chinese_name}</div>
                                             <div className="text-xs text-gray-400">{s.english_name}</div>
+                                            {/* 顯示家長連結狀態 */}
+                                            <div className="mt-1">
+                                                {s.parent?.email ? (
+                                                    <span className="text-[10px] bg-green-100 text-green-700 px-1 py-0.5 rounded">已連結: {s.parent.email}</span>
+                                                ) : s.parent_email ? (
+                                                    <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1 py-0.5 rounded">預約中: {s.parent_email}</span>
+                                                ) : (
+                                                    <span className="text-[10px] text-gray-300">未設定家長</span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="p-3 max-w-[200px]">
                                             <div className="truncate text-xs text-gray-500" title={s.notes}>{s.notes}</div>
@@ -228,7 +231,7 @@ export default function StudentManagement() {
                     </div>
                 </div>
 
-                {/* ============ 右側：編輯抽屜 ============ */}
+                {/* 右側：編輯抽屜 */}
                 {isEditing && (
                     <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setIsEditing(false)}></div>
                 )}
@@ -243,7 +246,6 @@ export default function StudentManagement() {
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-                        {/* 基本資料 */}
                         <div className="space-y-4">
                             <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">👤 基本資料</h3>
                             <div className="grid grid-cols-2 gap-4">
@@ -260,11 +262,8 @@ export default function StudentManagement() {
                             </div>
                         </div>
 
-                        {/* 🟢 學籍資料 (重點修改區) */}
                         <div className="space-y-4">
                             <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🏫 班級設定</h3>
-
-                            {/* 1. 英文主修班級 (下拉選單 - 增加「無」選項) */}
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">英文主修班級</label>
                                 <select
@@ -278,8 +277,6 @@ export default function StudentManagement() {
                                     ))}
                                 </select>
                             </div>
-
-                            {/* 2. 課後輔導 (勾選框) */}
                             <div className="flex items-center gap-3 p-3 border rounded bg-orange-50 cursor-pointer hover:bg-orange-100 transition" onClick={() => setForm({ ...form, is_after_school: !form.is_after_school })}>
                                 <div className={`w-5 h-5 border-2 rounded flex items-center justify-center transition ${form.is_after_school ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
                                     {form.is_after_school && <span className="text-white text-xs">✓</span>}
@@ -288,12 +285,6 @@ export default function StudentManagement() {
                                     參加「課後輔導班」 (安親班)
                                 </label>
                             </div>
-                            {form.english_grade === '' && form.is_after_school && (
-                                <div className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
-                                    💡 目前設定：該學生 **只參加課後輔導** (無英文班級)
-                                </div>
-                            )}
-
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1 mt-2">就讀國小</label>
                                 <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="例: 東門國小"
@@ -301,18 +292,16 @@ export default function StudentManagement() {
                             </div>
                         </div>
 
-                        {/* 家長綁定 */}
                         <div className="space-y-4">
                             <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🔗 家長連結</h3>
                             <div>
                                 <label className="block text-xs font-bold text-gray-700 mb-1">家長 Email</label>
                                 <input type="email" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="parent@demo.com"
                                     value={form.parent_email} onChange={e => setForm({ ...form, parent_email: e.target.value })} />
-                                <p className="text-[10px] text-gray-400 mt-1">* 系統會自動搜尋並連結已註冊的家長帳號</p>
+                                <p className="text-[10px] text-gray-400 mt-1">* 若家長尚未註冊，請輸入其 Email，待家長註冊後系統將自動連結。</p>
                             </div>
                         </div>
 
-                        {/* 狀況備註 */}
                         <div className="space-y-4">
                             <h3 className="text-sm font-bold text-yellow-800 border-b border-yellow-200 pb-2 bg-yellow-50 px-2 rounded-t">📋 學生狀況 (僅老師可見)</h3>
                             <textarea
