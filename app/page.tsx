@@ -112,7 +112,7 @@ export default function Home() {
                     </Link>
 
                     {/* 🟢 修正：這裡把 href 改成 /contact 以符合您的資料夾名稱 */}
-                    <Link href="/contact" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300">
+                    <Link href="/contact-book" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300">
                         <div className="bg-orange-100 p-3 rounded-full text-2xl">📝</div>
                         <div className="flex-1"><div className="font-bold text-gray-800 text-lg">電子聯絡簿</div></div>
                     </Link>
