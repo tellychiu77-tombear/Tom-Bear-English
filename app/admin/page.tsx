@@ -4,29 +4,30 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-// 產生班級選項
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
 
 export default function AdminPage() {
-    const [myRole, setMyRole] = useState<string>(''); // 我是誰
+    const [myRole, setMyRole] = useState<string>('');
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     // 編輯視窗狀態
     const [isEditing, setIsEditing] = useState(false);
     const [editingUser, setEditingUser] = useState<any>(null);
+    const [userChildren, setUserChildren] = useState<any[]>([]); // 🟢 該家長名下的小孩列表
 
     // 表單資料
     const [form, setForm] = useState({
         role: 'parent',
         full_name: '',
 
-        // 老師專用 (多選班級)
+        // 老師專用
         assigned_classes: [] as string[],
 
-        // 家長專用
+        // 家長專用 (新增小孩)
         child_name: '',
-        child_grade: 'CEI-A'
+        child_english_grade: '', // 英文班
+        child_is_after_school: false, // 課輔班
     });
 
     const router = useRouter();
@@ -59,8 +60,7 @@ export default function AdminPage() {
         setLoading(false);
     }
 
-    function handleEdit(user: any) {
-        // 🛡️ 權限防呆：行政人員 (admin) 不能編輯 主任 (director/manager)
+    async function handleEdit(user: any) {
         if (myRole === 'admin' && ['director', 'manager'].includes(user.role)) {
             alert('權限不足：行政人員無法編輯主任資料');
             return;
@@ -68,23 +68,33 @@ export default function AdminPage() {
 
         setEditingUser(user);
 
-        // 解析老師的班級 (將字串 "CEI-A, CEI-B" 轉為陣列)
+        // 解析老師班級
         let currentClasses: string[] = [];
         if (user.assigned_class) {
             currentClasses = user.assigned_class.split(',').map((c: string) => c.trim());
         }
 
+        // 🟢 如果是家長，抓取他目前的小孩
+        let children: any[] = [];
+        if (user.role === 'parent') {
+            const { data } = await supabase.from('students').select('*').eq('parent_id', user.id);
+            children = data || [];
+        }
+        setUserChildren(children);
+
         setForm({
             role: user.role || 'parent',
             full_name: user.full_name || '',
             assigned_classes: currentClasses,
+
+            // 重置小孩表單
             child_name: '',
-            child_grade: 'CEI-A'
+            child_english_grade: 'CEI-A',
+            child_is_after_school: false,
         });
         setIsEditing(true);
     }
 
-    // 處理老師班級勾選
     function toggleClass(className: string) {
         setForm(prev => {
             const exists = prev.assigned_classes.includes(className);
@@ -99,47 +109,50 @@ export default function AdminPage() {
     async function handleSave() {
         if (!editingUser) return;
 
+        // 1. 更新使用者身分
         const updates: any = {
             role: form.role,
             full_name: form.full_name,
         };
 
-        // 如果是老師，儲存班級字串 (逗號分隔)
         if (form.role === 'teacher') {
             updates.assigned_class = form.assigned_classes.join(', ');
         }
 
         const { error } = await supabase.from('profiles').update(updates).eq('id', editingUser.id);
+        if (error) { alert('更新失敗: ' + error.message); return; }
 
-        if (error) {
-            alert('更新失敗: ' + error.message);
-            return;
-        }
-
-        // 家長快速建檔邏輯 (維持不變)
+        // 2. 如果有填寫「新增小孩」欄位，則建立學生
         if (form.role === 'parent' && form.child_name) {
-            await supabase.from('students').insert({
+            // 組合班級字串
+            const parts = [];
+            if (form.child_english_grade) parts.push(form.child_english_grade);
+            if (form.child_is_after_school) parts.push('課後輔導班');
+            const finalGrade = parts.join(', ') || '未分班';
+
+            const { error: childError } = await supabase.from('students').insert({
                 parent_id: editingUser.id,
                 chinese_name: form.child_name,
-                grade: form.child_grade
+                grade: finalGrade
             });
-            alert(`已將 ${form.full_name} 設為家長並綁定學生 ${form.child_name}。`);
+
+            if (childError) alert('小孩建立失敗: ' + childError.message);
+            else alert(`成功！已更新 ${form.full_name} 資料，並新增小孩：${form.child_name}`);
         } else {
-            alert('權限與資料更新成功！');
+            alert('資料更新成功！');
         }
 
         setIsEditing(false);
         fetchUsers();
     }
 
-    // 顯示權限說明文字
     function getRoleDescription(role: string) {
         switch (role) {
-            case 'parent': return '只能查看自己小孩的成績、聯絡簿，並使用請假與接送功能。無法接觸其他資料。';
-            case 'teacher': return '可管理「負責班級」的學生、發送聯絡簿、登記成績、審核假單。';
-            case 'admin': return '可進入「人事中心」設定家長與老師，管理所有學生檔案。❌ 無法設定主任權限，❌ 無法刪除帳號。';
+            case 'parent': return '家長帳號。一個帳號可綁定多位子女 (請在下方設定)。';
+            case 'teacher': return '老師帳號。可勾選多個負責班級。';
+            case 'admin': return '行政帳號。可管理家長與老師，無法管理主任。';
             case 'manager':
-            case 'director': return '👑 最高權限。可管理所有帳號、刪除資料、設定行政人員。';
+            case 'director': return '👑 主任帳號。擁有最高管理權限。';
             default: return '';
         }
     }
@@ -163,7 +176,7 @@ export default function AdminPage() {
                         <thead className="bg-gray-100 border-b">
                             <tr>
                                 <th className="p-4 text-sm font-bold text-gray-600">使用者</th>
-                                <th className="p-4 text-sm font-bold text-gray-600">目前身分</th>
+                                <th className="p-4 text-sm font-bold text-gray-600">身分</th>
                                 <th className="p-4 text-sm font-bold text-gray-600">負責範圍 / 備註</th>
                                 <th className="p-4 text-sm font-bold text-gray-600 text-right">操作</th>
                             </tr>
@@ -180,9 +193,7 @@ export default function AdminPage() {
                                                 u.role === 'admin' ? 'bg-blue-100 text-blue-800' :
                                                     u.role === 'teacher' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
                                             }`}>
-                                            {u.role === 'director' || u.role === 'manager' ? '👑 主任' :
-                                                u.role === 'admin' ? '🛡️ 行政' :
-                                                    u.role === 'teacher' ? '👩‍🏫 老師' : '🏠 家長'}
+                                            {u.role === 'director' ? '👑 主任' : u.role === 'admin' ? '🛡️ 行政' : u.role === 'teacher' ? '👩‍🏫 老師' : '🏠 家長'}
                                         </span>
                                     </td>
                                     <td className="p-4 text-sm text-gray-600">
@@ -195,11 +206,8 @@ export default function AdminPage() {
                                         )}
                                     </td>
                                     <td className="p-4 text-right">
-                                        {/* 權限控制：行政不能動主任 */}
                                         {!(myRole === 'admin' && ['director', 'manager'].includes(u.role)) && (
-                                            <button onClick={() => handleEdit(u)} className="text-blue-600 hover:text-blue-800 font-bold text-sm">
-                                                ⚙️ 設定
-                                            </button>
+                                            <button onClick={() => handleEdit(u)} className="text-blue-600 hover:text-blue-800 font-bold text-sm">⚙️ 設定</button>
                                         )}
                                     </td>
                                 </tr>
@@ -208,7 +216,7 @@ export default function AdminPage() {
                     </table>
                 </div>
 
-                {/* ============ 權限編輯視窗 ============ */}
+                {/* ============ 編輯視窗 ============ */}
                 {isEditing && editingUser && (
                     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
                         <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden animate-fade-in flex flex-col max-h-[90vh]">
@@ -219,86 +227,96 @@ export default function AdminPage() {
 
                             <div className="p-6 space-y-5 overflow-y-auto flex-1">
 
-                                {/* 1. 姓名設定 */}
+                                {/* 1. 姓名 */}
                                 <div>
                                     <label className="block text-sm font-bold text-gray-700 mb-1">使用者姓名</label>
                                     <input type="text" className="w-full p-2 border rounded" value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} placeholder="例: 王大明" />
                                 </div>
 
-                                {/* 2. 身分選擇 (附帶權限說明) */}
+                                {/* 2. 身分選擇 */}
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">賦予身分與權限</label>
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                                        <button onClick={() => setForm({ ...form, role: 'parent' })} className={`p-2 rounded border text-sm font-bold transition ${form.role === 'parent' ? 'bg-orange-100 border-orange-500 text-orange-800 ring-2 ring-orange-200' : 'hover:bg-gray-50'}`}>🏠 家長</button>
-                                        <button onClick={() => setForm({ ...form, role: 'teacher' })} className={`p-2 rounded border text-sm font-bold transition ${form.role === 'teacher' ? 'bg-green-100 border-green-500 text-green-800 ring-2 ring-green-200' : 'hover:bg-gray-50'}`}>👩‍🏫 老師</button>
-
-                                        {/* 只有主任能指派行政或主任 */}
-                                        {['director', 'manager'].includes(myRole) && (
-                                            <>
-                                                <button onClick={() => setForm({ ...form, role: 'admin' })} className={`p-2 rounded border text-sm font-bold transition ${form.role === 'admin' ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2 ring-blue-200' : 'hover:bg-gray-50'}`}>🛡️ 行政</button>
-                                                <button onClick={() => setForm({ ...form, role: 'manager' })} className={`p-2 rounded border text-sm font-bold transition ${form.role === 'manager' ? 'bg-purple-100 border-purple-500 text-purple-800 ring-2 ring-purple-200' : 'hover:bg-gray-50'}`}>👑 主任</button>
-                                            </>
-                                        )}
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">身分與權限</label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {['parent', 'teacher', 'admin', 'manager'].map(r => {
+                                            if (['admin', 'manager'].includes(r) && !['director', 'manager'].includes(myRole)) return null;
+                                            return (
+                                                <button key={r} onClick={() => setForm({ ...form, role: r })}
+                                                    className={`p-2 rounded border text-sm font-bold capitalize ${form.role === r ? 'bg-blue-100 border-blue-500 text-blue-800 ring-2' : 'hover:bg-gray-50'}`}>
+                                                    {r === 'manager' ? '主任' : r === 'admin' ? '行政' : r === 'teacher' ? '老師' : '家長'}
+                                                </button>
+                                            )
+                                        })}
                                     </div>
-                                    {/* 動態顯示權限說明 */}
-                                    <div className="mt-2 p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 flex gap-2 items-start">
-                                        <span className="text-lg">💡</span>
-                                        <span>{getRoleDescription(form.role)}</span>
-                                    </div>
+                                    <div className="mt-2 text-xs text-gray-500 bg-gray-50 p-2 rounded">💡 {getRoleDescription(form.role)}</div>
                                 </div>
 
                                 <hr className="border-gray-100" />
 
-                                {/* 3. 老師：多班級選擇器 */}
+                                {/* 3. 老師：多班級 */}
                                 {form.role === 'teacher' && (
                                     <div className="bg-green-50 p-4 rounded border border-green-100">
-                                        <h4 className="font-bold text-green-800 text-sm mb-3">📋 勾選負責班級 (可多選)</h4>
-                                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-40 overflow-y-auto pr-2">
-                                            {/* 安親班選項 */}
-                                            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs font-bold ${form.assigned_classes.includes('課後輔導班') ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600'}`}>
-                                                <input type="checkbox" className="hidden"
-                                                    checked={form.assigned_classes.includes('課後輔導班')}
-                                                    onChange={() => toggleClass('課後輔導班')}
-                                                />
+                                        <h4 className="font-bold text-green-800 text-sm mb-3">📋 負責班級 (可多選)</h4>
+                                        <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                                            <label className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs font-bold ${form.assigned_classes.includes('課後輔導班') ? 'bg-green-600 text-white' : 'bg-white'}`}>
+                                                <input type="checkbox" className="hidden" checked={form.assigned_classes.includes('課後輔導班')} onChange={() => toggleClass('課後輔導班')} />
                                                 課後輔導班
                                             </label>
-                                            {/* 英文班選項 */}
                                             {ENGLISH_CLASSES.map(cls => (
-                                                <label key={cls} className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs font-bold ${form.assigned_classes.includes(cls) ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600'}`}>
-                                                    <input type="checkbox" className="hidden"
-                                                        checked={form.assigned_classes.includes(cls)}
-                                                        onChange={() => toggleClass(cls)}
-                                                    />
+                                                <label key={cls} className={`flex items-center gap-2 p-2 rounded border cursor-pointer text-xs font-bold ${form.assigned_classes.includes(cls) ? 'bg-green-600 text-white' : 'bg-white'}`}>
+                                                    <input type="checkbox" className="hidden" checked={form.assigned_classes.includes(cls)} onChange={() => toggleClass(cls)} />
                                                     {cls}
                                                 </label>
                                             ))}
                                         </div>
-                                        <div className="mt-2 text-xs text-green-700">
-                                            已選: {form.assigned_classes.length > 0 ? form.assigned_classes.join(', ') : '(尚未選擇)'}
-                                        </div>
                                     </div>
                                 )}
 
-                                {/* 4. 家長：快速建檔 */}
+                                {/* 4. 家長：小孩管理 (支援多寶) */}
                                 {form.role === 'parent' && (
-                                    <div className="bg-orange-50 p-4 rounded border border-orange-100">
-                                        <h4 className="font-bold text-orange-800 text-sm mb-2">🚀 快速綁定學生</h4>
-                                        <div className="grid grid-cols-2 gap-3">
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-600">學生姓名</label>
-                                                <input type="text" className="w-full p-2 border rounded text-sm" value={form.child_name} onChange={e => setForm({ ...form, child_name: e.target.value })} />
-                                            </div>
-                                            <div>
-                                                <label className="block text-xs font-bold text-gray-600">班級</label>
-                                                <select className="w-full p-2 border rounded text-sm" value={form.child_grade} onChange={e => setForm({ ...form, child_grade: e.target.value })}>
-                                                    {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                    <option value="課後輔導班">課後輔導班</option>
-                                                </select>
+                                    <div className="bg-orange-50 p-4 rounded border border-orange-100 space-y-4">
+
+                                        {/* 顯示已綁定的小孩 */}
+                                        <div>
+                                            <h4 className="font-bold text-orange-800 text-sm mb-2">👶 目前已綁定 ({userChildren.length} 位)</h4>
+                                            {userChildren.length === 0 ? <p className="text-xs text-gray-400">尚無資料</p> : (
+                                                <ul className="space-y-1">
+                                                    {userChildren.map(child => (
+                                                        <li key={child.id} className="text-xs bg-white px-2 py-1 rounded border flex justify-between">
+                                                            <span>{child.chinese_name}</span>
+                                                            <span className="text-gray-500">{child.grade}</span>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </div>
+
+                                        {/* 新增小孩表單 */}
+                                        <div className="border-t border-orange-200 pt-3">
+                                            <h4 className="font-bold text-orange-800 text-sm mb-2">➕ 新增另一位子女</h4>
+                                            <div className="space-y-3">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-gray-600">姓名</label>
+                                                    <input type="text" className="w-full p-2 border rounded text-sm" value={form.child_name} onChange={e => setForm({ ...form, child_name: e.target.value })} placeholder="輸入小孩名字" />
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-2">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-gray-600">英文班級</label>
+                                                        <select className="w-full p-2 border rounded text-sm" value={form.child_english_grade} onChange={e => setForm({ ...form, child_english_grade: e.target.value })}>
+                                                            <option value="">(無)</option>
+                                                            {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div className="flex items-end">
+                                                        <label className="flex items-center gap-2 cursor-pointer bg-white px-2 py-2 border rounded w-full">
+                                                            <input type="checkbox" checked={form.child_is_after_school} onChange={e => setForm({ ...form, child_is_after_school: e.target.checked })} />
+                                                            <span className="text-xs font-bold text-gray-700">參加課後輔導</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
                                 )}
-
                             </div>
 
                             <div className="p-4 bg-gray-50 flex justify-end gap-3 border-t shrink-0">
