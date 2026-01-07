@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
+// 自動產生 CEI-A 到 CEI-Z 的選項陣列
+const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
+
 export default function StudentManagement() {
     const [role, setRole] = useState<string | null>(null);
     const [students, setStudents] = useState<any[]>([]);
@@ -17,7 +20,8 @@ export default function StudentManagement() {
     const [form, setForm] = useState({
         chinese_name: '',
         english_name: '',
-        grade: '',
+        english_grade: '', // 🟢 改名：專門存英文班級 (CEI-X)
+        is_after_school: false, // 🟢 新增：是否有參加課後輔導
         school: '',
         notes: '',
         parent_email: ''
@@ -58,16 +62,38 @@ export default function StudentManagement() {
     }
 
     function handleAddNew() {
-        setForm({ chinese_name: '', english_name: '', grade: '', school: '', notes: '', parent_email: '' });
+        // 初始化表單
+        setForm({
+            chinese_name: '',
+            english_name: '',
+            english_grade: 'CEI-A', // 預設選 A 班
+            is_after_school: false,
+            school: '',
+            notes: '',
+            parent_email: ''
+        });
         setIsEditing(true);
         setCurrentId(null);
     }
 
     function handleEdit(student: any) {
+        // 🟢 解析班級資料：資料庫存的是 "CEI-A, 課後輔導班" 字串，我們要把它拆開
+        const fullGrade = student.grade || '';
+        const hasCare = fullGrade.includes('課後輔導班');
+        // 把 "課後輔導班" 拿掉，剩下的就是英文班級 (如果不乾淨再 trim 一下)
+        let engClass = fullGrade.replace('課後輔導班', '').replace(',', '').trim();
+
+        // 如果原本是空的或格式不對，預設給 CEI-A
+        if (!ENGLISH_CLASSES.includes(engClass)) {
+            // 嘗試模糊比對或直接預設，這裡簡單處理，若沒對到就保持原樣(顯示在選單外)或是預設
+            if (!engClass) engClass = 'CEI-A';
+        }
+
         setForm({
             chinese_name: student.chinese_name,
             english_name: student.english_name || '',
-            grade: student.grade || '',
+            english_grade: engClass,
+            is_after_school: hasCare,
             school: student.school || '',
             notes: student.notes || '',
             parent_email: student.parent?.email || ''
@@ -82,7 +108,7 @@ export default function StudentManagement() {
         const { error } = await supabase.from('students').delete().eq('id', id);
         if (error) alert('刪除失敗: ' + error.message);
         else {
-            setIsEditing(false); // 刪除後關閉面板
+            setIsEditing(false);
             fetchStudents();
         }
     }
@@ -100,10 +126,16 @@ export default function StudentManagement() {
             }
         }
 
+        // 🟢 組合班級字串： "CEI-A" + ", 課後輔導班"
+        let finalGrade = form.english_grade;
+        if (form.is_after_school) {
+            finalGrade += ', 課後輔導班';
+        }
+
         const payload = {
             chinese_name: form.chinese_name,
             english_name: form.english_name,
-            grade: form.grade,
+            grade: finalGrade, // 存入組合好的字串
             school: form.school,
             notes: form.notes,
             ...(parentId && { parent_id: parentId })
@@ -132,7 +164,7 @@ export default function StudentManagement() {
 
             <div className="flex flex-1 p-4 gap-6 max-w-7xl mx-auto w-full">
 
-                {/* 左側列表 (滿版顯示) */}
+                {/* 左側列表 */}
                 <div className="w-full bg-white rounded-xl shadow overflow-hidden flex flex-col">
                     <div className="p-4 border-b flex justify-between items-center bg-gray-50">
                         <span className="font-bold text-gray-600">全校學生 ({students.length})</span>
@@ -145,7 +177,7 @@ export default function StudentManagement() {
                         <table className="w-full text-left border-collapse min-w-[600px]">
                             <thead>
                                 <tr className="text-xs font-bold text-gray-500 border-b bg-gray-50">
-                                    <th className="p-3 w-32">班級/國小</th>
+                                    <th className="p-3 w-40">班級</th>
                                     <th className="p-3 w-32">姓名</th>
                                     <th className="p-3">狀況備註</th>
                                     <th className="p-3 text-right w-24">操作</th>
@@ -155,9 +187,17 @@ export default function StudentManagement() {
                                 {students.map(s => (
                                     <tr key={s.id} className="border-b hover:bg-blue-50 transition cursor-pointer" onClick={() => handleEdit(s)}>
                                         <td className="p-3">
-                                            <div className="flex flex-col gap-1">
-                                                <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-xs font-bold w-fit">{s.grade}</span>
-                                                <span className="text-xs text-gray-500">{s.school || '-'}</span>
+                                            <div className="flex flex-col gap-1 items-start">
+                                                {/* 顯示班級標籤：如果有課後輔導，顯示兩個標籤 */}
+                                                {s.grade && s.grade.split(',').map((g: string, i: number) => (
+                                                    <span key={i} className={`px-2 py-0.5 rounded text-xs font-bold w-fit mb-1 ${g.trim() === '課後輔導班'
+                                                            ? 'bg-orange-100 text-orange-800'
+                                                            : 'bg-blue-100 text-blue-800'
+                                                        }`}>
+                                                        {g.trim()}
+                                                    </span>
+                                                ))}
+                                                <span className="text-xs text-gray-400 mt-1">{s.school || '-'}</span>
                                             </div>
                                         </td>
                                         <td className="p-3">
@@ -177,101 +217,109 @@ export default function StudentManagement() {
                     </div>
                 </div>
 
-                {/* ============ 右側：編輯抽屜 (Fixed Drawer) ============ */}
-                {/* 黑色半透明遮罩 (點擊可關閉) */}
+                {/* ============ 右側：編輯抽屜 ============ */}
                 {isEditing && (
                     <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setIsEditing(false)}></div>
                 )}
 
-                {/* 編輯面板 (固定在右側，有自己的捲軸) */}
-                <div className={`fixed top-0 bottom-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${isEditing ? 'translate-x-0' : 'translate-x-full'}`}>
-                    <div className="h-full flex flex-col">
+                <div className={`fixed top-0 bottom-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out flex flex-col ${isEditing ? 'translate-x-0' : 'translate-x-full'}`}>
 
-                        {/* 面板標題 */}
-                        <div className="p-6 border-b flex justify-between items-center bg-gray-50">
-                            <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                {currentId ? '✏️ 編輯學生檔案' : '👶 新增學生'}
-                            </h2>
-                            <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
-                        </div>
-
-                        {/* 內容區 (可捲動) */}
-                        <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
-
-                            {/* 基本資料 */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">👤 基本資料</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-700 mb-1">中文姓名</label>
-                                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" required
-                                            value={form.chinese_name} onChange={e => setForm({ ...form, chinese_name: e.target.value })} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-700 mb-1">英文姓名</label>
-                                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
-                                            value={form.english_name} onChange={e => setForm({ ...form, english_name: e.target.value })} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 學籍資料 */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🏫 學籍資料</h3>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-700 mb-1">補習班班級</label>
-                                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="例: cei-z" required
-                                            value={form.grade} onChange={e => setForm({ ...form, grade: e.target.value })} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-700 mb-1">就讀國小</label>
-                                        <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="例: 東門國小"
-                                            value={form.school} onChange={e => setForm({ ...form, school: e.target.value })} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 家長綁定 */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🔗 家長連結</h3>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-700 mb-1">家長 Email</label>
-                                    <input type="email" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="parent@demo.com"
-                                        value={form.parent_email} onChange={e => setForm({ ...form, parent_email: e.target.value })} />
-                                    <p className="text-[10px] text-gray-400 mt-1">* 系統會自動搜尋並連結已註冊的家長帳號</p>
-                                </div>
-                            </div>
-
-                            {/* 狀況備註 */}
-                            <div className="space-y-4">
-                                <h3 className="text-sm font-bold text-yellow-800 border-b border-yellow-200 pb-2 bg-yellow-50 px-2 rounded-t">📋 學生狀況 (僅老師可見)</h3>
-                                <textarea
-                                    className="w-full p-4 border-2 border-yellow-200 rounded-b focus:border-yellow-500 outline-none h-40 text-sm leading-relaxed"
-                                    placeholder="請詳細記錄學生的特殊狀況、過敏源、接送習慣或學習特質..."
-                                    value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
-                                ></textarea>
-                            </div>
-
-                            {/* 為了防止按鈕被手機鍵盤擋住，加一點底部留白 */}
-                            <div className="h-10"></div>
-                        </div>
-
-                        {/* 底部按鈕區 (固定在面板底部) */}
-                        <div className="p-4 border-t bg-gray-50 flex gap-3">
-                            {currentId && (
-                                <button type="button" onClick={() => handleDelete(currentId, form.chinese_name)} className="px-4 py-3 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200 text-sm">
-                                    刪除
-                                </button>
-                            )}
-                            <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-3 bg-white border border-gray-300 rounded-lg text-gray-600 font-bold hover:bg-gray-50">
-                                取消
-                            </button>
-                            <button onClick={handleSave} className="flex-1 py-3 bg-blue-600 rounded-lg text-white font-bold hover:bg-blue-700 shadow-lg">
-                                儲存資料 💾
-                            </button>
-                        </div>
+                    <div className="p-6 border-b flex justify-between items-center bg-gray-50 flex-shrink-0">
+                        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                            {currentId ? '✏️ 編輯學生檔案' : '👶 新增學生'}
+                        </h2>
+                        <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600 text-2xl">×</button>
                     </div>
+
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-white">
+                        {/* 基本資料 */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">👤 基本資料</h3>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 mb-1">中文姓名</label>
+                                    <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" required
+                                        value={form.chinese_name} onChange={e => setForm({ ...form, chinese_name: e.target.value })} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-700 mb-1">英文姓名</label>
+                                    <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
+                                        value={form.english_name} onChange={e => setForm({ ...form, english_name: e.target.value })} />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 🟢 學籍資料 (重點修改區) */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🏫 班級設定</h3>
+
+                            {/* 1. 英文主修班級 (下拉選單) */}
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 mb-1">英文主修班級</label>
+                                <select
+                                    className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 font-bold text-gray-700"
+                                    value={form.english_grade}
+                                    onChange={e => setForm({ ...form, english_grade: e.target.value })}
+                                >
+                                    {ENGLISH_CLASSES.map(cls => (
+                                        <option key={cls} value={cls}>{cls}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* 2. 課後輔導 (勾選框) */}
+                            <div className="flex items-center gap-3 p-3 border rounded bg-orange-50 cursor-pointer" onClick={() => setForm({ ...form, is_after_school: !form.is_after_school })}>
+                                <div className={`w-5 h-5 border-2 rounded flex items-center justify-center transition ${form.is_after_school ? 'bg-orange-500 border-orange-500' : 'bg-white border-gray-300'}`}>
+                                    {form.is_after_school && <span className="text-white text-xs">✓</span>}
+                                </div>
+                                <label className="text-sm font-bold text-gray-700 cursor-pointer select-none">同時參加「課後輔導班」</label>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 mb-1 mt-2">就讀國小</label>
+                                <input type="text" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="例: 東門國小"
+                                    value={form.school} onChange={e => setForm({ ...form, school: e.target.value })} />
+                            </div>
+                        </div>
+
+                        {/* 家長綁定 */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-bold text-blue-800 border-b border-blue-100 pb-2">🔗 家長連結</h3>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-700 mb-1">家長 Email</label>
+                                <input type="email" className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50" placeholder="parent@demo.com"
+                                    value={form.parent_email} onChange={e => setForm({ ...form, parent_email: e.target.value })} />
+                                <p className="text-[10px] text-gray-400 mt-1">* 系統會自動搜尋並連結已註冊的家長帳號</p>
+                            </div>
+                        </div>
+
+                        {/* 狀況備註 */}
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-bold text-yellow-800 border-b border-yellow-200 pb-2 bg-yellow-50 px-2 rounded-t">📋 學生狀況 (僅老師可見)</h3>
+                            <textarea
+                                className="w-full p-4 border-2 border-yellow-200 rounded-b focus:border-yellow-500 outline-none h-40 text-sm leading-relaxed"
+                                placeholder="請詳細記錄學生的特殊狀況..."
+                                value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })}
+                            ></textarea>
+                        </div>
+
+                        <div className="h-10"></div>
+                    </div>
+
+                    <div className="p-4 border-t bg-gray-50 flex gap-3 flex-shrink-0 z-50">
+                        {currentId && (
+                            <button type="button" onClick={() => handleDelete(currentId, form.chinese_name)} className="px-4 py-3 bg-red-100 text-red-600 rounded-lg font-bold hover:bg-red-200 text-sm">
+                                刪除
+                            </button>
+                        )}
+                        <button type="button" onClick={() => setIsEditing(false)} className="flex-1 py-3 bg-white border border-gray-300 rounded-lg text-gray-600 font-bold hover:bg-gray-50">
+                            取消
+                        </button>
+                        <button onClick={handleSave} className="flex-1 py-3 bg-blue-600 rounded-lg text-white font-bold hover:bg-blue-700 shadow-lg">
+                            儲存資料 💾
+                        </button>
+                    </div>
+
                 </div>
 
             </div>
