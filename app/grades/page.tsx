@@ -4,245 +4,360 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
+// 1. 定義英文班級 + 課輔班 (給老師篩選用)
+const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
+const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
+
 export default function GradesPage() {
     const [role, setRole] = useState<string | null>(null);
-
-    // 資料庫資料
-    const [allStudents, setAllStudents] = useState<any[]>([]); // 所有學生
-    const [gradesList, setGradesList] = useState<any[]>([]);   // 成績列表
-
-    // 篩選用狀態
-    const [classes, setClasses] = useState<string[]>([]);      // 班級清單
-    const [selectedClass, setSelectedClass] = useState<string>(''); // 目前選擇的班級
-    const [filteredStudents, setFilteredStudents] = useState<any[]>([]); // 該班級的學生
-
-    // 表單資料
-    const [selectedStudent, setSelectedStudent] = useState<string>('');
-    const [form, setForm] = useState({
-        exam_name: '',
-        subject: '',       // 新增科目
-        score: '',
-        full_score: '100',
-        exam_date: new Date().toISOString().split('T')[0]
-    });
-
     const [loading, setLoading] = useState(true);
+    const [userId, setUserId] = useState('');
+
+    // 家長狀態
+    const [myChildren, setMyChildren] = useState<any[]>([]);
+    const [selectedChildId, setSelectedChildId] = useState<string>('');
+    const [childGrades, setChildGrades] = useState<any[]>([]);
+
+    // 老師狀態
+    const [selectedClass, setSelectedClass] = useState('');
+    const [classStudents, setClassStudents] = useState<any[]>([]);
+    // 輸入表單狀態
+    const [examName, setExamName] = useState('');
+    const [examDate, setExamDate] = useState(new Date().toISOString().split('T')[0]);
+    const [scores, setScores] = useState<Record<string, string>>({}); // 暫存分數 { studentId: "95" }
+
     const router = useRouter();
 
     useEffect(() => {
         init();
     }, []);
 
-    // 當「班級」改變時，自動更新「學生選單」
-    useEffect(() => {
-        if (selectedClass) {
-            const studentsInClass = allStudents.filter(s => s.grade === selectedClass);
-            setFilteredStudents(studentsInClass);
-            // 預設選取該班第一位學生
-            if (studentsInClass.length > 0) {
-                setSelectedStudent(studentsInClass[0].id);
-            } else {
-                setSelectedStudent('');
-            }
-        }
-    }, [selectedClass, allStudents]);
-
-    // 當「學生」改變時，自動抓取該學生的歷史成績
-    useEffect(() => {
-        if (role !== 'parent' && selectedStudent) {
-            fetchGrades(selectedStudent);
-        }
-    }, [selectedStudent, role]);
-
     async function init() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
+        setUserId(session.user.id);
 
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-        const userRole = profile?.role || 'pending';
+        const userRole = profile?.role || 'parent';
         setRole(userRole);
 
         if (userRole === 'parent') {
-            fetchMyGrades();
-        } else {
-            // 老師：先抓所有學生，再整理出班級清單
-            const { data } = await supabase.from('students').select('*').order('grade');
-            if (data) {
-                setAllStudents(data);
-                // 抓出所有不重複的班級
-                const uniqueClasses = Array.from(new Set(data.map((s: any) => s.grade || '未分類')));
-                setClasses(uniqueClasses as string[]);
-
-                // 預設選第一個班級
-                if (uniqueClasses.length > 0) {
-                    setSelectedClass(uniqueClasses[0] as string);
-                }
-            }
+            fetchMyChildren(session.user.id);
         }
         setLoading(false);
     }
 
-    async function fetchMyGrades() {
-        const { data } = await supabase.from('exam_results_view').select('*');
-        setGradesList(data || []);
+    // --- 家長功能：查看成績 ---
+
+    async function fetchMyChildren(parentId: string) {
+        const { data: kids } = await supabase.from('students').select('*').eq('parent_id', parentId);
+        if (kids && kids.length > 0) {
+            setMyChildren(kids);
+            setSelectedChildId(kids[0].id); // 預設選第一個
+            fetchGrades(kids[0].id);
+        }
     }
 
     async function fetchGrades(studentId: string) {
         const { data } = await supabase
-            .from('exam_results_view')
+            .from('exam_results')
             .select('*')
             .eq('student_id', studentId)
-            .order('exam_date', { ascending: false });
-        setGradesList(data || []);
+            .order('exam_date', { ascending: true }); // 日期由舊到新，方便畫圖
+
+        if (data) setChildGrades(data);
     }
 
-    async function handleSubmit(e: React.FormEvent) {
-        e.preventDefault();
-        if (!selectedStudent) return;
+    // 切換小孩時
+    function handleChildChange(childId: string) {
+        setSelectedChildId(childId);
+        fetchGrades(childId);
+    }
 
-        const { error } = await supabase.from('exam_results').insert({
-            student_id: selectedStudent,
-            exam_name: form.exam_name,
-            subject: form.subject, // 寫入科目
-            score: parseInt(form.score),
-            full_score: parseInt(form.full_score),
-            exam_date: form.exam_date
-        });
+    // --- 老師功能：輸入成績 ---
+
+    // 當老師選了班級，抓取該班學生
+    useEffect(() => {
+        if (role !== 'parent' && selectedClass) {
+            fetchClassStudents();
+        }
+    }, [selectedClass]);
+
+    async function fetchClassStudents() {
+        // 模糊搜尋班級 (例如選 CEI-A，要抓出 grade 包含 "CEI-A" 的人)
+        const { data } = await supabase
+            .from('students')
+            .select('*')
+            .ilike('grade', `%${selectedClass}%`)
+            .order('chinese_name');
+
+        if (data) {
+            setClassStudents(data);
+            setScores({}); // 清空之前的分數輸入
+        }
+    }
+
+    // 更新暫存分數
+    function handleScoreChange(studentId: string, val: string) {
+        setScores(prev => ({ ...prev, [studentId]: val }));
+    }
+
+    // 儲存全班成績
+    async function saveAllGrades() {
+        if (!examName) return alert('請輸入考試名稱');
+
+        // 過濾出有填寫分數的學生
+        const entries = Object.entries(scores).filter(([_, score]) => score.trim() !== '');
+        if (entries.length === 0) return alert('請至少輸入一位學生的分數');
+
+        if (!confirm(`確定要儲存 ${entries.length} 位學生的成績嗎？`)) return;
+
+        const payload = entries.map(([studentId, score]) => ({
+            student_id: studentId,
+            exam_name: examName,
+            exam_date: examDate,
+            score: parseInt(score),
+            full_score: 100
+        }));
+
+        const { error } = await supabase.from('exam_results').insert(payload);
 
         if (error) {
             alert('儲存失敗: ' + error.message);
         } else {
-            setForm({ ...form, score: '' }); // 只清空分數，方便連續輸入同科目
-            fetchGrades(selectedStudent);    // 刷新下方列表
+            alert('✅ 成績登錄成功！');
+            // 清空表單
+            setScores({});
+            setExamName('');
         }
     }
+
+    // --- 自製 SVG 折線圖元件 (無需套件) ---
+    const LineChart = ({ data }: { data: any[] }) => {
+        if (!data || data.length === 0) return <div className="h-40 flex items-center justify-center text-gray-300">尚無數據</div>;
+        if (data.length === 1) return <div className="h-40 flex items-center justify-center text-gray-600 font-bold text-xl">{data[0].score} 分 <span className="text-xs font-normal ml-2">(僅一次考試)</span></div>;
+
+        const height = 150;
+        const width = 100; // percent
+        const maxScore = 100;
+
+        // 計算點的座標
+        const points = data.map((d, index) => {
+            const x = (index / (data.length - 1)) * 100; // X軸百分比
+            const y = height - (d.score / maxScore) * height; // Y軸像素 (反轉，因為 SVG 0 在上面)
+            return `${x},${y}`;
+        }).join(' ');
+
+        return (
+            <div className="relative h-[200px] w-full mt-4">
+                {/* SVG 畫布 */}
+                <svg viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" className="w-full h-full overflow-visible">
+                    {/* 背景輔助線 (60分及格線) */}
+                    <line x1="0" y1={height - (60 / 100) * height} x2="100" y2={height - (60 / 100) * height} stroke="#fee2e2" strokeWidth="0.5" strokeDasharray="2" />
+
+                    {/* 折線 */}
+                    <polyline fill="none" stroke="#3b82f6" strokeWidth="2" points={points} vectorEffect="non-scaling-stroke" />
+
+                    {/* 資料點圓圈 */}
+                    {data.map((d, index) => {
+                        const x = (index / (data.length - 1)) * 100;
+                        const y = height - (d.score / maxScore) * height;
+                        return (
+                            <g key={index}>
+                                <circle cx={x} cy={y} r="3" fill="white" stroke="#3b82f6" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                                {/* 分數文字 */}
+                                <text x={x} y={y - 8} textAnchor="middle" fontSize="8" fill="#1e3a8a" fontWeight="bold">{d.score}</text>
+                                {/* 日期文字 (底部) */}
+                                <text x={x} y={height + 15} textAnchor="middle" fontSize="6" fill="#9ca3af">{d.exam_date.slice(5)}</text>
+                            </g>
+                        );
+                    })}
+                </svg>
+            </div>
+        );
+    };
 
     if (loading) return <div className="p-8 text-center">載入中...</div>;
 
     return (
         <div className="min-h-screen bg-purple-50 p-4">
-            <div className="max-w-3xl mx-auto">
+            <div className="max-w-4xl mx-auto">
+
+                {/* 標題 */}
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold text-purple-900">📊 成績管理系統</h1>
+                    <h1 className="text-2xl font-bold text-purple-900 flex items-center gap-2">
+                        📊 成績管理
+                        {role === 'parent' && <span className="text-sm bg-purple-200 text-purple-800 px-2 py-1 rounded">家長版</span>}
+                    </h1>
                     <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-400 text-white rounded text-sm">回首頁</button>
                 </div>
 
-                {/* ============ 老師介面 ============ */}
-                {role !== 'parent' && (
-                    <>
-                        <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500 mb-8">
-                            <h2 className="text-lg font-bold mb-4">✍️ 登記成績</h2>
-                            <form onSubmit={handleSubmit} className="space-y-4">
+                {/* ============ 🏠 家長介面：看圖表 ============ */}
+                {role === 'parent' && (
+                    <div className="space-y-6">
 
-                                {/* 第一排：班級 + 學生 (連動選單) */}
-                                <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">Step 1. 選擇班級</label>
-                                        <select
-                                            className="w-full p-2 border rounded bg-white text-purple-900 font-bold"
-                                            value={selectedClass}
-                                            onChange={e => setSelectedClass(e.target.value)}
-                                        >
-                                            {classes.map(c => <option key={c} value={c}>{c}</option>)}
-                                        </select>
+                        {/* 選擇小孩 */}
+                        {myChildren.length > 0 ? (
+                            <div className="flex gap-2 overflow-x-auto pb-2">
+                                {myChildren.map(child => (
+                                    <button
+                                        key={child.id}
+                                        onClick={() => handleChildChange(child.id)}
+                                        className={`px-4 py-2 rounded-full font-bold whitespace-nowrap transition ${selectedChildId === child.id ? 'bg-purple-600 text-white shadow-lg' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
+                                    >
+                                        {child.chinese_name}
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="text-center text-gray-400">尚未綁定學生</div>
+                        )}
+
+                        {selectedChildId && (
+                            <>
+                                {/* 1. 折線圖卡片 */}
+                                <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-purple-500 animate-fade-in">
+                                    <h2 className="font-bold text-gray-700 mb-2">📈 成績趨勢圖</h2>
+                                    <div className="px-2">
+                                        <LineChart data={childGrades} />
                                     </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">Step 2. 選擇學生</label>
-                                        <select
-                                            className="w-full p-2 border rounded bg-white text-purple-900 font-bold"
-                                            value={selectedStudent}
-                                            onChange={e => setSelectedStudent(e.target.value)}
-                                        >
-                                            {filteredStudents.map(s => (
-                                                <option key={s.id} value={s.id}>{s.chinese_name}</option>
+                                </div>
+
+                                {/* 2. 詳細列表 */}
+                                <div className="bg-white rounded-xl shadow overflow-hidden">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-100 border-b">
+                                            <tr>
+                                                <th className="p-3 text-left text-sm text-gray-600">考試名稱</th>
+                                                <th className="p-3 text-center text-sm text-gray-600">日期</th>
+                                                <th className="p-3 text-right text-sm text-gray-600">分數</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {childGrades.slice().reverse().map((g) => ( // 反轉顯示，最新的在上面
+                                                <tr key={g.id}>
+                                                    <td className="p-3 font-bold text-gray-800">{g.exam_name}</td>
+                                                    <td className="p-3 text-center text-sm text-gray-500">{g.exam_date}</td>
+                                                    <td className="p-3 text-right">
+                                                        <span className={`font-black text-lg ${g.score >= 90 ? 'text-green-600' : g.score < 60 ? 'text-red-500' : 'text-blue-600'}`}>
+                                                            {g.score}
+                                                        </span>
+                                                    </td>
+                                                </tr>
                                             ))}
-                                        </select>
-                                    </div>
+                                            {childGrades.length === 0 && (
+                                                <tr><td colSpan={3} className="p-6 text-center text-gray-400">目前沒有成績紀錄</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
                                 </div>
-
-                                {/* 第二排：考試資訊 */}
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">考試名稱</label>
-                                        <input type="text" placeholder="例如: 期中考" className="w-full p-2 border rounded" required
-                                            value={form.exam_name} onChange={e => setForm({ ...form, exam_name: e.target.value })} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">科目</label>
-                                        <input type="text" placeholder="例如: 英文 / 數學" className="w-full p-2 border rounded" required
-                                            value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} />
-                                    </div>
-                                </div>
-
-                                {/* 第三排：分數 */}
-                                <div className="grid grid-cols-3 gap-4 items-end">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">考試日期</label>
-                                        <input type="date" className="w-full p-2 border rounded" required
-                                            value={form.exam_date} onChange={e => setForm({ ...form, exam_date: e.target.value })} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">滿分</label>
-                                        <input type="number" className="w-full p-2 border rounded" required
-                                            value={form.full_score} onChange={e => setForm({ ...form, full_score: e.target.value })} />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-purple-700 mb-1">得分</label>
-                                        <input type="number" placeholder="分數" className="w-full p-2 border-2 border-purple-500 rounded text-xl font-bold text-center" required
-                                            value={form.score} onChange={e => setForm({ ...form, score: e.target.value })} />
-                                    </div>
-                                </div>
-
-                                <button type="submit" className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 transition shadow-md">
-                                    新增成績 ➕
-                                </button>
-                            </form>
-                        </div>
-
-                        {/* 歷史成績標題 */}
-                        <div className="flex items-center gap-2 mb-4 pl-2 border-l-4 border-purple-400">
-                            <h3 className="text-xl font-bold text-gray-800">
-                                📉 {filteredStudents.find(s => s.id === selectedStudent)?.chinese_name} 的成績紀錄
-                            </h3>
-                            <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                                {selectedClass}
-                            </span>
-                        </div>
-                    </>
+                            </>
+                        )}
+                    </div>
                 )}
 
-                {/* ============ 共用列表：顯示成績單 ============ */}
-                <div className="space-y-3">
-                    {gradesList.length === 0 ? (
-                        <div className="text-center py-10 text-gray-400 bg-white rounded-xl border border-dashed border-gray-300">
-                            尚無成績紀錄
-                        </div>
-                    ) : (
-                        gradesList.map(g => (
-                            <div key={g.id} className="bg-white p-5 rounded-xl shadow-sm flex justify-between items-center hover:shadow-md transition border-l-4 border-purple-200">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-xs font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                                            {g.subject || '綜合'}
-                                        </span>
-                                        <span className="text-xs text-gray-400">{g.exam_date}</span>
-                                    </div>
-                                    <h3 className="font-bold text-lg text-gray-800">{g.exam_name}</h3>
-                                    {role === 'parent' && <div className="text-xs text-gray-500 mt-1">學生: {g.student_name}</div>}
-                                </div>
+                {/* ============ 🧑‍🏫 老師介面：批次輸入 ============ */}
+                {role !== 'parent' && (
+                    <div className="space-y-6">
 
-                                <div className="flex items-center gap-4">
-                                    <div className="text-right">
-                                        <div className={`text-3xl font-bold ${g.score >= 60 ? 'text-green-600' : 'text-red-500'}`}>
-                                            {g.score}
-                                        </div>
-                                        <div className="text-xs text-gray-400">/ {g.full_score}</div>
-                                    </div>
+                        {/* 1. 控制台 */}
+                        <div className="bg-white p-6 rounded-xl shadow-md border-l-4 border-purple-500">
+                            <h2 className="font-bold text-lg mb-4 text-gray-800">📝 成績登錄</h2>
+                            <div className="grid md:grid-cols-3 gap-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">選擇班級</label>
+                                    <select
+                                        className="w-full p-2 border rounded bg-gray-50 font-bold text-gray-700 outline-none focus:ring-2 focus:ring-purple-300"
+                                        value={selectedClass}
+                                        onChange={e => setSelectedClass(e.target.value)}
+                                    >
+                                        <option value="">-- 請選擇 --</option>
+                                        {ALL_CLASSES.map(cls => <option key={cls} value={cls}>{cls}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">考試名稱</label>
+                                    <input
+                                        type="text"
+                                        placeholder="例: 期中考 / 單字小考"
+                                        className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-300"
+                                        value={examName}
+                                        onChange={e => setExamName(e.target.value)}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 mb-1">日期</label>
+                                    <input
+                                        type="date"
+                                        className="w-full p-2 border rounded outline-none focus:ring-2 focus:ring-purple-300"
+                                        value={examDate}
+                                        onChange={e => setExamDate(e.target.value)}
+                                    />
                                 </div>
                             </div>
-                        ))
-                    )}
-                </div>
+                        </div>
+
+                        {/* 2. 學生列表 (Excel 模式) */}
+                        {selectedClass && (
+                            <div className="bg-white rounded-xl shadow-lg overflow-hidden animate-slide-up">
+                                <div className="p-4 bg-purple-100 border-b border-purple-200 flex justify-between items-center">
+                                    <span className="font-bold text-purple-900">
+                                        {selectedClass} 學生名單 ({classStudents.length} 人)
+                                    </span>
+                                    <div className="text-xs text-purple-600">
+                                        💡 Tip: 使用 Tab 鍵可快速切換下一位
+                                    </div>
+                                </div>
+
+                                <div className="max-h-[500px] overflow-y-auto">
+                                    <table className="w-full">
+                                        <thead className="bg-gray-50 sticky top-0 z-10">
+                                            <tr>
+                                                <th className="p-3 text-left text-sm text-gray-600">座號/姓名</th>
+                                                <th className="p-3 text-left text-sm text-gray-600">分數輸入</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {classStudents.map((s, index) => (
+                                                <tr key={s.id} className="hover:bg-gray-50">
+                                                    <td className="p-3">
+                                                        <span className="text-gray-400 text-xs mr-2">{index + 1}.</span>
+                                                        <span className="font-bold text-gray-800 text-lg">{s.chinese_name}</span>
+                                                    </td>
+                                                    <td className="p-3">
+                                                        <input
+                                                            type="number"
+                                                            placeholder="0-100"
+                                                            className="w-24 p-2 border-2 border-gray-200 rounded-lg text-center font-bold text-lg focus:border-purple-500 focus:bg-purple-50 outline-none transition"
+                                                            value={scores[s.id] || ''}
+                                                            onChange={e => handleScoreChange(s.id, e.target.value)}
+                                                            onWheel={(e) => e.currentTarget.blur()} // 防止滑鼠滾輪誤觸改數字
+                                                        />
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {classStudents.length === 0 && (
+                                                <tr><td colSpan={2} className="p-8 text-center text-gray-400">此班級尚無學生資料</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                {classStudents.length > 0 && (
+                                    <div className="p-4 bg-gray-50 border-t flex justify-end">
+                                        <button
+                                            onClick={saveAllGrades}
+                                            className="px-8 py-3 bg-gradient-to-r from-purple-600 to-blue-600 text-white font-bold rounded-xl shadow-lg hover:shadow-xl transform active:scale-95 transition"
+                                        >
+                                            💾 儲存全班成績
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                    </div>
+                )}
 
             </div>
         </div>
