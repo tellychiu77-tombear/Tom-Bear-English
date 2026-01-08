@@ -9,13 +9,8 @@ export default function PickupPage() {
     const [myChildren, setMyChildren] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // 老師看的排隊清單
     const [queue, setQueue] = useState<any[]>([]);
-
-    // 連線狀態訊號燈
     const [statusText, setStatusText] = useState('🔵 連線中...');
-
-    // 🔊 聲音開關狀態
     const [audioEnabled, setAudioEnabled] = useState(false);
 
     const router = useRouter();
@@ -23,36 +18,32 @@ export default function PickupPage() {
     useEffect(() => {
         init();
 
-        // 建立即時監聽頻道
         const channel = supabase
-            .channel('pickup_audio_v4')
+            .channel('pickup_audio_v5')
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT', // 我們只監聽「新增」的事件，避免修改狀態時也亂叫
+                    event: 'INSERT',
                     schema: 'public',
                     table: 'pickup_requests',
                 },
                 async (payload) => {
                     console.log('⚡️ 收到訊號:', payload);
 
-                    // 1. 重新抓取清單 (更新畫面)
                     setTimeout(() => {
                         fetchQueue();
                         setStatusText('⚡️ 有家長到了！');
                         setTimeout(() => setStatusText('🟢 即時連線正常'), 3000);
                     }, 200);
 
-                    // 2. 🔊 觸發語音廣播 (如果有開啟聲音)
-                    // payload.new 裡面只有 student_id，我們需要去查名字
+                    // 🔊 觸發語音廣播
                     if (payload.new.status === 'notified') {
                         const studentId = payload.new.student_id;
-                        // 快速查一下這個 ID 是誰
                         const { data: student } = await supabase.from('students').select('chinese_name, grade').eq('id', studentId).single();
 
                         if (student) {
-                            // 這裡設定廣播詞，您可以自由修改
-                            speak(`${student.chinese_name}，${student.chinese_name}，家長接送。`);
+                            // 🟢 修改點：這裡只要傳入一句話，由 speak 函數去負責重複
+                            speak(`${student.chinese_name}，家長接送。`);
                         }
                     }
                 }
@@ -67,23 +58,24 @@ export default function PickupPage() {
         };
     }, []);
 
-    // 🔊 語音合成函數 (讓電腦說話)
+    // 🔊 語音合成函數 (調整版)
     function speak(text: string) {
         if (!window.speechSynthesis) return;
 
-        // 建立發音物件
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'zh-TW'; // 設定為中文
-        utterance.rate = 0.9;     // 語速 (0.1 ~ 10)，0.9 稍微慢一點比較清楚
-        utterance.pitch = 1;      // 音調
-        utterance.volume = 1;     // 音量
+        // 🟢 邏輯修改：將傳進來的文字重複兩次，中間加點停頓
+        const fullText = `${text} ... ${text}`;
+
+        const utterance = new SpeechSynthesisUtterance(fullText);
+        utterance.lang = 'zh-TW';
+        utterance.rate = 0.75;    // 🟢 語速調整：0.9 -> 0.75 (會變得比較穩重清晰)
+        utterance.pitch = 1;
+        utterance.volume = 1;
 
         window.speechSynthesis.speak(utterance);
     }
 
-    // 啟用聲音 (瀏覽器限制：必須由使用者點擊觸發)
     function enableAudio() {
-        speak('語音廣播系統，啟動。');
+        speak('語音廣播系統，啟動。'); // 這裡也會自動念兩遍，剛好測試效果
         setAudioEnabled(true);
     }
 
@@ -119,7 +111,6 @@ export default function PickupPage() {
         setLoading(false);
     }
 
-    // 家長功能
     async function requestPickup(studentId: string, studentName: string) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
@@ -146,7 +137,6 @@ export default function PickupPage() {
         else alert(`✅ 已通知老師！${studentName} 即將出來。`);
     }
 
-    // 老師功能
     async function updateStatus(id: string, newStatus: string) {
         const { error } = await supabase
             .from('pickup_requests')
@@ -154,8 +144,6 @@ export default function PickupPage() {
             .eq('id', id);
 
         if (error) alert('更新失敗');
-        // 注意：更新狀態不需要觸發 fetchQueue，因為 Realtime 會處理，且我們只監聽 INSERT 來發聲
-        // 但為了讓畫面即時消失，手動 fetch 也無妨，或是等待下一次輪詢
         if (newStatus === 'completed') {
             setQueue(prev => prev.filter(q => q.id !== id));
         }
@@ -171,7 +159,6 @@ export default function PickupPage() {
                         🚌 接送管理中心
                     </h1>
                     <div className="flex gap-2">
-                        {/* 🔊 聲音開關按鈕 (僅老師可見) */}
                         {role !== 'parent' && (
                             <button
                                 onClick={enableAudio}
@@ -190,7 +177,6 @@ export default function PickupPage() {
                     <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-400 text-white rounded text-sm">回首頁</button>
                 </div>
 
-                {/* 家長介面 */}
                 {role === 'parent' && (
                     <div className="space-y-6">
                         <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-400 text-center animate-fade-in">
@@ -213,7 +199,6 @@ export default function PickupPage() {
                     </div>
                 )}
 
-                {/* 老師介面 */}
                 {role !== 'parent' && (
                     <div className="space-y-4">
                         <div className="flex justify-between items-end mb-2">
