@@ -12,7 +12,7 @@ export default function PickupPage() {
     // 老師看的排隊清單
     const [queue, setQueue] = useState<any[]>([]);
 
-    // 🟢 新增：連線狀態訊號燈
+    // 連線狀態訊號燈
     const [statusText, setStatusText] = useState('🔵 連線中...');
 
     const router = useRouter();
@@ -22,35 +22,27 @@ export default function PickupPage() {
 
         // 建立即時監聽頻道
         const channel = supabase
-            .channel('pickup_realtime_v2') // 改個名字確保不會撞頻
+            .channel('pickup_fast_v3')
             .on(
                 'postgres_changes',
                 {
-                    event: '*', // 監聽所有動作 (新增/修改/刪除)
+                    event: '*',
                     schema: 'public',
                     table: 'pickup_requests',
                 },
                 (payload) => {
                     console.log('⚡️ 收到訊號:', payload);
-                    // 收到訊號後，為了保險，我們等 0.5 秒再抓資料，確保資料庫寫入完成
+                    // 收到訊號後，延遲一點點再抓，確保資料寫入完成
                     setTimeout(() => {
                         fetchQueue();
-                        // 讓訊號燈閃一下，告訴您「收到訊號了」
-                        const oldText = statusText;
-                        setStatusText('⚡️ 資料更新！');
-                        setTimeout(() => setStatusText('🟢 即時連線正常'), 2000);
-                    }, 500);
+                        setStatusText('⚡️ 有家長到了！');
+                        setTimeout(() => setStatusText('🟢 即時連線正常'), 3000);
+                    }, 200);
                 }
             )
             .subscribe((status) => {
-                // 監聽連線狀態
-                if (status === 'SUBSCRIBED') {
-                    setStatusText('🟢 即時連線正常');
-                } else if (status === 'CHANNEL_ERROR') {
-                    setStatusText('🔴 連線失敗 (請重新整理)');
-                } else if (status === 'TIMED_OUT') {
-                    setStatusText('🟡 連線逾時 (網路不穩)');
-                }
+                if (status === 'SUBSCRIBED') setStatusText('🟢 即時連線正常');
+                else if (status === 'CHANNEL_ERROR') setStatusText('🔴 連線失敗');
             });
 
         return () => {
@@ -83,7 +75,7 @@ export default function PickupPage() {
         student:students (chinese_name, grade),
         parent:profiles (full_name)
       `)
-            .neq('status', 'completed')
+            .neq('status', 'completed') // 只抓還沒接走的
             .order('created_at', { ascending: true });
 
         if (data) setQueue(data);
@@ -107,14 +99,15 @@ export default function PickupPage() {
             return;
         }
 
+        // 🟢 修改點 1：家長一按，狀態直接設為 'notified' (已廣播)，跳過 pending
         const { error } = await supabase.from('pickup_requests').insert({
             student_id: studentId,
             parent_id: session.user.id,
-            status: 'pending'
+            status: 'notified'
         });
 
         if (error) alert('呼叫失敗: ' + error.message);
-        else alert(`已通知老師！請稍候，${studentName} 馬上出來。`);
+        else alert(`✅ 已通知老師！${studentName} 即將出來。`);
     }
 
     // 老師功能
@@ -125,7 +118,6 @@ export default function PickupPage() {
             .eq('id', id);
 
         if (error) alert('更新失敗');
-        // 注意：這裡不用手動 fetchQueue，因為資料庫更新後，Realtime 會自動觸發上面的監聽器
     }
 
     if (loading) return <div className="p-8 text-center">載入中...</div>;
@@ -137,8 +129,7 @@ export default function PickupPage() {
                     <h1 className="text-2xl font-bold text-yellow-900 flex items-center gap-2">
                         🚌 接送管理中心
                     </h1>
-                    {/* 顯示連線狀態 */}
-                    <div className="text-xs font-bold px-2 py-1 rounded bg-white shadow border">
+                    <div className={`text-xs font-bold px-2 py-1 rounded shadow border ${statusText.includes('⚡️') ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-600'}`}>
                         {statusText}
                     </div>
                 </div>
@@ -150,9 +141,9 @@ export default function PickupPage() {
                 {/* 家長介面 */}
                 {role === 'parent' && (
                     <div className="space-y-6">
-                        <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-400 text-center">
+                        <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-yellow-400 text-center animate-fade-in">
                             <h2 className="text-xl font-bold text-gray-800 mb-2">您到達補習班了嗎？</h2>
-                            <p className="text-gray-500 mb-6">點擊下方按鈕，我們會廣播學生出來。</p>
+                            <p className="text-gray-500 mb-6">點擊下方按鈕，系統將直接廣播學生。</p>
                             <div className="grid gap-4">
                                 {myChildren.map(child => (
                                     <button
@@ -166,7 +157,6 @@ export default function PickupPage() {
                                     </button>
                                 ))}
                             </div>
-                            {myChildren.length === 0 && <p className="text-red-500 py-4">⚠️ 尚未綁定學生資料。</p>}
                         </div>
                     </div>
                 )}
@@ -175,33 +165,39 @@ export default function PickupPage() {
                 {role !== 'parent' && (
                     <div className="space-y-4">
                         <div className="flex justify-between items-end mb-2">
-                            <h2 className="font-bold text-gray-700">目前等待接送 ({queue.length} 人)</h2>
+                            <h2 className="font-bold text-gray-700">等待接送中 ({queue.length} 人)</h2>
                         </div>
 
                         {queue.length === 0 ? (
                             <div className="bg-white p-10 rounded-xl shadow-sm text-center text-gray-400 flex flex-col items-center">
                                 <span className="text-4xl mb-2">☕</span>
-                                <p>目前沒有家長在門口，休息一下吧！</p>
+                                <p>目前沒有家長，休息一下吧！</p>
                             </div>
                         ) : (
                             queue.map((req, index) => (
-                                <div key={req.id} className={`bg-white p-5 rounded-xl shadow-md border-l-8 flex justify-between items-center transition-all duration-500 ${req.status === 'notified' ? 'border-green-500 bg-green-50' : 'border-yellow-400'}`}>
+                                <div key={req.id} className="bg-green-50 p-5 rounded-xl shadow-md border-l-8 border-green-500 flex justify-between items-center animate-slide-in">
+                                    {/* 左側：學生資訊 */}
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="bg-gray-800 text-white text-xs font-bold px-2 py-1 rounded-full">{index + 1}</span>
-                                            <span className="font-black text-2xl text-gray-800">{req.student?.chinese_name}</span>
+                                            <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce">NOW</span>
+                                            <span className="font-black text-3xl text-gray-800">{req.student?.chinese_name}</span>
                                         </div>
-                                        <div className="text-sm text-gray-600">
-                                            班級: <span className="font-bold">{req.student?.grade}</span>
-                                            <span className="mx-2">|</span>
-                                            家長: {req.parent?.full_name || '家長'}
+                                        <div className="text-sm text-gray-600 font-bold mt-1">
+                                            班級: {req.student?.grade}
+                                            <span className="mx-2 text-gray-300">|</span>
+                                            家長: {req.parent?.full_name}
                                         </div>
                                     </div>
+
+                                    {/* 右側：只剩下一顆按鈕 */}
                                     <div className="flex flex-col gap-2">
-                                        {req.status === 'pending' && (
-                                            <button onClick={() => updateStatus(req.id, 'notified')} className="px-6 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700 active:scale-95 transition">📢 廣播</button>
-                                        )}
-                                        <button onClick={() => updateStatus(req.id, 'completed')} className={`px-6 py-2 font-bold rounded shadow active:scale-95 transition ${req.status === 'notified' ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}>✅ 已接走</button>
+                                        <button
+                                            onClick={() => updateStatus(req.id, 'completed')}
+                                            className="px-6 py-4 bg-gray-800 text-white font-bold rounded-xl shadow-lg hover:bg-black active:scale-95 transition flex items-center gap-2"
+                                        >
+                                            <span>✅</span>
+                                            <span>已接走</span>
+                                        </button>
                                     </div>
                                 </div>
                             ))
