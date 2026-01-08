@@ -5,265 +5,305 @@ import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
 export default function ChatPage() {
-    const [role, setRole] = useState<string | null>(null);
-    const [userId, setUserId] = useState<string>('');
-    const [assignedClass, setAssignedClass] = useState<string | null>(null);
-
-    // 狀態
-    const [students, setStudents] = useState<any[]>([]);       // 老師用：學生列表
-    const [selectedStudent, setSelectedStudent] = useState<any>(null); // 目前聊天的學生
-    const [activeChannel, setActiveChannel] = useState<'teacher' | 'director'>('teacher'); // 🟢 目前的頻道
-
+    const [currentUser, setCurrentUser] = useState<any>(null);
+    const [contacts, setContacts] = useState<any[]>([]);
+    const [activeContactId, setActiveContactId] = useState<string | null>(null);
     const [messages, setMessages] = useState<any[]>([]);
-    const [newMessage, setNewMessage] = useState('');
+    const [inputText, setInputText] = useState('');
+    const [loading, setLoading] = useState(true);
 
+    // 用來自動捲動到底部
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
     const router = useRouter();
 
     useEffect(() => {
         init();
+
+        // 🟢 建立即時監聽 (不管是聯絡人列表或聊天內容變更，都重抓)
+        const channel = supabase
+            .channel('chat_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages' }, () => {
+                // 當有新訊息時：
+                // 1. 如果正在跟這個人聊，就更新聊天內容
+                // 2. 更新聯絡人列表 (為了更新未讀紅點)
+                refreshData();
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
     }, []);
 
-    // 監聽聊天室 (當 學生 或 頻道 改變時)
+    // 當聊天對象改變，或訊息更新時，自動捲動到底部
     useEffect(() => {
-        if (!selectedStudent) return;
-        fetchMessages(selectedStudent.id, activeChannel);
+        scrollToBottom();
+    }, [messages, activeContactId]);
 
+    // 當切換聯絡人時，標記為已讀
+    useEffect(() => {
+        if (activeContactId && currentUser) {
+            markAsRead(activeContactId);
+            fetchMessages(activeContactId);
+        }
+    }, [activeContactId]);
+
+    function scrollToBottom() {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // 共用的刷新數據函數 (給 Realtime 呼叫用)
+    function refreshData() {
+        // 這裡我們用一個小技巧：透過 closure 取得當下的 activeContactId 有點難，
+        // 所以我們簡單粗暴地：重抓聯絡人，如果現在有選中人，也重抓訊息。
+        // (在 React useEffect 閉包陷阱中，這裡簡化處理，實際建議用 ref 或 dependency)
+        // 為了簡單穩健，我們這裡只觸發一個全域的狀態更新信號，或者直接重整。
+        // 但為了效能，我們這裡選擇直接呼叫 fetchContacts。
+        // *注意：因為閉包關係，這裡的 activeContactId 可能是舊的，所以我們先只更新列表*
+        fetchContacts();
+    }
+
+    // 這一招是為了解決 Realtime 閉包問題，讓它可以存取到最新的 activeContactId
+    const activeContactRef = useRef(activeContactId);
+    useEffect(() => { activeContactRef.current = activeContactId; }, [activeContactId]);
+
+    // 修改後的 Realtime 監聽器 (放在 init 裡或獨立 useEffect)
+    useEffect(() => {
         const channel = supabase
-            .channel('chat_room')
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'messages',
-                filter: `student_id=eq.${selectedStudent.id}`
-            }, (payload) => {
-                // 當有新訊息，若是屬於當前頻道的，才更新
-                if (payload.new.channel === activeChannel) {
-                    fetchMessages(selectedStudent.id, activeChannel);
+            .channel('chat_realtime_v2')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
+                fetchContacts(); // 更新左側紅點
+
+                // 如果新訊息是傳給目前視窗的，或是目前視窗傳出去的，就更新右側
+                const newMsg = payload.new;
+                const currentActive = activeContactRef.current;
+
+                if (currentActive && (newMsg.sender_id === currentActive || newMsg.receiver_id === currentActive)) {
+                    fetchMessages(currentActive);
+                    if (newMsg.sender_id === currentActive) {
+                        markAsRead(currentActive); // 如果是對方傳來的，且我正在看，就標已讀
+                    }
                 }
             })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [selectedStudent, activeChannel]); // 🟢 頻道改變也要重抓
+    }, []);
 
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages]);
 
     async function init() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
-        setUserId(session.user.id);
 
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role, assigned_class')
-            .eq('id', session.user.id)
-            .single();
+        // 1. 取得自己是誰
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        setCurrentUser(profile);
 
-        const userRole = profile?.role || 'pending';
-        const userClass = profile?.assigned_class || '';
-        setRole(userRole);
-        setAssignedClass(userClass);
+        // 2. 取得聯絡人列表
+        await fetchContacts(profile);
+        setLoading(false);
+    }
 
-        // 根據身分初始化
-        if (userRole === 'parent') {
-            // 家長：抓自己小孩，並預設選擇第一個
-            const { data } = await supabase.from('students').select('*').eq('parent_id', session.user.id);
-            if (data && data.length > 0) {
-                setSelectedStudent(data[0]);
-            }
-        } else if (userRole === 'director' || userRole === 'manager') {
-            // 園長：抓所有學生
-            const { data } = await supabase.from('students').select('*').order('grade');
-            setStudents(data || []);
-        } else if (userRole === 'teacher') {
-            // 老師：只抓自己班級，且強制鎖定在 'teacher' 頻道
-            setActiveChannel('teacher');
-            if (userClass) {
-                const { data } = await supabase.from('students').select('*').eq('grade', userClass).order('chinese_name');
-                setStudents(data || []);
-            }
+    // 抓取聯絡人 (根據角色)
+    async function fetchContacts(user = currentUser) {
+        if (!user) return;
+
+        // 邏輯：
+        // 如果我是家長 -> 我可以看到所有老師 (role != parent)
+        // 如果我是老師 -> 我可以看到所有家長 (role = parent)
+        const targetRoleCondition = user.role === 'parent' ? 'neq' : 'eq';
+        const targetRoleValue = 'parent';
+
+        // 1. 抓人
+        let query = supabase.from('profiles').select('*').order('full_name');
+
+        if (user.role === 'parent') {
+            // 家長找老師 (role != parent)
+            query = query.neq('role', 'parent');
+        } else {
+            // 老師找家長 (role == parent)
+            query = query.eq('role', 'parent');
         }
-    }
 
-    // 🟢 抓取訊息時，多加一個 channel 篩選
-    async function fetchMessages(studentId: string, channel: string) {
-        const { data } = await supabase
-            .from('messages_view')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('channel', channel) // 只抓當前頻道的
-            .order('created_at', { ascending: true });
-        setMessages(data || []);
-    }
+        const { data: people } = await query;
+        if (!people) return;
 
-    async function handleSend(e: React.FormEvent) {
-        e.preventDefault();
-        if (!newMessage.trim() || !selectedStudent) return;
+        // 2. 抓未讀數量 (這是最精彩的地方)
+        // 我們要算：sender 是這個人，receiver 是我，且 is_read 是 false
+        const { data: unreadData } = await supabase
+            .from('chat_messages')
+            .select('sender_id')
+            .eq('receiver_id', user.id)
+            .eq('is_read', false);
 
-        const { error } = await supabase.from('messages').insert({
-            student_id: selectedStudent.id,
-            sender_id: userId,
-            content: newMessage,
-            channel: activeChannel // 🟢 寫入當前頻道
+        // 統計每個人的未讀數
+        const unreadMap: Record<string, number> = {};
+        unreadData?.forEach((msg: any) => {
+            unreadMap[msg.sender_id] = (unreadMap[msg.sender_id] || 0) + 1;
         });
 
-        if (error) alert('發送失敗: ' + error.message);
-        else setNewMessage('');
+        // 組合資料
+        const contactsWithCount = people.map(p => ({
+            ...p,
+            unread: unreadMap[p.id] || 0
+        }));
+
+        // 排序：有未讀的排前面
+        contactsWithCount.sort((a, b) => b.unread - a.unread);
+
+        setContacts(contactsWithCount);
     }
 
+    // 抓取聊天紀錄
+    async function fetchMessages(targetId: string) {
+        if (!currentUser) return;
+
+        // 抓取 A->B 和 B->A 的所有訊息
+        const { data } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`)
+            .order('created_at', { ascending: true });
+
+        if (data) setMessages(data);
+    }
+
+    // 標記已讀
+    async function markAsRead(targetId: string) {
+        if (!currentUser) return;
+        await supabase
+            .from('chat_messages')
+            .update({ is_read: true })
+            .eq('sender_id', targetId) // 對方傳給我的
+            .eq('receiver_id', currentUser.id)
+            .eq('is_read', false);
+
+        // 更新一下左側紅點 (會消失)
+        fetchContacts();
+    }
+
+    // 發送訊息
+    async function sendMessage(e: React.FormEvent) {
+        e.preventDefault();
+        if (!inputText.trim() || !activeContactId || !currentUser) return;
+
+        const text = inputText;
+        setInputText(''); // 秒清空，體驗好
+
+        const { error } = await supabase.from('chat_messages').insert({
+            sender_id: currentUser.id,
+            receiver_id: activeContactId,
+            message: text
+        });
+
+        if (error) alert('發送失敗');
+        // 不需要手動 fetchMessages，因為 Realtime 會幫忙
+    }
+
+    if (loading) return <div className="p-8 text-center">載入中...</div>;
+
     return (
-        <div className="h-screen flex flex-col bg-gray-100">
-            <div className="bg-white p-4 shadow flex justify-between items-center z-10">
-                <div className="flex items-center gap-2">
-                    <h1 className="text-xl font-bold text-green-700">💬 親師對話</h1>
-                    {role === 'parent' && <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded">家長端</span>}
-                    {role === 'teacher' && <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">班導師: {assignedClass}</span>}
-                    {role === 'director' && <span className="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded">園長 (全校檢視)</span>}
-                </div>
-                <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-400 text-white rounded text-sm">回首頁</button>
+        <div className="h-screen bg-gray-100 flex flex-col">
+            {/* 頂部導覽列 */}
+            <div className="bg-white border-b p-4 flex justify-between items-center shadow-sm flex-shrink-0 z-10">
+                <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    💬 親師對話
+                    <span className="text-sm bg-gray-100 px-2 py-1 rounded text-gray-500 font-normal">
+                        {currentUser.role === 'parent' ? '家長版' : '教師版'}
+                    </span>
+                </h1>
+                <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-200 text-gray-600 rounded text-sm hover:bg-gray-300">回首頁</button>
             </div>
 
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden max-w-6xl mx-auto w-full">
 
-                {/* ============ 左側選單 ============ */}
-
-                {/* 1. 如果是家長：顯示「聯絡對象」選擇 */}
-                {role === 'parent' && (
-                    <div className="w-1/3 max-w-[250px] bg-white border-r overflow-y-auto flex flex-col">
-                        <div className="p-4 font-bold text-gray-500 border-b">選擇聯絡對象</div>
-
-                        {/* 選項 A: 班導師 */}
-                        <div
-                            onClick={() => setActiveChannel('teacher')}
-                            className={`p-4 border-b cursor-pointer transition flex items-center gap-3 ${activeChannel === 'teacher' ? 'bg-green-100 border-l-4 border-green-600' : 'hover:bg-gray-50'}`}
-                        >
-                            <div className="bg-green-200 p-2 rounded-full text-xl">👩‍🏫</div>
-                            <div>
-                                <div className="font-bold text-gray-800">班級導師</div>
-                                <div className="text-xs text-gray-500">一般事務、作業請假</div>
-                            </div>
-                        </div>
-
-                        {/* 選項 B: 園長/主任 */}
-                        <div
-                            onClick={() => setActiveChannel('director')}
-                            className={`p-4 border-b cursor-pointer transition flex items-center gap-3 ${activeChannel === 'director' ? 'bg-purple-100 border-l-4 border-purple-600' : 'hover:bg-gray-50'}`}
-                        >
-                            <div className="bg-purple-200 p-2 rounded-full text-xl">🏫</div>
-                            <div>
-                                <div className="font-bold text-gray-800">園長 / 主任</div>
-                                <div className="text-xs text-gray-500">學費、投訴、行政</div>
-                            </div>
-                        </div>
+                {/* 左側：聯絡人列表 */}
+                <div className={`w-full md:w-80 bg-white border-r flex flex-col ${activeContactId ? 'hidden md:flex' : 'flex'}`}>
+                    <div className="p-4 border-b bg-gray-50 font-bold text-gray-500 text-sm">
+                        聯絡人 ({contacts.length})
                     </div>
-                )}
-
-                {/* 2. 如果是老師/園長：顯示「學生列表」 */}
-                {role !== 'parent' && (
-                    <div className="w-1/3 max-w-[250px] bg-white border-r overflow-y-auto">
-                        <div className="p-4 font-bold text-gray-500 border-b">學生列表 ({activeChannel === 'director' ? '行政頻道' : '班級頻道'})</div>
-                        {/* 園長可以切換頻道看不同訊息 */}
-                        {role === 'director' && (
-                            <div className="flex p-2 gap-2 border-b bg-gray-50">
-                                <button onClick={() => setActiveChannel('teacher')} className={`flex-1 text-xs py-1 rounded ${activeChannel === 'teacher' ? 'bg-green-500 text-white' : 'bg-gray-200'}`}>看班級對話</button>
-                                <button onClick={() => setActiveChannel('director')} className={`flex-1 text-xs py-1 rounded ${activeChannel === 'director' ? 'bg-purple-600 text-white' : 'bg-gray-200'}`}>看行政對話</button>
-                            </div>
-                        )}
-
-                        {students.map(s => (
+                    <div className="flex-1 overflow-y-auto">
+                        {contacts.map(contact => (
                             <div
-                                key={s.id}
-                                onClick={() => setSelectedStudent(s)}
-                                className={`p-4 border-b cursor-pointer hover:bg-green-50 transition ${selectedStudent?.id === s.id ? 'bg-green-100 border-l-4 border-green-600' : ''}`}
+                                key={contact.id}
+                                onClick={() => setActiveContactId(contact.id)}
+                                className={`p-4 border-b cursor-pointer hover:bg-blue-50 transition flex justify-between items-center ${activeContactId === contact.id ? 'bg-blue-100 border-l-4 border-blue-500' : ''}`}
                             >
-                                <div className="font-bold text-gray-800">{s.chinese_name}</div>
-                                <div className="text-xs text-gray-500">{s.grade}</div>
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600">
+                                        {contact.full_name?.[0] || 'U'}
+                                    </div>
+                                    <div>
+                                        <div className="font-bold text-gray-800">{contact.full_name}</div>
+                                        <div className="text-xs text-gray-500">{contact.role === 'parent' ? '家長' : '老師/主任'}</div>
+                                    </div>
+                                </div>
+                                {/* 未讀紅點 */}
+                                {contact.unread > 0 && (
+                                    <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-pulse">
+                                        {contact.unread}
+                                    </span>
+                                )}
                             </div>
                         ))}
                     </div>
-                )}
+                </div>
 
-                {/* ============ 右側聊天區 ============ */}
-                <div className="flex-1 flex flex-col bg-gray-200 relative">
-                    {/* 背景浮水印 (選填) */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
-                        <div className="text-6xl font-bold text-gray-400">
-                            {activeChannel === 'director' ? '行政專線' : '親師熱線'}
-                        </div>
-                    </div>
-
-                    {selectedStudent ? (
+                {/* 右側：聊天視窗 */}
+                <div className={`flex-1 flex flex-col bg-gray-50 ${!activeContactId ? 'hidden md:flex' : 'flex'}`}>
+                    {activeContactId ? (
                         <>
-                            {/* 頂部標題 */}
-                            <div className={`p-3 text-center text-sm border-b shadow-sm z-10 flex justify-between items-center px-6 ${activeChannel === 'director' ? 'bg-purple-100 text-purple-900' : 'bg-green-100 text-green-900'
-                                }`}>
-                                <span>
-                                    {role === 'parent' ? '正在聯絡：' : '對話對象：'}
-                                    <strong className="text-lg mx-2">
-                                        {activeChannel === 'director' ? '🏫 園長/行政主任' : `👩‍🏫 ${selectedStudent.grade} 班導師`}
-                                    </strong>
-                                </span>
-                                {role !== 'parent' && <span className="text-xs bg-white/50 px-2 py-1 rounded">學生: {selectedStudent.chinese_name}</span>}
+                            {/* 聊天對象標題 (手機版有返回按鈕) */}
+                            <div className="p-3 border-b bg-white flex items-center gap-2 shadow-sm">
+                                <button onClick={() => setActiveContactId(null)} className="md:hidden text-gray-500 px-2 font-bold text-xl">←</button>
+                                <div className="font-bold text-gray-800">
+                                    與 <span className="text-blue-600">{contacts.find(c => c.id === activeContactId)?.full_name}</span> 的對話
+                                </div>
                             </div>
 
-                            {/* 訊息列表 */}
-                            <div className="flex-1 overflow-y-auto p-4 space-y-4 z-10">
-                                {messages.length === 0 && (
-                                    <div className="text-center text-gray-400 mt-10 p-8 bg-white/50 rounded-xl mx-10 border border-dashed">
-                                        👋 這裡是
-                                        {activeChannel === 'director' ? '【行政專用頻道】' : '【班級親師頻道】'} <br />
-                                        {role === 'parent' && activeChannel === 'director' && '任何學費、行政問題請在此提出，班導師不會看到。'}
-                                        {role === 'parent' && activeChannel === 'teacher' && '作業、請假、班級事務請在此與老師溝通。'}
-                                    </div>
-                                )}
-
-                                {messages.map(m => {
-                                    const isMe = m.sender_id === userId;
-                                    return (
-                                        <div key={m.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                            <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[80%]`}>
-                                                {!isMe && <span className="text-[10px] text-gray-500 mb-1 ml-1">{m.sender_role === 'parent' ? '家長' : m.sender_name}</span>}
-
-                                                <div className={`px-4 py-2 rounded-xl shadow-sm ${isMe
-                                                        ? (activeChannel === 'director' ? 'bg-purple-600 text-white rounded-tr-none' : 'bg-green-500 text-white rounded-tr-none')
-                                                        : 'bg-white text-gray-800 rounded-tl-none'
-                                                    }`}>
-                                                    <div className="text-sm break-words">{m.content}</div>
+                            {/* 訊息顯示區 */}
+                            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                {messages.length === 0 ? (
+                                    <div className="text-center text-gray-400 mt-10">尚無對話紀錄，打個招呼吧！👋</div>
+                                ) : (
+                                    messages.map(msg => {
+                                        const isMe = msg.sender_id === currentUser.id;
+                                        return (
+                                            <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                                <div className={`max-w-[70%] p-3 rounded-xl shadow-sm relative ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border rounded-tl-none'}`}>
+                                                    <div className="whitespace-pre-wrap break-words">{msg.message}</div>
+                                                    <div className={`text-[10px] mt-1 text-right ${isMe ? 'text-blue-200' : 'text-gray-400'}`}>
+                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                        {isMe && (
+                                                            <span className="ml-1">{msg.is_read ? '已讀' : '未讀'}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <span className="text-[10px] text-gray-400 mt-1 mx-1">
-                                                    {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
                                             </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })
+                                )}
+                                {/* 隱形元素，用來自動捲動到底部 */}
                                 <div ref={messagesEndRef} />
                             </div>
 
                             {/* 輸入框 */}
-                            <form onSubmit={handleSend} className="p-4 bg-white border-t flex gap-2 z-10">
+                            <form onSubmit={sendMessage} className="p-4 bg-white border-t flex gap-2">
                                 <input
                                     type="text"
-                                    className={`flex-1 p-3 border rounded-full focus:outline-none border-gray-300 ${activeChannel === 'director' ? 'focus:border-purple-500' : 'focus:border-green-500'
-                                        }`}
-                                    placeholder={`傳送訊息給${activeChannel === 'director' ? '園長' : '老師'}...`}
-                                    value={newMessage}
-                                    onChange={e => setNewMessage(e.target.value)}
+                                    className="flex-1 p-3 border rounded-full focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50"
+                                    placeholder="輸入訊息..."
+                                    value={inputText}
+                                    onChange={e => setInputText(e.target.value)}
                                 />
-                                <button type="submit" className={`px-6 py-2 rounded-full font-bold text-white transition ${activeChannel === 'director' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-green-600 hover:bg-green-700'
-                                    }`}>
+                                <button type="submit" disabled={!inputText.trim()} className="bg-blue-600 text-white px-6 py-2 rounded-full font-bold hover:bg-blue-700 disabled:opacity-50 transition">
                                     發送
                                 </button>
                             </form>
                         </>
                     ) : (
-                        // 未選擇學生時 (老師/園長端)
-                        <div className="flex-1 flex items-center justify-center text-gray-400 flex-col gap-2">
-                            <div className="text-4xl">👈</div>
-                            <div>請從左側選擇一位學生</div>
+                        <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
+                            <div className="text-6xl mb-4">💬</div>
+                            <p>請從左側選擇一位聯絡人開始對話</p>
                         </div>
                     )}
                 </div>
