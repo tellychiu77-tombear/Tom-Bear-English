@@ -15,6 +15,9 @@ export default function PickupPage() {
     // 連線狀態訊號燈
     const [statusText, setStatusText] = useState('🔵 連線中...');
 
+    // 🔊 聲音開關狀態
+    const [audioEnabled, setAudioEnabled] = useState(false);
+
     const router = useRouter();
 
     useEffect(() => {
@@ -22,22 +25,36 @@ export default function PickupPage() {
 
         // 建立即時監聽頻道
         const channel = supabase
-            .channel('pickup_fast_v3')
+            .channel('pickup_audio_v4')
             .on(
                 'postgres_changes',
                 {
-                    event: '*',
+                    event: 'INSERT', // 我們只監聽「新增」的事件，避免修改狀態時也亂叫
                     schema: 'public',
                     table: 'pickup_requests',
                 },
-                (payload) => {
+                async (payload) => {
                     console.log('⚡️ 收到訊號:', payload);
-                    // 收到訊號後，延遲一點點再抓，確保資料寫入完成
+
+                    // 1. 重新抓取清單 (更新畫面)
                     setTimeout(() => {
                         fetchQueue();
                         setStatusText('⚡️ 有家長到了！');
                         setTimeout(() => setStatusText('🟢 即時連線正常'), 3000);
                     }, 200);
+
+                    // 2. 🔊 觸發語音廣播 (如果有開啟聲音)
+                    // payload.new 裡面只有 student_id，我們需要去查名字
+                    if (payload.new.status === 'notified') {
+                        const studentId = payload.new.student_id;
+                        // 快速查一下這個 ID 是誰
+                        const { data: student } = await supabase.from('students').select('chinese_name, grade').eq('id', studentId).single();
+
+                        if (student) {
+                            // 這裡設定廣播詞，您可以自由修改
+                            speak(`${student.chinese_name}，${student.chinese_name}，家長接送。`);
+                        }
+                    }
                 }
             )
             .subscribe((status) => {
@@ -49,6 +66,26 @@ export default function PickupPage() {
             supabase.removeChannel(channel);
         };
     }, []);
+
+    // 🔊 語音合成函數 (讓電腦說話)
+    function speak(text: string) {
+        if (!window.speechSynthesis) return;
+
+        // 建立發音物件
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'zh-TW'; // 設定為中文
+        utterance.rate = 0.9;     // 語速 (0.1 ~ 10)，0.9 稍微慢一點比較清楚
+        utterance.pitch = 1;      // 音調
+        utterance.volume = 1;     // 音量
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // 啟用聲音 (瀏覽器限制：必須由使用者點擊觸發)
+    function enableAudio() {
+        speak('語音廣播系統，啟動。');
+        setAudioEnabled(true);
+    }
 
     async function init() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -75,7 +112,7 @@ export default function PickupPage() {
         student:students (chinese_name, grade),
         parent:profiles (full_name)
       `)
-            .neq('status', 'completed') // 只抓還沒接走的
+            .neq('status', 'completed')
             .order('created_at', { ascending: true });
 
         if (data) setQueue(data);
@@ -99,7 +136,6 @@ export default function PickupPage() {
             return;
         }
 
-        // 🟢 修改點 1：家長一按，狀態直接設為 'notified' (已廣播)，跳過 pending
         const { error } = await supabase.from('pickup_requests').insert({
             student_id: studentId,
             parent_id: session.user.id,
@@ -118,6 +154,11 @@ export default function PickupPage() {
             .eq('id', id);
 
         if (error) alert('更新失敗');
+        // 注意：更新狀態不需要觸發 fetchQueue，因為 Realtime 會處理，且我們只監聽 INSERT 來發聲
+        // 但為了讓畫面即時消失，手動 fetch 也無妨，或是等待下一次輪詢
+        if (newStatus === 'completed') {
+            setQueue(prev => prev.filter(q => q.id !== id));
+        }
     }
 
     if (loading) return <div className="p-8 text-center">載入中...</div>;
@@ -129,8 +170,19 @@ export default function PickupPage() {
                     <h1 className="text-2xl font-bold text-yellow-900 flex items-center gap-2">
                         🚌 接送管理中心
                     </h1>
-                    <div className={`text-xs font-bold px-2 py-1 rounded shadow border ${statusText.includes('⚡️') ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-600'}`}>
-                        {statusText}
+                    <div className="flex gap-2">
+                        {/* 🔊 聲音開關按鈕 (僅老師可見) */}
+                        {role !== 'parent' && (
+                            <button
+                                onClick={enableAudio}
+                                className={`text-xs font-bold px-3 py-1 rounded shadow border transition ${audioEnabled ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-600 border-red-300 animate-pulse'}`}
+                            >
+                                {audioEnabled ? '🔊 廣播已開啟' : '🔇 點此開啟廣播'}
+                            </button>
+                        )}
+                        <div className={`text-xs font-bold px-2 py-1 rounded shadow border ${statusText.includes('⚡️') ? 'bg-red-500 text-white animate-pulse' : 'bg-white text-gray-600'}`}>
+                            {statusText}
+                        </div>
                     </div>
                 </div>
 
@@ -176,7 +228,6 @@ export default function PickupPage() {
                         ) : (
                             queue.map((req, index) => (
                                 <div key={req.id} className="bg-green-50 p-5 rounded-xl shadow-md border-l-8 border-green-500 flex justify-between items-center animate-slide-in">
-                                    {/* 左側：學生資訊 */}
                                     <div>
                                         <div className="flex items-center gap-2 mb-1">
                                             <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce">NOW</span>
@@ -188,13 +239,8 @@ export default function PickupPage() {
                                             家長: {req.parent?.full_name}
                                         </div>
                                     </div>
-
-                                    {/* 右側：只剩下一顆按鈕 */}
                                     <div className="flex flex-col gap-2">
-                                        <button
-                                            onClick={() => updateStatus(req.id, 'completed')}
-                                            className="px-6 py-4 bg-gray-800 text-white font-bold rounded-xl shadow-lg hover:bg-black active:scale-95 transition flex items-center gap-2"
-                                        >
+                                        <button onClick={() => updateStatus(req.id, 'completed')} className="px-6 py-4 bg-gray-800 text-white font-bold rounded-xl shadow-lg hover:bg-black active:scale-95 transition flex items-center gap-2">
                                             <span>✅</span>
                                             <span>已接走</span>
                                         </button>
