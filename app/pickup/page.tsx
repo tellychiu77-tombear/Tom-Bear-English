@@ -13,11 +13,29 @@ export default function PickupPage() {
 
     useEffect(() => {
         init();
+
+        // 🟢 建立即時監聽 (Realtime Subscription)
         const channel = supabase
-            .channel('pickup_updates')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'pickups' }, () => fetchQueue())
+            .channel('pickup_updates') // 頻道名稱可以隨意取
+            .on(
+                'postgres_changes',
+                {
+                    event: '*', // 監聽所有事件 (新增、修改、刪除)
+                    schema: 'public',
+                    table: 'pickup_requests', // 只監聽接送表
+                },
+                (payload) => {
+                    // ⚡️ 當資料庫發生變動時，馬上重新抓取清單！
+                    console.log('接收到即時更新:', payload);
+                    fetchQueue();
+                }
+            )
             .subscribe();
-        return () => { supabase.removeChannel(channel); };
+
+        // 離開頁面時，取消監聽 (避免浪費資源)
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     async function init() {
