@@ -13,7 +13,7 @@ export default function StudentsPage() {
     const [filterClass, setFilterClass] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
 
-    // 🟢 兵籍資料 Modal 狀態
+    // 🟢 兵籍資料 Modal 狀態 (查看模式)
     const [viewingStudent, setViewingStudent] = useState<any>(null);
     const [studentStats, setStudentStats] = useState({
         avgScore: 0,
@@ -23,11 +23,12 @@ export default function StudentsPage() {
         leaves: [] as any[]
     });
 
-    // 🟢 編輯學生狀態
+    // 🟢 編輯學生 Modal 狀態 (編輯模式)
     const [editingStudent, setEditingStudent] = useState<any>(null);
     const [editName, setEditName] = useState('');
     const [editGrade, setEditGrade] = useState('CEI-A');
     const [editAfterSchool, setEditAfterSchool] = useState(false);
+    const [editStatusNote, setEditStatusNote] = useState(''); // 新增：狀況備註
 
     const router = useRouter();
 
@@ -37,7 +38,6 @@ export default function StudentsPage() {
 
     async function fetchStudents() {
         setLoading(true);
-        // 抓取學生資料，並把家長資料 (profiles) 也一起抓出來 (inner join)
         const { data } = await supabase
             .from('students')
             .select(`
@@ -51,30 +51,18 @@ export default function StudentsPage() {
         setLoading(false);
     }
 
-    // --- 🟢 核心功能：開啟兵籍資料 (自動抓取成績與請假) ---
+    // --- 功能 A：開啟兵籍資料 (分析用) ---
     async function openStudentProfile(student: any) {
-        // 1. 設定基本資料
         setViewingStudent(student);
 
-        // 2. 自動抓成績
-        const { data: grades } = await supabase
-            .from('exam_results')
-            .select('*')
-            .eq('student_id', student.id)
-            .order('exam_date', { ascending: true });
+        // 抓成績
+        const { data: grades } = await supabase.from('exam_results').select('*').eq('student_id', student.id).order('exam_date', { ascending: true });
+        // 抓請假
+        const { data: leaves } = await supabase.from('leave_requests').select('*').eq('student_id', student.id).eq('status', 'approved').order('start_date', { ascending: false });
 
-        // 3. 自動抓請假 (已核准)
-        const { data: leaves } = await supabase
-            .from('leave_requests')
-            .select('*')
-            .eq('student_id', student.id)
-            .eq('status', 'approved')
-            .order('start_date', { ascending: false });
-
-        // 4. 計算 KPI
+        // 計算 KPI
         let avg = 0;
         let last = { name: '無紀錄', score: 0 };
-
         if (grades && grades.length > 0) {
             const total = grades.reduce((acc, curr) => acc + curr.score, 0);
             avg = Math.round(total / grades.length);
@@ -91,10 +79,13 @@ export default function StudentsPage() {
         });
     }
 
-    // 開啟編輯 Modal
+    // --- 功能 B：開啟編輯視窗 (管理用) ---
     function openEditModal(student: any) {
         setEditingStudent(student);
         setEditName(student.chinese_name);
+        // 載入備註
+        setEditStatusNote(student.status_note || '');
+
         const hasAfterSchool = student.grade.includes('課後輔導班');
         setEditAfterSchool(hasAfterSchool);
         let engClass = student.grade.replace(', 課後輔導班', '').replace('課後輔導班', '').trim();
@@ -109,9 +100,17 @@ export default function StudentsPage() {
         if (editAfterSchool && !finalGrade.includes('課後輔導班')) finalGrade += ', 課後輔導班';
         else if (!editAfterSchool) finalGrade = finalGrade.replace(', 課後輔導班', '').replace('課後輔導班', '').trim();
 
-        const { error } = await supabase.from('students').update({ chinese_name: editName, grade: finalGrade }).eq('id', editingStudent.id);
+        const { error } = await supabase
+            .from('students')
+            .update({
+                chinese_name: editName,
+                grade: finalGrade,
+                status_note: editStatusNote // 儲存備註
+            })
+            .eq('id', editingStudent.id);
+
         if (!error) {
-            alert('修改成功');
+            alert('✅ 資料更新成功');
             setEditingStudent(null);
             fetchStudents();
         } else {
@@ -119,14 +118,20 @@ export default function StudentsPage() {
         }
     }
 
-    // 篩選邏輯
+    // 刪除學生
+    async function deleteStudent(id: string) {
+        if (!confirm('確定要刪除此學生嗎？所有成績與紀錄將會消失！')) return;
+        const { error } = await supabase.from('students').delete().eq('id', id);
+        if (!error) fetchStudents();
+    }
+
     const filteredStudents = students.filter(s => {
         const matchClass = filterClass ? s.grade.includes(filterClass) : true;
         const matchSearch = searchTerm ? s.chinese_name.includes(searchTerm) : true;
         return matchClass && matchSearch;
     });
 
-    // --- SVG 折線圖元件 ---
+    // SVG 圖表元件
     const MiniLineChart = ({ data }: { data: any[] }) => {
         if (!data || data.length === 0) return <div className="h-32 flex items-center justify-center text-gray-300 bg-gray-50 rounded border border-dashed">尚無成績數據</div>;
         const height = 120;
@@ -153,34 +158,31 @@ export default function StudentsPage() {
 
     return (
         <div className="min-h-screen bg-indigo-50 p-6">
-            <div className="max-w-6xl mx-auto">
+            <div className="max-w-7xl mx-auto"> {/* 版面加寬 */}
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold text-indigo-900 flex items-center gap-2">
-                        📂 學生兵籍資料管理
-                        <span className="text-sm bg-white text-indigo-600 px-3 py-1 rounded-full shadow-sm">全校共 {students.length} 人</span>
+                        📂 全校學生管理中心
+                        <span className="text-sm bg-white text-indigo-600 px-3 py-1 rounded-full shadow-sm">共 {students.length} 人</span>
                     </h1>
                     <button onClick={() => router.push('/')} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">回首頁</button>
                 </div>
 
-                {/* 🔍 搜尋與篩選列 */}
+                {/* 🔍 搜尋列 */}
                 <div className="bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-wrap gap-4 items-center">
-                    <div className="flex items-center gap-2">
-                        <span className="font-bold text-gray-500">班級篩選:</span>
-                        <select className="p-2 border rounded bg-gray-50" value={filterClass} onChange={e => setFilterClass(e.target.value)}>
-                            <option value="">全部顯示</option>
-                            {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                    </div>
-                    <div className="flex items-center gap-2 flex-1">
-                        <span className="font-bold text-gray-500">搜尋姓名:</span>
-                        <input
-                            type="text"
-                            placeholder="輸入學生名字..."
-                            className="p-2 border rounded bg-gray-50 w-full md:w-64"
-                            value={searchTerm}
-                            onChange={e => setSearchTerm(e.target.value)}
-                        />
-                    </div>
+                    <select className="p-2 border rounded bg-gray-50" value={filterClass} onChange={e => setFilterClass(e.target.value)}>
+                        <option value="">全校班級</option>
+                        {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <input
+                        type="text"
+                        placeholder="搜尋學生姓名..."
+                        className="p-2 border rounded bg-gray-50 flex-1"
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
+                    <button className="bg-indigo-600 text-white px-4 py-2 rounded shadow hover:bg-indigo-700 font-bold" onClick={() => openEditModal({ chinese_name: '', grade: 'CEI-A' })}>
+                        + 新增學生
+                    </button>
                 </div>
 
                 {/* 📋 學生列表 */}
@@ -189,9 +191,9 @@ export default function StudentsPage() {
                         <thead className="bg-indigo-100 border-b border-indigo-200">
                             <tr>
                                 <th className="p-4 text-left font-bold text-indigo-800 w-32">班級</th>
-                                <th className="p-4 text-left font-bold text-indigo-800">姓名 / 家長聯繫</th>
-                                <th className="p-4 text-left font-bold text-indigo-800 w-48">狀態</th>
-                                <th className="p-4 text-right font-bold text-indigo-800 w-40">兵籍資料</th>
+                                <th className="p-4 text-left font-bold text-indigo-800 w-48">姓名</th>
+                                <th className="p-4 text-left font-bold text-indigo-800">狀況備註 / 家長</th>
+                                <th className="p-4 text-right font-bold text-indigo-800 w-64">操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -207,38 +209,46 @@ export default function StudentsPage() {
                                             </span>
                                         )}
                                     </td>
-                                    <td className="p-4">
-                                        <div className="text-xl font-bold text-gray-800 mb-1">{student.chinese_name}</div>
-                                        {student.parent ? (
-                                            <div className="text-sm text-gray-500 flex flex-col">
-                                                <span className="flex items-center gap-1">👤 {student.parent.full_name || '家長'}</span>
-                                                <span className="text-gray-400 text-xs">{student.parent.email}</span>
+                                    <td className="p-4 align-top">
+                                        <div className="text-xl font-bold text-gray-800 cursor-pointer hover:text-indigo-600 hover:underline" onClick={() => openStudentProfile(student)}>
+                                            {student.chinese_name}
+                                        </div>
+                                    </td>
+                                    <td className="p-4 align-top">
+                                        {/* 顯示狀況備註 */}
+                                        {student.status_note ? (
+                                            <div className="bg-yellow-50 border border-yellow-200 text-gray-700 px-3 py-2 rounded text-sm mb-2 max-w-md">
+                                                📝 {student.status_note}
                                             </div>
                                         ) : (
-                                            <div className="text-sm text-red-400 italic">⚠️ 尚未綁定家長帳號</div>
+                                            <div className="text-gray-300 text-xs italic mb-2">- 無特殊備註 -</div>
                                         )}
-                                    </td>
-                                    <td className="p-4 align-middle">
-                                        {student.parent ? (
-                                            <span className="text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-bold border border-green-200">✅ 已連結</span>
-                                        ) : (
-                                            <span className="text-gray-400 bg-gray-100 px-2 py-1 rounded text-xs font-bold">❌ 未連結</span>
-                                        )}
+
+                                        {/* 顯示家長 */}
+                                        <div className="text-xs text-gray-400 flex items-center gap-1">
+                                            {student.parent ? (
+                                                <>
+                                                    <span className="text-green-600 font-bold">● 已連結</span>
+                                                    <span>{student.parent.full_name} ({student.parent.email})</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-red-400">● 未連結家長</span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="p-4 text-right align-middle">
                                         <div className="flex justify-end gap-2">
-                                            {/* 🟢 這裡就是您要的檔案按鈕 */}
                                             <button
                                                 onClick={() => openStudentProfile(student)}
-                                                className="bg-purple-600 text-white px-4 py-2 rounded shadow hover:bg-purple-700 font-bold flex items-center gap-2 transform transition hover:scale-105"
+                                                className="bg-purple-600 text-white px-3 py-2 rounded shadow hover:bg-purple-700 font-bold flex items-center gap-1 text-sm"
                                             >
-                                                <span>📊</span> 檔案
+                                                📊 檔案
                                             </button>
                                             <button
                                                 onClick={() => openEditModal(student)}
-                                                className="bg-white text-gray-400 border border-gray-300 px-3 py-2 rounded hover:bg-gray-50 hover:text-gray-600 text-sm"
+                                                className="bg-white text-gray-600 border border-gray-300 px-3 py-2 rounded hover:bg-gray-100 font-bold text-sm"
                                             >
-                                                編輯
+                                                ✏️ 編輯
                                             </button>
                                         </div>
                                     </td>
@@ -246,16 +256,64 @@ export default function StudentsPage() {
                             ))}
                         </tbody>
                     </table>
-                    {filteredStudents.length === 0 && (
-                        <div className="p-10 text-center text-gray-400">找不到符合條件的學生</div>
-                    )}
+                    {filteredStudents.length === 0 && <div className="p-10 text-center text-gray-400">查無資料</div>}
                 </div>
 
-                {/* 🟢 兵籍資料 Modal (戰情室) */}
+                {/* 🟢 編輯學生 Modal (包含備註功能) */}
+                {editingStudent && (
+                    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
+                        <div className="bg-white p-6 rounded-xl w-full max-w-lg shadow-2xl animate-fade-in">
+                            <h3 className="font-bold text-xl mb-4 text-gray-800 border-b pb-2">
+                                {editingStudent.id ? `編輯資料: ${editingStudent.chinese_name}` : '新增學生'}
+                            </h3>
+
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-600 mb-1">學生姓名</label>
+                                    <input type="text" className="w-full p-2 border rounded bg-gray-50 focus:bg-white" value={editName} onChange={e => setEditName(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-600 mb-1">班級</label>
+                                    <select className="w-full p-2 border rounded bg-white" value={editGrade} onChange={e => setEditGrade(e.target.value)}>
+                                        {ALL_CLASSES.filter(c => c !== '課後輔導班').map(c => <option key={c} value={c}>{c}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="mb-4">
+                                <label className="flex items-center gap-2 p-3 border rounded bg-orange-50 cursor-pointer">
+                                    <input type="checkbox" className="w-5 h-5 accent-orange-600" checked={editAfterSchool} onChange={e => setEditAfterSchool(e.target.checked)} />
+                                    <span className="font-bold text-orange-800">參加課後輔導班 (安親)</span>
+                                </label>
+                            </div>
+
+                            <div className="mb-6">
+                                <label className="block text-sm font-bold text-gray-600 mb-1">狀況備註 / 悄悄話</label>
+                                <textarea
+                                    className="w-full p-3 border rounded h-24 bg-yellow-50 focus:bg-white focus:ring-2 focus:ring-yellow-400 outline-none resize-none"
+                                    placeholder="例如：最近感冒需吃藥、家長希望能加強單字..."
+                                    value={editStatusNote}
+                                    onChange={e => setEditStatusNote(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="flex justify-between items-center">
+                                {editingStudent.id ? (
+                                    <button onClick={() => deleteStudent(editingStudent.id)} className="text-red-500 hover:text-red-700 text-sm underline">刪除此學生</button>
+                                ) : <div></div>}
+                                <div className="flex gap-2">
+                                    <button onClick={() => setEditingStudent(null)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded">取消</button>
+                                    <button onClick={saveEdit} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700">儲存變更</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* 🟢 兵籍資料 Modal (分析用 - 保持原樣) */}
                 {viewingStudent && (
                     <div className="fixed inset-0 bg-gray-900/80 flex items-center justify-center z-[60] p-4 backdrop-blur-sm" onClick={() => setViewingStudent(null)}>
                         <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-slide-up flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
-
                             {/* Header */}
                             <div className="bg-gray-800 p-6 text-white flex justify-between items-start shrink-0">
                                 <div>
@@ -272,6 +330,12 @@ export default function StudentsPage() {
                             </div>
 
                             <div className="p-6 overflow-y-auto bg-gray-50 flex-1">
+                                {/* 0. 備註顯示 */}
+                                {viewingStudent.status_note && (
+                                    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 rounded mb-6 font-bold flex items-center gap-2">
+                                        📝 老師備註：{viewingStudent.status_note}
+                                    </div>
+                                )}
 
                                 {/* 1. KPI 儀表板 */}
                                 <div className="grid grid-cols-3 gap-4 mb-6">
@@ -344,26 +408,6 @@ export default function StudentsPage() {
                                     </div>
                                 </div>
 
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* 編輯 Modal (保留原本功能) */}
-                {editingStudent && (
-                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
-                        <div className="bg-white p-6 rounded-xl w-full max-w-sm">
-                            <h3 className="font-bold text-lg mb-4">編輯學生: {editingStudent.chinese_name}</h3>
-                            <input type="text" className="w-full p-2 border rounded mb-2" value={editName} onChange={e => setEditName(e.target.value)} />
-                            <div className="flex gap-2 mb-2">
-                                <select className="w-full p-2 border rounded" value={editGrade} onChange={e => setEditGrade(e.target.value)}>
-                                    {ALL_CLASSES.filter(c => c !== '課後輔導班').map(c => <option key={c} value={c}>{c}</option>)}
-                                </select>
-                            </div>
-                            <label className="flex items-center gap-2 mb-4"><input type="checkbox" checked={editAfterSchool} onChange={e => setEditAfterSchool(e.target.checked)} /> <span>參加課輔</span></label>
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setEditingStudent(null)} className="px-3 py-1 text-gray-500">取消</button>
-                                <button onClick={saveEdit} className="px-3 py-1 bg-blue-600 text-white rounded">儲存</button>
                             </div>
                         </div>
                     </div>
