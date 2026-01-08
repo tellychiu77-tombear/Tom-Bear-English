@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-// 定義班級選項 (純英文班級)
+// 定義班級選項 (英文班級 A-Z)
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
+
+// 🟢 修正：老師可選擇的所有班級 (包含「課後輔導班」)
+const ALL_TEACHER_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
 
 export default function AdminPage() {
     const [users, setUsers] = useState<any[]>([]);
@@ -56,7 +59,7 @@ export default function AdminPage() {
         setEditingUser(user);
         setEditName(user.full_name || '');
 
-        // 如果是老師，載入他原本負責的班級 (如果是 null 就給空陣列)
+        // 載入老師原本負責的班級
         setTeacherClasses(user.responsible_classes || []);
 
         // 重置家長表單
@@ -78,19 +81,19 @@ export default function AdminPage() {
         if (!editingUser) return;
 
         try {
-            // 1. 更新基本資料 (角色、姓名、負責班級)
+            // 1. 更新基本資料
             const { error: profileError } = await supabase
                 .from('profiles')
                 .update({
                     role: editingUser.role,
                     full_name: editName,
-                    responsible_classes: editingUser.role === 'teacher' ? teacherClasses : null // 只有老師需要存班級
+                    responsible_classes: editingUser.role === 'teacher' ? teacherClasses : null
                 })
                 .eq('id', editingUser.id);
 
             if (profileError) throw profileError;
 
-            // 2. 如果是「家長」且有填寫「新增小孩」
+            // 2. 家長補登小孩
             if (editingUser.role === 'parent' && newChildName.trim()) {
                 let finalGrade = newChildGrade;
                 if (isAfterSchool) finalGrade += ', 課後輔導班';
@@ -165,12 +168,11 @@ export default function AdminPage() {
                                         </span>
                                     </td>
                                     <td className="p-4">
-                                        {/* 顯示負責內容：老師顯示班級，家長顯示小孩 */}
                                         {user.role === 'teacher' ? (
                                             user.responsible_classes && user.responsible_classes.length > 0 ? (
                                                 <div className="flex flex-wrap gap-1">
                                                     {user.responsible_classes.map((cls: string) => (
-                                                        <span key={cls} className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-xs border border-blue-100">
+                                                        <span key={cls} className={`px-2 py-0.5 rounded text-xs border ${cls === '課後輔導班' ? 'bg-green-50 text-green-700 border-green-200' : 'bg-blue-50 text-blue-600 border-blue-100'}`}>
                                                             {cls}
                                                         </span>
                                                     ))}
@@ -250,10 +252,11 @@ export default function AdminPage() {
                                         <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
                                             🧑‍🏫 教師專區：負責班級
                                         </h4>
-                                        <p className="text-xs text-blue-600 mb-4">請勾選該老師負責授課的班級 (可多選)</p>
+                                        <p className="text-xs text-blue-600 mb-4">請勾選該老師負責授課的班級</p>
 
-                                        <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-1">
-                                            {ENGLISH_CLASSES.map(cls => (
+                                        <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto p-1">
+                                            {/* 🟢 修正：使用 ALL_TEACHER_CLASSES 來渲染，包含課輔班 */}
+                                            {ALL_TEACHER_CLASSES.map(cls => (
                                                 <button
                                                     key={cls}
                                                     onClick={() => toggleTeacherClass(cls)}
@@ -273,8 +276,6 @@ export default function AdminPage() {
                                 {editingUser.role === 'parent' && (
                                     <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 animate-fade-in">
                                         <h4 className="font-bold text-orange-800 mb-4">👶 家長專區：綁定學生</h4>
-
-                                        {/* 已綁定列表 */}
                                         <div className="space-y-2 mb-4">
                                             {editingUser.students && editingUser.students.length > 0 ? (
                                                 editingUser.students.map((s: any) => (
@@ -288,7 +289,6 @@ export default function AdminPage() {
                                             )}
                                         </div>
 
-                                        {/* 新增小孩 */}
                                         <div className="bg-white p-3 rounded-lg border border-orange-200">
                                             <label className="block text-xs font-bold text-gray-500 mb-2">➕ 新增綁定</label>
                                             <div className="flex gap-2 mb-2">
