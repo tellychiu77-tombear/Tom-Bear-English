@@ -14,10 +14,13 @@ export default function AdminPage() {
     // 編輯模式的狀態
     const [editingUser, setEditingUser] = useState<any>(null);
 
+    // 🟢 新增：編輯姓名狀態
+    const [editName, setEditName] = useState('');
+
     // 新增小孩的暫存狀態
     const [newChildName, setNewChildName] = useState('');
-    const [newChildGrade, setNewChildGrade] = useState('CEI-A'); // 預設英文班級
-    const [isAfterSchool, setIsAfterSchool] = useState(false);   // 是否參加課輔 (Checkbox)
+    const [newChildGrade, setNewChildGrade] = useState('CEI-A');
+    const [isAfterSchool, setIsAfterSchool] = useState(false);
 
     const router = useRouter();
 
@@ -30,7 +33,6 @@ export default function AdminPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        // 檢查權限 (只有 admin, director, manager 能進來)
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
         if (!['admin', 'director', 'manager'].includes(profile?.role || '')) {
             alert('權限不足');
@@ -38,16 +40,11 @@ export default function AdminPage() {
         }
     }
 
-    // 抓取所有使用者與學生資料
     async function fetchUsers() {
         setLoading(true);
-        // 這裡我們做一個 join query，抓出 user 同時抓出底下的 students
-        const { data: profiles, error } = await supabase
+        const { data: profiles } = await supabase
             .from('profiles')
-            .select(`
-        *,
-        students (*)
-      `)
+            .select(`*, students (*)`)
             .order('created_at', { ascending: false });
 
         if (profiles) setUsers(profiles);
@@ -57,34 +54,33 @@ export default function AdminPage() {
     // 開啟編輯視窗
     function openEditModal(user: any) {
         setEditingUser(user);
-        // 重置新增小孩的表單
+        setEditName(user.full_name || ''); // 🟢 載入目前的姓名
+
+        // 重置小孩表單
         setNewChildName('');
         setNewChildGrade('CEI-A');
         setIsAfterSchool(false);
     }
 
-    // 儲存變更 (包含修改角色、刪除學生、新增學生)
     async function handleSaveUser() {
         if (!editingUser) return;
 
         try {
-            // 1. 更新角色 (Role)
-            const { error: roleError } = await supabase
+            // 1. 更新基本資料 (角色 & 姓名)
+            const { error: profileError } = await supabase
                 .from('profiles')
-                .update({ role: editingUser.role })
+                .update({
+                    role: editingUser.role,
+                    full_name: editName // 🟢 儲存姓名
+                })
                 .eq('id', editingUser.id);
 
-            if (roleError) throw roleError;
+            if (profileError) throw profileError;
 
-            // 2. 如果有填寫「新增小孩」，則執行插入動作
-            if (newChildName.trim()) {
-                // 組合班級字串
-                // 如果有勾課輔 -> "CEI-A, 課後輔導班"
-                // 如果沒勾 -> "CEI-A"
+            // 2. 如果是「家長」且有填寫「新增小孩」，則執行插入動作
+            if (editingUser.role === 'parent' && newChildName.trim()) {
                 let finalGrade = newChildGrade;
-                if (isAfterSchool) {
-                    finalGrade += ', 課後輔導班';
-                }
+                if (isAfterSchool) finalGrade += ', 課後輔導班';
 
                 const { error: childError } = await supabase.from('students').insert({
                     parent_id: editingUser.id,
@@ -96,28 +92,22 @@ export default function AdminPage() {
             }
 
             alert('儲存成功！');
-            setEditingUser(null); // 關閉視窗
-            await fetchUsers();   // 🟢 關鍵：強制刷新列表，讓新資料顯示出來
+            setEditingUser(null);
+            await fetchUsers();
 
         } catch (error: any) {
             alert('更新失敗: ' + error.message);
         }
     }
 
-    // 刪除學生 (解綁)
     async function deleteStudent(studentId: string) {
-        if (!confirm('確定要刪除這位學生嗎？(資料將無法復原)')) return;
-
+        if (!confirm('確定要刪除這位學生嗎？')) return;
         const { error } = await supabase.from('students').delete().eq('id', studentId);
-        if (error) {
-            alert('刪除失敗');
-        } else {
-            // 更新目前的編輯狀態 (讓畫面上的學生立刻消失)
+        if (!error) {
             setEditingUser({
                 ...editingUser,
                 students: editingUser.students.filter((s: any) => s.id !== studentId)
             });
-            // 也要刷新背後的大列表
             fetchUsers();
         }
     }
@@ -132,7 +122,6 @@ export default function AdminPage() {
                     <button onClick={() => router.push('/')} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">回首頁</button>
                 </div>
 
-                {/* 使用者列表表格 */}
                 <div className="bg-white rounded-xl shadow overflow-hidden">
                     <table className="w-full">
                         <thead className="bg-gray-100 border-b">
@@ -177,11 +166,8 @@ export default function AdminPage() {
                                         )}
                                     </td>
                                     <td className="p-4 text-right">
-                                        <button
-                                            onClick={() => openEditModal(user)}
-                                            className="px-3 py-1 bg-blue-50 text-blue-600 rounded border border-blue-200 hover:bg-blue-100 text-sm font-bold"
-                                        >
-                                            編輯 / 補登
+                                        <button onClick={() => openEditModal(user)} className="px-3 py-1 bg-blue-50 text-blue-600 rounded border border-blue-200 hover:bg-blue-100 text-sm font-bold">
+                                            編輯
                                         </button>
                                     </td>
                                 </tr>
@@ -196,21 +182,21 @@ export default function AdminPage() {
                         <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden animate-fade-in">
                             <div className="p-6 border-b bg-gray-50">
                                 <h3 className="text-xl font-bold text-gray-800">編輯用戶資料</h3>
-                                <div className="text-sm text-gray-500 mt-1">{editingUser.full_name} ({editingUser.email})</div>
+                                <div className="text-sm text-gray-500 mt-1">{editingUser.email}</div>
                             </div>
 
                             <div className="p-6 space-y-6">
 
-                                {/* 1. 修改角色權限 */}
+                                {/* 1. 設定身分權限 (按鈕) */}
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">設定身分權限</label>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">步驟 1: 設定身分</label>
                                     <div className="grid grid-cols-4 gap-2">
                                         {['parent', 'teacher', 'manager', 'director'].map(r => (
                                             <button
                                                 key={r}
                                                 onClick={() => setEditingUser({ ...editingUser, role: r })}
                                                 className={`py-2 rounded border text-sm font-bold transition ${editingUser.role === r
-                                                        ? 'bg-blue-600 text-white border-blue-600'
+                                                        ? 'bg-blue-600 text-white border-blue-600 shadow-md'
                                                         : 'bg-white text-gray-600 hover:bg-gray-50'
                                                     }`}
                                             >
@@ -220,90 +206,68 @@ export default function AdminPage() {
                                     </div>
                                 </div>
 
+                                {/* 2. 修改姓名 (所有人都需要) */}
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">步驟 2: 設定顯示名稱</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 outline-none"
+                                        placeholder="例如: 王小美媽媽 或 Teacher Yoyo"
+                                        value={editName}
+                                        onChange={e => setEditName(e.target.value)}
+                                    />
+                                </div>
+
                                 <hr className="border-gray-100" />
 
-                                {/* 2. 已綁定的學生 (可刪除) */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">🐣 該帳號綁定的學生</label>
-                                    <div className="bg-orange-50 p-3 rounded-lg border border-orange-100 space-y-2">
-                                        {editingUser.students && editingUser.students.length > 0 ? (
-                                            editingUser.students.map((s: any) => (
-                                                <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
-                                                    <span className="font-bold text-gray-800">
-                                                        {s.chinese_name}
-                                                        <span className="text-xs text-gray-400 font-normal ml-2">({s.grade})</span>
-                                                    </span>
-                                                    <button
-                                                        onClick={() => deleteStudent(s.id)}
-                                                        className="text-red-500 text-xs hover:underline"
-                                                    >
-                                                        移除
-                                                    </button>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="text-gray-400 text-sm text-center">尚未綁定任何學生</div>
-                                        )}
-                                    </div>
-                                </div>
+                                {/* 🟢 智慧顯示區：只有「家長」才看得到以下內容 */}
+                                {editingUser.role === 'parent' ? (
+                                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 animate-fade-in">
+                                        <h4 className="font-bold text-orange-800 mb-4 flex items-center gap-2">
+                                            👶 家長專區：學生綁定
+                                        </h4>
 
-                                {/* 3. 補登新小孩 (新增資料) */}
-                                <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">➕ 補登其他小孩 (選填)</label>
-                                    <div className="flex gap-2 mb-2">
-                                        <input
-                                            type="text"
-                                            placeholder="姓名"
-                                            className="flex-1 p-2 border rounded"
-                                            value={newChildName}
-                                            onChange={e => setNewChildName(e.target.value)}
-                                        />
-
-                                        {/* 英文班級選單 */}
-                                        <select
-                                            className="w-24 p-2 border rounded bg-white"
-                                            value={newChildGrade}
-                                            onChange={e => setNewChildGrade(e.target.value)}
-                                        >
-                                            {ENGLISH_CLASSES.map(c => (
-                                                <option key={c} value={c}>{c}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    {/* 是否參加課輔勾選框 */}
-                                    <label className="flex items-center gap-2 cursor-pointer select-none">
-                                        <input
-                                            type="checkbox"
-                                            className="w-4 h-4 accent-blue-600"
-                                            checked={isAfterSchool}
-                                            onChange={e => setIsAfterSchool(e.target.checked)}
-                                        />
-                                        <span className="text-sm text-gray-700 font-bold">參加課後輔導 (安親)</span>
-                                    </label>
-
-                                    {newChildName && (
-                                        <div className="text-xs text-blue-600 mt-1">
-                                            預覽：{newChildName} ({newChildGrade}{isAfterSchool ? ', 課後輔導班' : ''})
+                                        {/* 已綁定列表 */}
+                                        <div className="space-y-2 mb-4">
+                                            {editingUser.students && editingUser.students.length > 0 ? (
+                                                editingUser.students.map((s: any) => (
+                                                    <div key={s.id} className="flex justify-between items-center bg-white p-2 rounded shadow-sm">
+                                                        <span className="font-bold text-gray-800">{s.chinese_name} <span className="text-xs text-gray-400">({s.grade})</span></span>
+                                                        <button onClick={() => deleteStudent(s.id)} className="text-red-500 text-xs hover:underline">移除</button>
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="text-gray-400 text-sm italic">此家長尚未綁定學生</div>
+                                            )}
                                         </div>
-                                    )}
-                                </div>
+
+                                        {/* 新增小孩 */}
+                                        <div className="bg-white p-3 rounded-lg border border-orange-200">
+                                            <label className="block text-xs font-bold text-gray-500 mb-2">➕ 新增綁定學生</label>
+                                            <div className="flex gap-2 mb-2">
+                                                <input type="text" placeholder="學生姓名" className="flex-1 p-2 border rounded" value={newChildName} onChange={e => setNewChildName(e.target.value)} />
+                                                <select className="w-24 p-2 border rounded bg-white" value={newChildGrade} onChange={e => setNewChildGrade(e.target.value)}>
+                                                    {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                </select>
+                                            </div>
+                                            <label className="flex items-center gap-2 cursor-pointer">
+                                                <input type="checkbox" className="w-4 h-4 accent-blue-600" checked={isAfterSchool} onChange={e => setIsAfterSchool(e.target.checked)} />
+                                                <span className="text-sm text-gray-700 font-bold">參加課後輔導</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    // 🟢 如果是老師/主任，顯示這個提示就好
+                                    <div className="text-center text-gray-400 py-4 bg-gray-50 rounded-lg border border-dashed">
+                                        ✨ 教職員帳號無需綁定學生資料
+                                    </div>
+                                )}
 
                             </div>
 
                             <div className="p-4 border-t bg-gray-50 flex justify-end gap-2">
-                                <button
-                                    onClick={() => setEditingUser(null)}
-                                    className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded"
-                                >
-                                    取消
-                                </button>
-                                <button
-                                    onClick={handleSaveUser}
-                                    className="px-6 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700"
-                                >
-                                    儲存變更
-                                </button>
+                                <button onClick={() => setEditingUser(null)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-200 rounded">取消</button>
+                                <button onClick={handleSaveUser} className="px-6 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700">儲存變更</button>
                             </div>
                         </div>
                     </div>
