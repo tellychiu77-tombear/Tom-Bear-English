@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { logAction } from '@/lib/logService';
 
 // 定義選項
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
@@ -152,9 +153,52 @@ export default function AdminPage() {
         if (!error) { setEditingStudentId(null); await fetchUsers(); }
     }
 
+    // (Import removed)
+
+    // ... (imports)
+
     async function handleSaveUser() {
         if (!editingUser) return;
+
+        // 0. Find original user data for Diffing
+        const originalUser = users.find(u => u.id === editingUser.id);
+        if (!originalUser) return;
+
         try {
+            // 1. Check Role Change
+            if (originalUser.role !== editingUser.role) {
+                await logAction(
+                    '權限變更',
+                    `將用戶 ${originalUser.full_name || originalUser.email} 的身分：由 [${originalUser.role}] 修改為 [${editingUser.role}]`
+                );
+            }
+
+            // 2. Check Department Change (Only for staff)
+            // Note: If original is null, compare with string 'english' or ''? 
+            // The state editDepartment defaults to user.department || 'english' when modal opens.
+            // Let's compare carefully.
+            const originalDept = originalUser.department || (['manager', 'teacher'].includes(originalUser.role) ? 'english' : null);
+            const newDept = ['manager', 'teacher'].includes(editingUser.role) ? editDepartment : null;
+
+            // Only log if meaningful change and newDept is relevant
+            if (newDept && originalDept !== newDept) {
+                // Get Label for better readability
+                const oldLabel = DEPARTMENTS.find(d => d.id === originalDept)?.label || originalDept || '無';
+                const newLabel = DEPARTMENTS.find(d => d.id === newDept)?.label || newDept;
+                await logAction(
+                    '部門調動',
+                    `將用戶 ${originalUser.full_name || originalUser.email} 的部門歸屬：由 [${oldLabel}] 修改為 [${newLabel}]`
+                );
+            }
+
+            // 3. Check Job Title Change
+            if (originalUser.job_title !== editJobTitle) {
+                await logAction(
+                    '職稱調整',
+                    `將用戶 ${originalUser.full_name || originalUser.email} 的職稱：由 [${originalUser.job_title || '無'}] 修改為 [${editJobTitle || '無'}]`
+                );
+            }
+
             // 儲存 Role, Department, JobTitle
             await supabase.from('profiles').update({
                 role: editingUser.role,
@@ -167,7 +211,11 @@ export default function AdminPage() {
             if (editingUser.role === 'parent' && newChildName.trim()) {
                 let finalGrade = newChildGrade;
                 if (isAfterSchool && !finalGrade.includes('課後輔導班')) finalGrade += ', 課後輔導班';
-                await supabase.from('students').insert({ parent_id: editingUser.id, chinese_name: newChildName, grade: finalGrade });
+                const { error: childErr } = await supabase.from('students').insert({ parent_id: editingUser.id, chinese_name: newChildName, grade: finalGrade });
+
+                if (!childErr) {
+                    await logAction('新增學生', `為家長 ${originalUser.full_name} 新增綁定學生：${newChildName}`);
+                }
             }
             alert('儲存成功！'); setEditingUser(null); await fetchUsers();
         } catch (e: any) { alert('失敗: ' + e.message); }
