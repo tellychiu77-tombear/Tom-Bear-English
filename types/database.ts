@@ -50,6 +50,7 @@ export type Database = {
                     parent_id: string
                     chinese_name: string
                     grade: string | null
+                    class_name: string | null
                     profile_details: Json | null
                     created_at: string
                 }
@@ -58,6 +59,7 @@ export type Database = {
                     parent_id: string
                     chinese_name: string
                     grade?: string | null
+                    class_name?: string | null
                     profile_details?: Json | null
                     created_at?: string
                 }
@@ -66,6 +68,7 @@ export type Database = {
                     parent_id?: string
                     chinese_name?: string
                     grade?: string | null
+                    class_name?: string | null
                     profile_details?: Json | null
                     created_at?: string
                 }
@@ -119,26 +122,7 @@ export type Database = {
                     created_at?: string
                 }
             }
-            contact_books: {
-                Row: {
-                    id: string
-                    title: string
-                    content: string
-                    created_at: string
-                }
-                Insert: {
-                    id?: string
-                    title: string
-                    content: string
-                    created_at?: string
-                }
-                Update: {
-                    id?: string
-                    title?: string
-                    content?: string
-                    created_at?: string
-                }
-            }
+
             exam_results: {
                 Row: {
                     id: string
@@ -251,7 +235,66 @@ export type Database = {
                     user_id?: string
                     read_at?: string
                 }
+            },
+            contact_books: {
+                Row: {
+                    id: string
+                    student_id: string
+                    date: string
+                    mood: number | null
+                    focus: number | null
+                    appetite: number | null
+                    homework: string | null
+                    comment: string | null
+                    photo_url: string | null
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    student_id: string
+                    date?: string
+                    mood?: number | null
+                    focus?: number | null
+                    appetite?: number | null
+                    homework?: string | null
+                    comment?: string | null
+                    photo_url?: string | null
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    student_id?: string
+                    date?: string
+                    mood?: number | null
+                    focus?: number | null
+                    appetite?: number | null
+                    homework?: string | null
+                    comment?: string | null
+                    photo_url?: string | null
+                    created_at?: string
+                }
+            },
+            class_assignments: {
+                Row: {
+                    id: string
+                    teacher_id: string
+                    class_name: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    teacher_id: string
+                    class_name: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    teacher_id?: string
+                    class_name?: string
+                    created_at?: string
+                }
             }
         }
     }
+}
 }

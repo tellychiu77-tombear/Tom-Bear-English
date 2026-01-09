@@ -4,342 +4,466 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-// 產生班級選項 (用來當篩選器)
-const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
-const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
+// Types
+type Role = 'director' | 'manager' | 'teacher' | 'parent' | 'admin' | 'loading';
 
 export default function ContactBookPage() {
-    const [role, setRole] = useState<string | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [students, setStudents] = useState<any[]>([]);
-
-    // 模式切換: 'single' (單人) | 'batch' (群發) | 'history' (查看紀錄)
-    const [mode, setMode] = useState<'single' | 'batch' | 'history'>('batch');
-
-    // --- 表單資料 ---
-    // 單人模式用
-    const [singleForm, setSingleForm] = useState({ studentId: '', homework: '', message: '' });
-
-    // 群發模式用
-    const [batchClass, setBatchClass] = useState(''); // 目前選中的班級
-    const [batchHomework, setBatchHomework] = useState('');
-    const [batchCommonMessage, setBatchCommonMessage] = useState('');
-    const [batchList, setBatchList] = useState<any[]>([]); // 該班級的學生清單狀態
-
-    // 歷史紀錄用
-    const [historyList, setHistoryList] = useState<any[]>([]);
-    const [historyFilterDate, setHistoryFilterDate] = useState(new Date().toISOString().split('T')[0]);
-
     const router = useRouter();
+    const [role, setRole] = useState<Role>('loading');
+    const [userId, setUserId] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    // Data State
+    const [classes, setClasses] = useState<string[]>([]);
+    const [selectedClass, setSelectedClass] = useState<string>('');
+    const [students, setStudents] = useState<any[]>([]); // Students in selected class (Teacher view)
+    const [myChildren, setMyChildren] = useState<any[]>([]); // Children (Parent view)
+    const [selectedChildId, setSelectedChildId] = useState<string>('');
+    const [logs, setLogs] = useState<any[]>([]); // Logs for selected child (Parent view)
+
+    // Teacher View State
+    const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({}); // student_id -> has_log
+    const [standardHomework, setStandardHomework] = useState(''); // Global homework setting
+
+    // Modal State
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [currentStudent, setCurrentStudent] = useState<any>(null);
+    const [formData, setFormData] = useState({
+        mood: 3,
+        focus: 3,
+        appetite: 3,
+        homework: '',
+        comment: '',
+        photo_url: ''
+    });
 
     useEffect(() => {
-        init();
+        fetchData();
     }, []);
 
-    async function init() {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { router.push('/'); return; }
+    // 1. Fetch Strategy
+    async function fetchData() {
+        try {
+            setLoading(true);
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) { router.push('/'); return; }
+            setUserId(session.user.id);
 
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-        const userRole = profile?.role || 'parent';
-        setRole(userRole);
+            const email = session.user.email;
+            let userRole: Role = 'parent';
 
-        if (userRole === 'parent') {
-            setMode('history'); // 家長只能看歷史
-            fetchMyChildHistory(session.user.id);
-        } else {
-            fetchStudents(); // 老師載入所有學生
+            // Admin Bypass
+            if (email === 'teacheryoyo@demo.com') {
+                userRole = 'director';
+                setRole('director');
+            } else {
+                const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+                userRole = profile?.role || 'parent';
+                setRole(userRole);
+            }
+
+            // Role-based Fetching
+            if (['director', 'manager', 'admin'].includes(userRole)) {
+                // Director: Fetch ALL distinct classes
+                const { data: list } = await supabase.from('students').select('class_name');
+                if (list) {
+                    const uniqueClasses = Array.from(new Set(list.map(i => i.class_name).filter(Boolean))) as string[];
+                    setClasses(uniqueClasses);
+                    if (uniqueClasses.length > 0) setSelectedClass(uniqueClasses[0]);
+                }
+
+            } else if (userRole === 'teacher') {
+                // Teacher: Fetch assigned classes
+                const { data: assignments } = await supabase
+                    .from('class_assignments')
+                    .select('class_name')
+                    .eq('teacher_id', session.user.id);
+
+                if (assignments) {
+                    const myClasses = assignments.map(a => a.class_name);
+                    setClasses(myClasses);
+                    if (myClasses.length > 0) setSelectedClass(myClasses[0]);
+                }
+
+            } else if (userRole === 'parent') {
+                // Parent: Fetch linked students
+                // Using view or direct query on student.parent_id
+                const { data: children } = await supabase
+                    .from('students')
+                    .select('*')
+                    .eq('parent_id', session.user.id);
+
+                if (children) {
+                    setMyChildren(children);
+                    if (children.length > 0) {
+                        setSelectedChildId(children[0].id);
+                        fetchChildLogs(children[0].id);
+                    }
+                }
+            }
+
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
-    // 老師：抓取所有學生
-    async function fetchStudents() {
-        const { data } = await supabase.from('students').select('*').order('grade').order('chinese_name');
-        if (data) setStudents(data);
-    }
-
-    // 家長：抓取自己小孩的聯絡簿
-    async function fetchMyChildHistory(parentId: string) {
-        const { data: myKids } = await supabase.from('students').select('id').eq('parent_id', parentId);
-        if (!myKids || myKids.length === 0) return;
-
-        const kidIds = myKids.map(k => k.id);
-        const { data } = await supabase
-            .from('contact_books')
-            .select(`*, student:students(chinese_name)`)
-            .in('student_id', kidIds)
-            .order('date', { ascending: false });
-
-        if (data) setHistoryList(data);
-    }
-
-    // 當老師選擇「班級」時，自動篩選出該班學生
+    // Teacher: Fetch Students when class changes
     useEffect(() => {
-        if (mode === 'batch' && batchClass) {
-            const targetStudents = students.filter(s => s.grade && s.grade.includes(batchClass));
-            // 初始化列表：每個人預設都勾選，備註為空
-            setBatchList(targetStudents.map(s => ({
-                ...s,
-                selected: true,
-                individualNote: '' // 個別備註
-            })));
-        }
-    }, [batchClass, mode, students]);
+        if (role === 'parent') return;
+        if (!selectedClass) return;
+        fetchStudentsInClass(selectedClass);
+    }, [selectedClass, role]);
 
-    // 更新群發列表中的個別狀態
-    function updateBatchItem(id: string, field: string, value: any) {
-        setBatchList(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
-    }
+    async function fetchStudentsInClass(className: string) {
+        const { data: list } = await supabase
+            .from('students')
+            .select('*')
+            .eq('class_name', className)
+            .order('name'); // Assuming logic for seat number or name
 
-    // 發送單人聯絡簿
-    async function sendSingle() {
-        if (!singleForm.studentId) return alert('請選擇學生');
-        if (!singleForm.homework && !singleForm.message) return alert('請填寫內容');
+        if (list) {
+            setStudents(list);
+            // Check today's status for these students
+            const today = new Date().toISOString().split('T')[0];
+            const { data: todaysLogs } = await supabase
+                .from('contact_books')
+                .select('student_id')
+                .in('student_id', list.map(s => s.id))
+                .eq('date', today);
 
-        const { error } = await supabase.from('contact_books').insert({
-            student_id: singleForm.studentId,
-            homework: singleForm.homework,
-            message: singleForm.message,
-            date: new Date().toISOString().split('T')[0]
-        });
-
-        if (error) alert('發送失敗: ' + error.message);
-        else {
-            alert('發送成功！');
-            setSingleForm({ studentId: '', homework: '', message: '' });
+            const statusMap: Record<string, boolean> = {};
+            todaysLogs?.forEach((log: any) => {
+                statusMap[log.student_id] = true;
+            });
+            setTodayStatus(statusMap);
         }
     }
 
-    // 🚀 發送群發聯絡簿
-    async function sendBatch() {
-        // 1. 找出有被勾選的學生
-        const targets = batchList.filter(s => s.selected);
-        if (targets.length === 0) return alert('請至少選擇一位學生');
-        if (!batchHomework && !batchCommonMessage) return alert('請填寫作業或聯絡事項');
-
-        const confirmMsg = `確定要發送給 ${batchClass} 的 ${targets.length} 位學生嗎？`;
-        if (!confirm(confirmMsg)) return;
-
-        // 2. 準備批次資料
-        const payload = targets.map(s => ({
-            student_id: s.id,
-            date: new Date().toISOString().split('T')[0],
-            homework: batchHomework, // 大家都一樣的作業
-            // 評語 = 共同評語 + 個別評語 (如果有寫的話)
-            message: s.individualNote ? `${batchCommonMessage}\n(個別備註: ${s.individualNote})` : batchCommonMessage
-        }));
-
-        const { error } = await supabase.from('contact_books').insert(payload);
-
-        if (error) alert('群發失敗: ' + error.message);
-        else {
-            alert(`成功發送給 ${targets.length} 位學生！🎉`);
-            // 清空表單
-            setBatchHomework('');
-            setBatchCommonMessage('');
-            setBatchList(prev => prev.map(s => ({ ...s, individualNote: '' }))); // 保留勾選狀態，但清空備註
-        }
-    }
-
-    // 載入當日歷史紀錄 (老師用)
-    async function fetchDailyHistory() {
-        if (!historyFilterDate) return;
+    // Parent: Fetch Logs when child changes
+    async function fetchChildLogs(studentId: string) {
+        setLogs([]);
         const { data } = await supabase
             .from('contact_books')
-            .select(`*, student:students(chinese_name, grade)`)
-            .eq('date', historyFilterDate)
-            .order('created_at', { ascending: false });
-
-        if (data) setHistoryList(data);
+            .select('*')
+            .eq('student_id', studentId)
+            .order('date', { ascending: false });
+        if (data) setLogs(data);
     }
 
-    if (loading) return <div className="p-8 text-center">載入中...</div>;
+    // Modal Actions
+    function openModal(student: any) {
+        setCurrentStudent(student);
+        // Pre-fill or Reset
+        // If editing existing for today? simplified: always create new/overwrite logic?
+        // Let's assume we are creating new or updating today's. 
+        // For simplicity, just reset form for now, but pre-fill homework if 'Standard' is set
+        setFormData({
+            mood: 3,
+            focus: 3,
+            appetite: 3,
+            homework: standardHomework || '',
+            comment: '',
+            photo_url: ''
+        });
+        setIsModalOpen(true);
+    }
 
+    async function handleSave() {
+        if (!currentStudent) return;
+
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            // Check if exists today to Update vs Insert? 
+            // Or just Insert. Schema doesn't enforce unique date per student yet, but usually 1 per day.
+            // Let's try upsert logic manually or just insert.
+            // Simplified: Insert.
+
+            const payload = {
+                student_id: currentStudent.id,
+                date: today,
+                mood: formData.mood,
+                focus: formData.focus,
+                appetite: formData.appetite,
+                homework: formData.homework,
+                comment: formData.comment,
+                photo_url: formData.photo_url
+            };
+
+            const { error } = await supabase.from('contact_books').insert(payload);
+            if (error) throw error;
+
+            // Success
+            setTodayStatus(prev => ({ ...prev, [currentStudent.id]: true }));
+            setIsModalOpen(false);
+            alert('儲存成功！');
+
+        } catch (e: any) {
+            alert('儲存失敗: ' + e.message);
+        }
+    }
+
+    function applyStandardHomework() {
+        setFormData(prev => ({ ...prev, homework: standardHomework }));
+    }
+
+    // Helpers
+    const renderStars = (count: number, type: string) => {
+        let icon = '⭐'; // Default
+        if (type === 'mood') icon = count === 1 ? '😢' : count === 2 ? '😐' : '😊';
+        if (type === 'focus') icon = count === 1 ? '☁️' : count === 2 ? '⚡' : '🔥';
+        if (type === 'appetite') icon = count === 1 ? '🥣' : count === 2 ? '🍱' : '🍗';
+
+        return <span className="text-xl">{icon}</span>; // Simplify to single emoji rep or repetition
+    };
+
+    if (loading) return <div className="p-10 text-center animate-pulse">載入聯絡簿資料中...</div>;
+
+    // --- PARENT VIEW ---
+    if (role === 'parent') {
+        return (
+            <div className="min-h-screen bg-gray-50 p-4">
+                <div className="max-w-md mx-auto">
+                    <h1 className="text-2xl font-black mb-6 text-gray-800">📖 寶寶聯絡簿</h1>
+
+                    {/* Child Tabs */}
+                    {myChildren.length > 1 && (
+                        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                            {myChildren.map(child => (
+                                <button
+                                    key={child.id}
+                                    onClick={() => { setSelectedChildId(child.id); fetchChildLogs(child.id); }}
+                                    className={`px-4 py-2 rounded-full whitespace-nowrap font-bold transition
+                                        ${selectedChildId === child.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-500 border'}
+                                    `}
+                                >
+                                    {child.chinese_name || child.name}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Logs List */}
+                    <div className="space-y-4">
+                        {logs.length === 0 ? (
+                            <div className="text-center py-10 text-gray-400">尚無聯絡簿紀錄</div>
+                        ) : (
+                            logs.map(log => (
+                                <div key={log.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+                                    <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-50">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">DATE</span>
+                                            <span className="text-xl font-black text-indigo-900">{log.date}</span>
+                                        </div>
+                                        {log.photo_url && (
+                                            <a href={log.photo_url} target="_blank" className="block w-12 h-12 rounded-lg bg-gray-100 bg-cover bg-center border" style={{ backgroundImage: `url(${log.photo_url})` }} />
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2 mb-5">
+                                        <div className="bg-orange-50 rounded-xl p-3 text-center">
+                                            <div className="text-xs text-orange-400 font-bold mb-1">心情</div>
+                                            {renderStars(log.mood || 0, 'mood')}
+                                        </div>
+                                        <div className="bg-blue-50 rounded-xl p-3 text-center">
+                                            <div className="text-xs text-blue-400 font-bold mb-1">專注</div>
+                                            {renderStars(log.focus || 0, 'focus')}
+                                        </div>
+                                        <div className="bg-green-50 rounded-xl p-3 text-center">
+                                            <div className="text-xs text-green-400 font-bold mb-1">食慾</div>
+                                            {renderStars(log.appetite || 0, 'appetite')}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-400 mb-1">🏠 回家作業</div>
+                                            <div className="bg-gray-50 p-3 rounded-xl text-gray-700 text-sm whitespace-pre-line">
+                                                {log.homework || '無作業'}
+                                            </div>
+                                        </div>
+                                        {log.comment && (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-400 mb-1">💬 老師評語</div>
+                                                <div className="p-1 text-gray-600 text-sm">
+                                                    {log.comment}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                    <button onClick={() => router.push('/')} className="mt-8 w-full py-3 text-gray-400 font-bold text-sm">返回首頁</button>
+                </div>
+            </div>
+        );
+    }
+
+    // --- TEACHER / DIRECTOR VIEW ---
     return (
-        <div className="min-h-screen bg-orange-50 p-4">
-            <div className="max-w-4xl mx-auto">
-                <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold text-orange-900 flex items-center gap-2">
-                        📝 電子聯絡簿
-                        {role === 'parent' && <span className="text-sm bg-orange-200 text-orange-800 px-2 py-1 rounded">家長版</span>}
-                    </h1>
-                    <button onClick={() => router.push('/')} className="px-3 py-1 bg-gray-400 text-white rounded text-sm">回首頁</button>
+        <div className="min-h-screen bg-gray-50 p-6">
+            <div className="max-w-5xl mx-auto">
+                {/* Control Header */}
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <h1 className="text-2xl font-black text-gray-800">📝 電子聯絡簿</h1>
+                            <p className="text-gray-400 text-xs mt-1">
+                                {role === 'director' || role === 'manager' ? '管理員模式' : '教師模式'} | {new Date().toLocaleDateString()}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2 w-full md:w-auto">
+                            <select
+                                value={selectedClass}
+                                onChange={e => setSelectedClass(e.target.value)}
+                                className="p-2 border rounded-lg font-bold text-gray-700 w-full md:w-48"
+                            >
+                                <option value="" disabled>選擇班級</option>
+                                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                            <button onClick={() => router.push('/')} className="px-4 py-2 text-gray-500 bg-gray-100 rounded-lg hover:bg-gray-200">離開</button>
+                        </div>
+                    </div>
+
+                    {/* Quick Homework Setter */}
+                    <div className="flex gap-2 items-center bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                        <span className="text-xl">⚡</span>
+                        <input
+                            type="text"
+                            placeholder="設定今日全班預設作業內容..."
+                            value={standardHomework}
+                            onChange={e => setStandardHomework(e.target.value)}
+                            className="flex-1 bg-transparent border-none outline-none font-bold text-indigo-900 placeholder-indigo-300"
+                        />
+                    </div>
                 </div>
 
-                {/* 老師專用：功能切換 Tabs */}
-                {role !== 'parent' && (
-                    <div className="flex gap-2 mb-4 bg-white p-1 rounded-lg shadow-sm border inline-flex">
-                        <button onClick={() => setMode('batch')} className={`px-4 py-2 rounded-md font-bold text-sm transition ${mode === 'batch' ? 'bg-orange-500 text-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}>🚀 班級群發</button>
-                        <button onClick={() => setMode('single')} className={`px-4 py-2 rounded-md font-bold text-sm transition ${mode === 'single' ? 'bg-orange-500 text-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}>👤 單人填寫</button>
-                        <button onClick={() => { setMode('history'); fetchDailyHistory(); }} className={`px-4 py-2 rounded-md font-bold text-sm transition ${mode === 'history' ? 'bg-orange-500 text-white shadow' : 'text-gray-600 hover:bg-gray-100'}`}>📜 發送紀錄</button>
-                    </div>
-                )}
-
-                {/* ============ 🚀 班級群發模式 ============ */}
-                {mode === 'batch' && role !== 'parent' && (
-                    <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-orange-500 animate-fade-in">
-                        <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">🚀 快速群發作業</h2>
-
-                        {/* 1. 選班級 */}
-                        <div className="mb-6">
-                            <label className="block text-sm font-bold text-gray-700 mb-2">步驟 1: 選擇班級</label>
-                            <div className="flex flex-wrap gap-2">
-                                {ALL_CLASSES.map(cls => (
-                                    <button
-                                        key={cls}
-                                        onClick={() => setBatchClass(cls)}
-                                        className={`px-3 py-1.5 rounded border text-sm font-bold transition ${batchClass === cls ? 'bg-blue-600 text-white border-blue-600 shadow ring-2 ring-blue-200' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
-                                    >
-                                        {cls}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {batchClass && (
-                            <>
-                                {/* 2. 填寫共同內容 */}
-                                <div className="grid md:grid-cols-2 gap-4 mb-6 bg-gray-50 p-4 rounded-xl border">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">步驟 2: 今日作業 (全班一樣)</label>
-                                        <input
-                                            type="text"
-                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-orange-300 outline-none"
-                                            placeholder="例如: 英文課本 P.10 ~ P.12"
-                                            value={batchHomework}
-                                            onChange={e => setBatchHomework(e.target.value)}
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">共同聯絡事項</label>
-                                        <input
-                                            type="text"
-                                            className="w-full p-2 border rounded focus:ring-2 focus:ring-orange-300 outline-none"
-                                            placeholder="例如: 明天要考聽寫"
-                                            value={batchCommonMessage}
-                                            onChange={e => setBatchCommonMessage(e.target.value)}
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* 3. 勾選學生 & 個別備註 */}
-                                <div className="mb-6">
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                                        步驟 3: 確認發送名單 ({batchList.filter(s => s.selected).length} 人)
-                                    </label>
-                                    <div className="max-h-80 overflow-y-auto border rounded-xl divide-y">
-                                        {batchList.length === 0 ? <div className="p-4 text-gray-400 text-center">此班級尚無學生</div> :
-                                            batchList.map(s => (
-                                                <div key={s.id} className={`p-3 flex items-center gap-3 transition ${s.selected ? 'bg-white' : 'bg-gray-100 opacity-50'}`}>
-                                                    {/* 勾選框 */}
-                                                    <input
-                                                        type="checkbox"
-                                                        className="w-5 h-5 cursor-pointer accent-orange-500"
-                                                        checked={s.selected}
-                                                        onChange={e => updateBatchItem(s.id, 'selected', e.target.checked)}
-                                                    />
-
-                                                    {/* 學生姓名 */}
-                                                    <div className="w-24 font-bold text-gray-800">{s.chinese_name}</div>
-
-                                                    {/* 個別備註輸入框 */}
-                                                    <input
-                                                        type="text"
-                                                        disabled={!s.selected}
-                                                        className="flex-1 p-1.5 border rounded text-sm bg-gray-50 focus:bg-white transition"
-                                                        placeholder="個別備註 (選填，例如: 上課不專心)"
-                                                        value={s.individualNote}
-                                                        onChange={e => updateBatchItem(s.id, 'individualNote', e.target.value)}
-                                                    />
-                                                </div>
-                                            ))
-                                        }
-                                    </div>
-                                </div>
-
-                                {/* 4. 送出按鈕 */}
+                {/* Students Grid */}
+                {!selectedClass ? (
+                    <div className="text-center py-20 text-gray-400">請先選擇班級</div>
+                ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {students.map(s => {
+                            const isDone = todayStatus[s.id];
+                            return (
                                 <button
-                                    onClick={sendBatch}
-                                    className="w-full bg-gradient-to-r from-orange-500 to-red-500 text-white py-3 rounded-xl font-bold text-lg shadow-lg hover:from-orange-600 hover:to-red-600 transition transform hover:scale-[1.01]"
+                                    key={s.id}
+                                    onClick={() => openModal(s)}
+                                    className={`relative p-4 rounded-2xl border transition text-left group
+                                        ${isDone
+                                            ? 'bg-green-50/50 border-green-200 hover:bg-green-100'
+                                            : 'bg-white hover:bg-gray-50 border-gray-100 hover:border-indigo-200 hover:shadow-md'
+                                        }
+                                    `}
                                 >
-                                    🚀 一鍵發送給 {batchList.filter(s => s.selected).length} 位學生
-                                </button>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                {/* ============ 👤 單人填寫模式 (舊版功能) ============ */}
-                {mode === 'single' && role !== 'parent' && (
-                    <div className="bg-white p-6 rounded-xl shadow-lg border-t-4 border-gray-400">
-                        <h2 className="text-lg font-bold text-gray-800 mb-4">✍️ 單筆填寫</h2>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">選擇學生</label>
-                                <select className="w-full p-2 border rounded" value={singleForm.studentId} onChange={e => setSingleForm({ ...singleForm, studentId: e.target.value })}>
-                                    <option value="">-- 請選擇 --</option>
-                                    {students.map(s => (
-                                        <option key={s.id} value={s.id}>{s.grade} - {s.chinese_name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">今日作業</label>
-                                <input type="text" className="w-full p-2 border rounded" value={singleForm.homework} onChange={e => setSingleForm({ ...singleForm, homework: e.target.value })} />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-bold text-gray-700 mb-1">聯絡事項</label>
-                                <textarea className="w-full p-2 border rounded h-24" value={singleForm.message} onChange={e => setSingleForm({ ...singleForm, message: e.target.value })} />
-                            </div>
-                            <button onClick={sendSingle} className="w-full bg-gray-600 text-white py-3 rounded-lg font-bold hover:bg-gray-700">發送</button>
-                        </div>
-                    </div>
-                )}
-
-                {/* ============ 📜 歷史紀錄 (家長/老師共用) ============ */}
-                {mode === 'history' && (
-                    <div className="space-y-4">
-                        {role !== 'parent' && (
-                            <div className="flex items-center gap-2 bg-white p-3 rounded-lg shadow-sm">
-                                <label className="font-bold text-gray-600 text-sm">📅 選擇日期查看：</label>
-                                <input
-                                    type="date"
-                                    className="p-1 border rounded"
-                                    value={historyFilterDate}
-                                    onChange={(e) => { setHistoryFilterDate(e.target.value); setTimeout(fetchDailyHistory, 100); }}
-                                />
-                                <button onClick={fetchDailyHistory} className="px-3 py-1 bg-blue-100 text-blue-700 rounded text-sm font-bold">查詢</button>
-                            </div>
-                        )}
-
-                        <div className="space-y-3">
-                            {historyList.length === 0 ? <div className="text-center text-gray-400 py-10 bg-white rounded-xl">尚無紀錄</div> :
-                                historyList.map(item => (
-                                    <div key={item.id} className="bg-white p-4 rounded-xl shadow-sm border-l-4 border-orange-300">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div className="font-bold text-lg text-gray-800">
-                                                {item.student?.chinese_name}
-                                                <span className="text-sm font-normal text-gray-500 ml-2">({item.date})</span>
-                                            </div>
-                                            {role !== 'parent' && <div className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{item.student?.grade}</div>}
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <div className="bg-orange-50 p-2 rounded text-sm text-orange-900">
-                                                <span className="font-bold">🏠 作業：</span>{item.homework || '無'}
-                                            </div>
-                                            <div className="text-sm text-gray-600">
-                                                <span className="font-bold">💬 事項：</span>{item.message || '無'}
-                                            </div>
-                                        </div>
+                                    <div className="flex justify-between items-start mb-2">
+                                        <span className={`font-bold text-lg ${isDone ? 'text-green-800' : 'text-gray-800'}`}>
+                                            {s.chinese_name || s.name}
+                                        </span>
+                                        {isDone ? <span>✅</span> : <span className="opacity-0 group-hover:opacity-100">✏️</span>}
                                     </div>
-                                ))
-                            }
-                        </div>
+                                    <div className="text-xs text-gray-400 truncate">{s.school_grade || selectedClass}</div>
+                                </button>
+                            );
+                        })}
                     </div>
                 )}
 
+                {/* Writing Modal */}
+                {isModalOpen && currentStudent && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl animate-fade-in-up">
+                            <div className="flex justify-between items-center mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-black text-gray-800">{currentStudent.chinese_name}</h2>
+                                    <p className="text-gray-400 text-xs">填寫今日聯絡簿</p>
+                                </div>
+                                <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full">✕</button>
+                            </div>
+
+                            <div className="space-y-6">
+                                {/* Metrics */}
+                                <div className="grid grid-cols-3 gap-4">
+                                    {[
+                                        { label: '心情', key: 'mood', options: ['😢', '😐', '😊'] },
+                                        { label: '專注', key: 'focus', options: ['☁️', '⚡', '🔥'] },
+                                        { label: '食慾', key: 'appetite', options: ['🥣', '🍱', '🍗'] }
+                                    ].map((m: any) => (
+                                        <div key={m.key} className="text-center">
+                                            <div className="text-xs font-bold text-gray-400 mb-2">{m.label}</div>
+                                            <div className="flex justify-center gap-1">
+                                                {m.options.map((emoji: string, idx: number) => {
+                                                    const val = idx + 1;
+                                                    const isActive = (formData as any)[m.key] === val;
+                                                    return (
+                                                        <button
+                                                            key={idx}
+                                                            onClick={() => setFormData({ ...formData, [m.key]: val })}
+                                                            className={`w-10 h-10 rounded-full flex items-center justify-center text-xl transition
+                                                                ${isActive ? 'bg-indigo-100 scale-110 shadow-inner' : 'grayscale opacity-50 hover:grayscale-0 hover:opacity-100'}
+                                                            `}
+                                                        >
+                                                            {emoji}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Inputs */}
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <label className="text-xs font-bold text-gray-500">🏠 回家作業</label>
+                                        <button onClick={applyStandardHomework} className="text-xs text-indigo-600 font-bold hover:underline">
+                                            📥 套用全班作業
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        className="w-full p-3 border rounded-xl h-24 font-medium text-gray-700 resize-none bg-gray-50 focus:bg-white transition"
+                                        placeholder="請輸入作業內容..."
+                                        value={formData.homework}
+                                        onChange={e => setFormData({ ...formData, homework: e.target.value })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 mb-1 block">💬 老師評語</label>
+                                    <textarea
+                                        className="w-full p-3 border rounded-xl h-20 font-medium text-gray-700 resize-none bg-gray-50 focus:bg-white transition"
+                                        placeholder="給家長的話..."
+                                        value={formData.comment}
+                                        onChange={e => setFormData({ ...formData, comment: e.target.value })}
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 mb-1 block">📷 照片連結 (選填)</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-3 border rounded-xl bg-gray-50 focus:bg-white transition"
+                                        placeholder="https://..."
+                                        value={formData.photo_url}
+                                        onChange={e => setFormData({ ...formData, photo_url: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="mt-8">
+                                <button
+                                    onClick={handleSave}
+                                    className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-lg hover:bg-indigo-700 transform hover:scale-[1.02] transition"
+                                >
+                                    ✅ 完成並儲存
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -164,5 +164,46 @@ alter publication supabase_realtime add table announcements;
 alter table announcements enable row level security;
 alter table announcement_reads enable row level security;
 
-create policy "Enable all access for now" on announcements for all using (true) with check (true);
 create policy "Enable all access for now" on announcement_reads for all using (true) with check (true);
+
+-- 20. Contact Book Updates (Detailed)
+drop table if exists contact_books;
+create table contact_books (
+  id uuid default uuid_generate_v4() primary key,
+  student_id uuid references students(id) not null,
+  date date default CURRENT_DATE,
+  mood int check (mood between 1 and 3),
+  focus int check (focus between 1 and 3),
+  appetite int check (appetite between 1 and 3),
+  homework text,
+  comment text,
+  photo_url text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+create policy "Enable all access for now" on contact_books for all using (true) with check (true);
+
+-- 21. Class Assignments (for Teachers)
+create table class_assignments (
+  id uuid default uuid_generate_v4() primary key,
+  teacher_id uuid references users(id) not null,
+  class_name text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+alter table class_assignments enable row level security;
+create policy "Enable all access for now" on class_assignments for all using (true) with check (true);
+
+-- 22. Parent Student Link View (Virtual Table)
+create or replace view parent_student_link as
+select 
+  parent_id, 
+  id as student_id 
+from students 
+where parent_id is not null;
+
+-- 23. Add class_name to students if not exists (Executed conditionally usually, but here we just document it or add column)
+-- Note: 'alter table students add column class_name text;' should be run if not exists. 
+-- Since this is a schema definition file, I'll add it to the students table definition up top or alter here.
+-- I will strictly follow the "append" pattern for safe migrations in this context or editing the original table if I can.
+-- However, editing line 20 (students) is better. 
+-- But since I am using replace_file_content on the end, I will use an ALTER statement here to be safe for existing deployments.
+alter table students add column if not exists class_name text;
