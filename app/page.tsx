@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 
 export default function DashboardPage() {
     const [role, setRole] = useState<string | null>(null);
@@ -167,13 +168,20 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    <DashboardCard
-                        title="數位聯絡簿"
-                        icon="📝"
-                        color="bg-amber-400"
-                        onClick={() => router.push('/contact-book')}
-                        desc="每日課堂紀錄與家長回報"
-                    />
+                    <Link
+                        href="/contact-book"
+                        className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200"
+                    >
+                        <div className="flex items-center gap-4 mb-3">
+                            <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">
+                                �
+                            </div>
+                            <h3 className="text-lg font-bold text-gray-800">數位聯絡簿</h3>
+                        </div>
+                        <p className="text-sm text-gray-500">
+                            每日課堂紀錄與家長回報
+                        </p>
+                    </Link>
 
                     <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
 
