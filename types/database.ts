@@ -202,6 +202,55 @@ export type Database = {
                     status?: 'pending' | 'approved' | 'rejected'
                     created_at?: string
                 }
+            },
+            announcements: {
+                Row: {
+                    id: string
+                    title: string
+                    content: string
+                    priority: 'normal' | 'urgent'
+                    audience: 'all' | 'staff' | 'parent'
+                    author_id: string
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    title: string
+                    content: string
+                    priority?: 'normal' | 'urgent'
+                    audience?: 'all' | 'staff' | 'parent'
+                    author_id: string
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    title?: string
+                    content?: string
+                    priority?: 'normal' | 'urgent'
+                    audience?: 'all' | 'staff' | 'parent'
+                    author_id?: string
+                    created_at?: string
+                }
+            },
+            announcement_reads: {
+                Row: {
+                    id: string
+                    announcement_id: string
+                    user_id: string
+                    read_at: string
+                }
+                Insert: {
+                    id?: string
+                    announcement_id: string
+                    user_id: string
+                    read_at?: string
+                }
+                Update: {
+                    id?: string
+                    announcement_id?: string
+                    user_id?: string
+                    read_at?: string
+                }
             }
         }
     }

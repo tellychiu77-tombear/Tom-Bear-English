@@ -139,4 +139,30 @@ create table audit_logs (
 -- 16. Enable Realtime & RLS for Logs
 alter publication supabase_realtime add table audit_logs;
 alter table audit_logs enable row level security;
-create policy "Enable all access for now" on audit_logs for all using (true) with check (true);
+-- 17. Announcements System
+create table announcements (
+  id uuid default uuid_generate_v4() primary key,
+  title text not null,
+  content text not null,
+  priority text check (priority in ('normal', 'urgent')) default 'normal',
+  audience text check (audience in ('all', 'staff', 'parent')) default 'all',
+  author_id uuid references users(id) not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 18. Announcement Reads
+create table announcement_reads (
+  id uuid default uuid_generate_v4() primary key,
+  announcement_id uuid references announcements(id) on delete cascade not null,
+  user_id uuid references users(id) on delete cascade not null,
+  read_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique(announcement_id, user_id)
+);
+
+-- 19. Enable Realtime & RLS for Announcements
+alter publication supabase_realtime add table announcements;
+alter table announcements enable row level security;
+alter table announcement_reads enable row level security;
+
+create policy "Enable all access for now" on announcements for all using (true) with check (true);
+create policy "Enable all access for now" on announcement_reads for all using (true) with check (true);

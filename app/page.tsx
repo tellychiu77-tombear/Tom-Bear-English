@@ -153,6 +153,20 @@ export default function DashboardPage() {
                         desc={role === 'parent' ? '抵達補習班時點擊' : '管理放學接送隊列'}
                     />
 
+                    <div
+                        onClick={() => router.push('/announcements')}
+                        className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-indigo-100 transition-all cursor-pointer relative overflow-hidden"
+                    >
+                        <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
+                        <div className="relative">
+                            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-md shadow-rose-100">
+                                📢
+                            </div>
+                            <h2 className="text-2xl font-bold text-slate-800 mb-2 group-hover:text-rose-600 transition-colors">公告欄</h2>
+                            <p className="text-slate-500 font-medium">查看最新校園公告</p>
+                        </div>
+                    </div>
+
                     <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
 
                     <DashboardCard
