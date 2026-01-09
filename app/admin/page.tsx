@@ -12,9 +12,25 @@ export default function AdminPage() {
     const [users, setUsers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // 擴充：權限定義
+    const ROLES = [
+        { id: 'director', label: '班主任 (Director)', hint: '最高權限：管理所有功能與人員' },
+        { id: 'manager', label: '部門主管 (Manager)', hint: '管理：部門績效、旗下老師與學生成績' },
+        { id: 'admin_staff', label: '行政人員 (Admin)', hint: '負責：註冊審核、收費、點名、請假' },
+        { id: 'teacher', label: '老師 (Teacher)', hint: '負責：班級授課、成績登錄、親師溝通' },
+        { id: 'parent', label: '家長 (Parent)', hint: '僅能查看自己孩子的學習狀況' }
+    ];
+
+    const DEPARTMENTS = [
+        { id: 'english', label: '英文部' },
+        { id: 'after_school', label: '課輔安親部' },
+        { id: 'general', label: '行政總務部' }
+    ];
+
     // 編輯模式狀態 (原本的功能)
     const [editingUser, setEditingUser] = useState<any>(null);
     const [editName, setEditName] = useState('');
+    const [editDepartment, setEditDepartment] = useState(''); // 新增部門狀態
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
     const [newChildName, setNewChildName] = useState('');
     const [newChildGrade, setNewChildGrade] = useState('CEI-A');
@@ -104,6 +120,7 @@ export default function AdminPage() {
     function openEditModal(user: any) {
         setEditingUser(user);
         setEditName(user.full_name || '');
+        setEditDepartment(user.department || 'english'); // 預設英文部
         setTeacherClasses(user.responsible_classes || []);
         setNewChildName(''); setNewChildGrade('CEI-A'); setIsAfterSchool(false);
         setEditingStudentId(null);
@@ -136,7 +153,14 @@ export default function AdminPage() {
     async function handleSaveUser() {
         if (!editingUser) return;
         try {
-            await supabase.from('profiles').update({ role: editingUser.role, full_name: editName, responsible_classes: editingUser.role === 'teacher' ? teacherClasses : null }).eq('id', editingUser.id);
+            // 儲存 Role 與 Department
+            await supabase.from('profiles').update({
+                role: editingUser.role,
+                department: ['manager', 'teacher'].includes(editingUser.role) ? editDepartment : null, // 只有主管和老師需要存部門
+                full_name: editName,
+                responsible_classes: editingUser.role === 'teacher' ? teacherClasses : null
+            }).eq('id', editingUser.id);
+
             if (editingUser.role === 'parent' && newChildName.trim()) {
                 let finalGrade = newChildGrade;
                 if (isAfterSchool && !finalGrade.includes('課後輔導班')) finalGrade += ', 課後輔導班';
@@ -205,9 +229,22 @@ export default function AdminPage() {
                                         <div className="text-sm text-gray-500">{user.email}</div>
                                     </td>
                                     <td className="p-4">
-                                        <span className={`px-2 py-1 rounded text-xs font-bold ${user.role === 'teacher' ? 'bg-blue-100 text-blue-700' : user.role === 'parent' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'}`}>
-                                            {user.role === 'teacher' ? '老師' : user.role === 'parent' ? '家長' : user.role}
-                                        </span>
+                                        <div className="flex flex-col gap-1 items-start">
+                                            <span className={`px-2 py-1 rounded text-xs font-bold
+                                                ${user.role === 'director' ? 'bg-purple-100 text-purple-700' :
+                                                    user.role === 'manager' ? 'bg-indigo-100 text-indigo-700' :
+                                                        user.role === 'teacher' ? 'bg-blue-100 text-blue-700' :
+                                                            user.role === 'admin_staff' ? 'bg-gray-200 text-gray-700' :
+                                                                user.role === 'parent' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'}`}>
+                                                {ROLES.find(r => r.id === user.role)?.label || user.role}
+                                            </span>
+                                            {/* 顯示部門標籤 */}
+                                            {user.department && ['manager', 'teacher'].includes(user.role) && (
+                                                <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-200">
+                                                    {DEPARTMENTS.find(d => d.id === user.department)?.label}
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     <td className="p-4">
                                         {user.role === 'teacher' && user.responsible_classes?.map((c: string) => <span key={c} className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-xs border border-blue-100 mr-1">{c}</span>)}
@@ -234,13 +271,35 @@ export default function AdminPage() {
                             <div className="p-6 space-y-6 overflow-y-auto">
                                 {/* 基本資料設定 (身分/姓名) */}
                                 <div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">設定身分</label>
-                                    <div className="grid grid-cols-4 gap-2 mb-4">
-                                        {['parent', 'teacher', 'manager', 'director'].map(r => (
-                                            <button key={r} onClick={() => setEditingUser({ ...editingUser, role: r })} className={`py-2 rounded border text-sm font-bold transition ${editingUser.role === r ? 'bg-blue-600 text-white' : 'bg-white'}`}>{r === 'parent' ? '家長' : r === 'teacher' ? '老師' : r}</button>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">1. 設定職位角色</label>
+                                    <div className="grid grid-cols-2 gap-2 mb-2">
+                                        {ROLES.map(r => (
+                                            <button key={r.id} onClick={() => setEditingUser({ ...editingUser, role: r.id })}
+                                                className={`p-3 rounded-lg border text-left transition relative
+                                                ${editingUser.role === r.id ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-300' : 'bg-white hover:bg-gray-50'}`}>
+                                                <div className="font-bold text-sm">{r.label}</div>
+                                                {editingUser.role === r.id && <div className="text-[10px] opacity-80 mt-1">{r.hint}</div>}
+                                            </button>
                                         ))}
                                     </div>
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">顯示名稱</label>
+
+                                    {/* 下方提示區 */}
+                                    <div className="text-xs text-gray-400 mb-4 bg-gray-50 p-2 rounded">
+                                        權限說明: {ROLES.find(r => r.id === editingUser.role)?.hint}
+                                    </div>
+
+                                    {/* 部門選擇 (僅特定角色顯示) */}
+                                    {['teacher', 'manager'].includes(editingUser.role) && (
+                                        <div className="mb-4 animate-fade-in">
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">2. 歸屬部門 (Department)</label>
+                                            <select className="w-full p-2 border rounded bg-white font-bold text-gray-700"
+                                                value={editDepartment} onChange={e => setEditDepartment(e.target.value)}>
+                                                {DEPARTMENTS.map(d => <option key={d.id} value={d.id}>{d.label}</option>)}
+                                            </select>
+                                        </div>
+                                    )}
+
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">3. 顯示名稱</label>
                                     <input type="text" className="w-full p-2 border rounded" value={editName} onChange={e => setEditName(e.target.value)} />
                                 </div>
 

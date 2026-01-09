@@ -9,26 +9,35 @@ export type Json =
 export type Database = {
     public: {
         Tables: {
-            users: {
+            profiles: {
                 Row: {
                     id: string
-                    role: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
-                    name: string | null
-                    contact_info: Json | null
+                    email: string
+                    full_name: string | null
+                    phone: string | null
+                    role: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
+                    department: 'english' | 'after_school' | 'general' | null
+                    responsible_classes: string[] | null
                     created_at: string
                 }
                 Insert: {
                     id: string
-                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
-                    name?: string | null
-                    contact_info?: Json | null
+                    email: string
+                    full_name?: string | null
+                    phone?: string | null
+                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
+                    department?: 'english' | 'after_school' | 'general' | null
+                    responsible_classes?: string[] | null
                     created_at?: string
                 }
                 Update: {
                     id?: string
-                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'pending'
-                    name?: string | null
-                    contact_info?: Json | null
+                    email?: string
+                    full_name?: string | null
+                    phone?: string | null
+                    role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
+                    department?: 'english' | 'after_school' | 'general' | null
+                    responsible_classes?: string[] | null
                     created_at?: string
                 }
             }
@@ -36,24 +45,24 @@ export type Database = {
                 Row: {
                     id: string
                     parent_id: string
-                    name: string
-                    school_grade: string | null
+                    chinese_name: string
+                    grade: string | null
                     profile_details: Json | null
                     created_at: string
                 }
                 Insert: {
                     id?: string
                     parent_id: string
-                    name: string
-                    school_grade?: string | null
+                    chinese_name: string
+                    grade?: string | null
                     profile_details?: Json | null
                     created_at?: string
                 }
                 Update: {
                     id?: string
                     parent_id?: string
-                    name?: string
-                    school_grade?: string | null
+                    chinese_name?: string
+                    grade?: string | null
                     profile_details?: Json | null
                     created_at?: string
                 }
@@ -86,18 +95,24 @@ export type Database = {
                     id: string
                     content: string
                     sender_id: string
+                    receiver_id?: string
+                    is_read?: boolean
                     created_at: string
                 }
                 Insert: {
                     id?: string
                     content: string
                     sender_id: string
+                    receiver_id?: string
+                    is_read?: boolean
                     created_at?: string
                 }
                 Update: {
                     id?: string
                     content?: string
                     sender_id?: string
+                    receiver_id?: string
+                    is_read?: boolean
                     created_at?: string
                 }
             }
@@ -124,26 +139,64 @@ export type Database = {
             exam_results: {
                 Row: {
                     id: string
+                    student_id: string
                     student_name: string
                     exam_name: string
                     subject: string
                     score: number
+                    exam_date: string
                     created_at: string
                 }
                 Insert: {
                     id?: string
+                    student_id: string
                     student_name: string
                     exam_name: string
                     subject: string
                     score: number
+                    exam_date?: string
                     created_at?: string
                 }
                 Update: {
                     id?: string
+                    student_id?: string
                     student_name?: string
                     exam_name?: string
                     subject?: string
                     score?: number
+                    exam_date?: string
+                    created_at?: string
+                }
+            }
+            leave_requests: {
+                Row: {
+                    id: string
+                    student_id: string
+                    type: string
+                    reason: string | null
+                    start_date: string
+                    end_date: string
+                    status: 'pending' | 'approved' | 'rejected'
+                    created_at: string
+                }
+                Insert: {
+                    id?: string
+                    student_id: string
+                    type: string
+                    reason?: string | null
+                    start_date: string
+                    end_date: string
+                    status?: 'pending' | 'approved' | 'rejected'
+                    created_at?: string
+                }
+                Update: {
+                    id?: string
+                    student_id?: string
+                    type?: string
+                    reason?: string | null
+                    start_date?: string
+                    end_date?: string
+                    status?: 'pending' | 'approved' | 'rejected'
                     created_at?: string
                 }
             }
