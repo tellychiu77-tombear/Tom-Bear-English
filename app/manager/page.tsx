@@ -18,6 +18,10 @@ export default function ManagerDashboard() {
         absentCount: 0
     });
 
+    const [selectedTeacher, setSelectedTeacher] = useState<any>(null);
+    const [teacherStats, setTeacherStats] = useState<any>({ classPerformance: [], recentExams: [], atRiskStudents: [] });
+    const [detailLoading, setDetailLoading] = useState(false);
+
     const router = useRouter();
 
     useEffect(() => {
@@ -132,6 +136,83 @@ export default function ManagerDashboard() {
         setLoading(false);
     };
 
+    const fetchTeacherDetails = async (teacher: any) => {
+        setSelectedTeacher(teacher);
+        setDetailLoading(true);
+
+        try {
+            // 1. Get Students IDs
+            const studentIds = teacher.students?.map((s: any) => s.id) || [];
+            if (studentIds.length === 0) {
+                setTeacherStats({ classPerformance: [], recentExams: [], atRiskStudents: [] });
+                setDetailLoading(false);
+                return;
+            }
+
+            // 2. Fetch Exams & Leaves
+            const { data: exams } = await supabase.from('exam_results').select('*').in('student_id', studentIds).order('exam_date', { ascending: false });
+            const { data: leaves } = await supabase.from('leave_requests').select('*').in('student_id', studentIds).eq('status', 'approved');
+
+            // 3. Process Class Performance
+            // Group students by their "primary class" (matching teacher's responsible classes)
+            const classPerfMap: any = {};
+
+            teacher.responsible_classes?.forEach((cls: string) => {
+                const studentsInClass = teacher.students.filter((s: any) => s.grade?.includes(cls));
+                const sIds = studentsInClass.map((s: any) => s.id);
+                const classExams = exams?.filter((e: any) => sIds.includes(e.student_id)) || [];
+
+                const avg = classExams.length > 0
+                    ? Math.round(classExams.reduce((a: any, b: any) => a + b.score, 0) / classExams.length)
+                    : 0;
+
+                // Pass rate: count unique students who have average score >= 60? Or average of all exams? 
+                // Let's go with: % of exams passed (>=60)
+                const passedCount = classExams.filter((e: any) => e.score >= 60).length;
+                const passRate = classExams.length > 0 ? Math.round((passedCount / classExams.length) * 100) : 0;
+
+                classPerfMap[cls] = {
+                    className: cls,
+                    studentCount: studentsInClass.length,
+                    avgScore: avg,
+                    passRate: passRate
+                };
+            });
+
+            // 4. Recent Exams (Unique Top 5)
+            const uniqueExams = Array.from(new Set(exams?.map((e: any) => e.exam_name))).slice(0, 5).map(name => {
+                const ex = exams?.find((e: any) => e.exam_name === name);
+                return { name: ex.exam_name, date: ex.exam_date, subject: ex.subject };
+            });
+
+            // 5. At-Risk Students
+            const atRisk = teacher.students.map((s: any) => {
+                const myExams = exams?.filter((e: any) => e.student_id === s.id) || [];
+                const myLeaves = leaves?.filter((l: any) => l.student_id === s.id) || [];
+
+                const myAvg = myExams.length > 0 ? Math.round(myExams.reduce((a: any, b: any) => a + b.score, 0) / myExams.length) : null;
+                const absence = myLeaves.length;
+
+                if ((myAvg !== null && myAvg < 60) || absence > 3) {
+                    return { ...s, avgScore: myAvg, absence };
+                }
+                return null;
+            }).filter(Boolean);
+
+            setTeacherStats({
+                classPerformance: Object.values(classPerfMap),
+                recentExams: uniqueExams,
+                atRiskStudents: atRisk
+            });
+
+        } catch (error) {
+            console.error(error);
+            alert('載入詳情失敗');
+        } finally {
+            setDetailLoading(false);
+        }
+    };
+
     if (loading) return <div className="p-10 text-center text-gray-500">數據分析中...</div>;
 
     return (
@@ -214,7 +295,7 @@ export default function ManagerDashboard() {
                                         <td className="p-5 text-center text-gray-600">{t.leaveCount}</td>
                                         <td className="p-5 text-right">
                                             <button
-                                                onClick={() => alert(`即將顯示 ${t.full_name} 的詳細班級分析 (功能開發中)`)}
+                                                onClick={() => fetchTeacherDetails(t)}
                                                 className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-lg text-xs font-bold transition"
                                             >
                                                 查看詳情
@@ -234,6 +315,146 @@ export default function ManagerDashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Teacher Details Modal */}
+            {selectedTeacher && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+                    <div className="bg-white w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl shadow-2xl flex flex-col">
+
+                        {/* Modal Header */}
+                        <div className="bg-blue-600 p-6 text-white flex justify-between items-start shrink-0">
+                            <div>
+                                <h2 className="text-2xl font-black flex items-center gap-3">
+                                    <span className="text-3xl">👨‍🏫</span>
+                                    {selectedTeacher.full_name}
+                                    <span className="text-sm bg-blue-500/50 px-2 py-1 rounded font-normal border border-blue-400">
+                                        {selectedTeacher.job_title || '教師'}
+                                    </span>
+                                </h2>
+                                <div className="mt-2 opacity-90 text-sm space-x-4">
+                                    <span>📧 {selectedTeacher.email || 'No Email'}</span>
+                                    <span>📞 {selectedTeacher.phone || 'No Phone'}</span>
+                                </div>
+                                <div className="mt-4 flex gap-2">
+                                    {selectedTeacher.responsible_classes?.map((c: string) => (
+                                        <span key={c} className="bg-white/20 px-2 py-0.5 rounded text-xs backdrop-blur-sm border border-white/30">{c}</span>
+                                    ))}
+                                </div>
+                            </div>
+                            <button onClick={() => setSelectedTeacher(null)} className="text-white/80 hover:text-white hover:bg-white/20 p-2 rounded-full transition">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-8 space-y-8 bg-gray-50 flex-1 overflow-y-auto">
+                            {detailLoading ? (
+                                <div className="text-center py-20 text-gray-500">數據分析中...</div>
+                            ) : (
+                                <>
+                                    {/* Section A: Class Health */}
+                                    <section>
+                                        <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
+                                            <span className="w-1 h-6 bg-blue-500 rounded-full"></span>
+                                            班級健康度分析
+                                        </h3>
+                                        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                                            <table className="w-full text-sm">
+                                                <thead className="bg-gray-50 text-gray-500 font-bold border-b">
+                                                    <tr>
+                                                        <th className="p-4 text-left">班級名稱</th>
+                                                        <th className="p-4 text-center">學生數</th>
+                                                        <th className="p-4 text-center">班平均分</th>
+                                                        <th className="p-4 text-center">及格率 (Pass Rate)</th>
+                                                        <th className="p-4 text-center">狀態</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y">
+                                                    {teacherStats.classPerformance.map((cls: any) => (
+                                                        <tr key={cls.className} className="hover:bg-gray-50">
+                                                            <td className="p-4 font-bold text-gray-700">{cls.className}</td>
+                                                            <td className="p-4 text-center">{cls.studentCount}</td>
+                                                            <td className="p-4 text-center font-bold">{cls.avgScore} 分</td>
+                                                            <td className="p-4 text-center text-gray-600">{cls.passRate}%</td>
+                                                            <td className="p-4 text-center">
+                                                                {cls.avgScore >= 80 ? <span className="text-green-600 font-bold bg-green-50 px-2 py-1 rounded">優良</span> :
+                                                                    cls.avgScore < 70 ? <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded">需加強</span> :
+                                                                        <span className="text-gray-500">正常</span>}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {teacherStats.classPerformance.length === 0 && <tr><td colSpan={5} className="p-6 text-center text-gray-400">無班級數據</td></tr>}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                        {/* Section B: Teaching History */}
+                                        <section>
+                                            <h3 className="text-lg font-black text-gray-800 mb-4 flex items-center gap-2">
+                                                <span className="w-1 h-6 bg-purple-500 rounded-full"></span>
+                                                近期考試紀錄
+                                            </h3>
+                                            <div className="space-y-3">
+                                                {teacherStats.recentExams.map((ex: any, i: number) => (
+                                                    <div key={i} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center">
+                                                        <div>
+                                                            <div className="font-bold text-gray-800">{ex.name}</div>
+                                                            <div className="text-xs text-gray-500">{ex.subject}</div>
+                                                        </div>
+                                                        <div className="text-sm font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                                                            {new Date(ex.date).toLocaleDateString()}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {teacherStats.recentExams.length === 0 && <div className="text-gray-400 text-sm">尚無考試紀錄</div>}
+                                            </div>
+                                        </section>
+
+                                        {/* Section C: At-Risk Students */}
+                                        <section>
+                                            <h3 className="text-lg font-black text-red-600 mb-4 flex items-center gap-2">
+                                                <span className="w-1 h-6 bg-red-500 rounded-full animate-pulse"></span>
+                                                重點關注學生 (At-Risk)
+                                            </h3>
+                                            <div className="bg-red-50 border border-red-100 rounded-xl p-4 space-y-3 max-h-[300px] overflow-y-auto">
+                                                {teacherStats.atRiskStudents.map((s: any) => (
+                                                    <div key={s.id} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-red-500 flex justify-between items-center">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-xs">
+                                                                {s.chinese_name?.[0]}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-gray-800 text-sm">{s.chinese_name}</div>
+                                                                <div className="text-[10px] text-gray-500">{s.grade}</div>
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            {s.avgScore !== null && s.avgScore < 60 && (
+                                                                <div className="text-xs font-bold text-red-600">平均 {s.avgScore} 分</div>
+                                                            )}
+                                                            {s.absence > 3 && (
+                                                                <div className="text-xs font-bold text-orange-600">缺勤 {s.absence} 次</div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {teacherStats.atRiskStudents.length === 0 && (
+                                                    <div className="flex flex-col items-center justify-center py-8 text-green-600">
+                                                        <span className="text-2xl">🎉</span>
+                                                        <span className="text-sm font-bold mt-2">目前無須關注學生</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </section>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
