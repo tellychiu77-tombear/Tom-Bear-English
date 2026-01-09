@@ -97,19 +97,26 @@ export default function AnnouncementPage() {
         );
     }
 
-    // 發布功能
+    // 發布功能 (修正欄位名稱版)
     async function handlePublish() {
         if (!newTitle.trim()) return alert('請輸入標題');
+
         try {
-            // Correct schema: author_id instead of created_by
             const { error } = await supabase.from('announcements').insert({
-                title: newTitle, content: newContent, priority, audience, author_id: userId
+                title: newTitle,
+                content: newContent,
+                priority,
+                audience,
+                created_by: userId  // 👈 這裡原本可能是 author_id，請改成 created_by
             });
+
             if (error) throw error;
+
             alert('發布成功！');
             setShowCreate(false);
-            setNewTitle(''); setNewContent('');
-            fetchData();
+            setNewTitle('');
+            setNewContent('');
+            fetchData(); // 重新載入列表
         } catch (e: any) {
             alert('發布失敗: ' + e.message);
         }
