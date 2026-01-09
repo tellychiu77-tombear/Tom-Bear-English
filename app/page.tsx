@@ -167,6 +167,14 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
+                    <DashboardCard
+                        title="數位聯絡簿"
+                        icon="📝"
+                        color="bg-amber-400"
+                        onClick={() => router.push('/contact-book')}
+                        desc="每日課堂紀錄與家長回報"
+                    />
+
                     <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
 
                     <DashboardCard
