@@ -260,76 +260,56 @@ export default function LeavePage() {
 
                     {/* === Tab: History === */}
                     {activeTab === 'history' && (
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                            {/* Search Bar */}
-                            <div className="p-4 border-b bg-gray-50/50 flex items-center gap-2">
-                                <span className="text-xl">🔍</span>
-                                <input
-                                    type="text"
-                                    placeholder="搜尋學生姓名或請假原因..."
-                                    className="w-full bg-transparent outline-none text-gray-700 font-bold placeholder-gray-400"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
+                        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col md:flex-row">
+                            {/* Left: Calendar Grid */}
+                            <div className="p-4 md:w-2/3 border-b md:border-b-0 md:border-r border-gray-100">
+                                <CalendarView
+                                    historyLeaves={historyLeaves}
+                                    onDateSelect={(date: string) => setSearchTerm(date)}
+                                    selectedDate={searchTerm || new Date().toISOString().split('T')[0]}
                                 />
                             </div>
 
-                            <div className="divide-y divide-gray-100">
-                                {filteredHistory.length === 0 ? (
-                                    <div className="p-10 text-center text-gray-400">查無紀錄</div>
-                                ) : (
-                                    (() => {
-                                        // Group by YYYY-MM
-                                        const grouped = filteredHistory.reduce((acc: any, leave: any) => {
-                                            const month = leave.start_date.slice(0, 7); // YYYY-MM
-                                            if (!acc[month]) acc[month] = [];
-                                            acc[month].push(leave);
-                                            return acc;
-                                        }, {});
+                            {/* Right: Detailed List for Selected Date */}
+                            <div className="p-4 md:w-1/3 bg-gray-50/50 flex flex-col">
+                                <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                                    📅 {searchTerm || new Date().toISOString().split('T')[0]} ({historyLeaves.filter(l => l.start_date <= (searchTerm || new Date().toISOString().split('T')[0]) && l.end_date >= (searchTerm || new Date().toISOString().split('T')[0])).length})
+                                </h3>
+                                <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar" style={{ maxHeight: '400px' }}>
+                                    {(() => {
+                                        const targetDate = searchTerm || new Date().toISOString().split('T')[0];
+                                        const daysLeaves = historyLeaves.filter(l => l.start_date <= targetDate && l.end_date >= targetDate);
 
-                                        // Sort months descending
-                                        const sortedMonths = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+                                        if (daysLeaves.length === 0) return (
+                                            <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-60">
+                                                <span className="text-4xl mb-2">✅</span>
+                                                <span className="text-sm font-bold">本日全勤</span>
+                                                <span className="text-xs">無人請假</span>
+                                            </div>
+                                        );
 
-                                        return sortedMonths.map(month => (
-                                            <div key={month} className="bg-white">
-                                                {/* Month Header */}
-                                                <div className="bg-gray-50/80 px-4 py-2 text-sm font-bold text-gray-500 border-y border-gray-100 sticky top-0 backdrop-blur-sm">
-                                                    📅 {month.replace('-', '年 ')}月
-                                                </div>
-
-                                                {/* Leaves in this month */}
-                                                {grouped[month].map((leave: any) => (
-                                                    <div key={leave.id} className="p-4 hover:bg-gray-50 transition flex flex-col md:flex-row md:items-center justify-between gap-4 border-b last:border-b-0 border-gray-100">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shrink-0
-                                                                ${leave.status === 'approved' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}
-                                                            `}>
-                                                                {leave.student?.chinese_name?.[0]}
-                                                            </div>
-                                                            <div>
-                                                                <div className="font-bold text-gray-800 flex items-center gap-2">
-                                                                    {leave.student?.chinese_name}
-                                                                    <span className="text-xs text-gray-400 font-normal">{leave.student?.grade}</span>
-                                                                </div>
-                                                                <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-                                                                    <span className="font-mono">{leave.start_date}</span>
-                                                                    <LeaveTypeBadge type={leave.type} size="sm" />
-                                                                </div>
-                                                                <div className="text-sm text-gray-600 mt-1 line-clamp-1 break-all">
-                                                                    {leave.reason}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="flex items-center gap-4 self-end md:self-auto shrink-0">
-                                                            {leave.status === 'approved' && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">已核准</span>}
-                                                            {leave.status === 'rejected' && <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">已駁回</span>}
-                                                        </div>
+                                        return daysLeaves.map(leave => (
+                                            <div key={leave.id} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                                <div className="flex justify-between items-start">
+                                                    <div className="font-bold text-gray-800">
+                                                        {leave.student?.chinese_name}
                                                     </div>
-                                                ))}
+                                                    <LeaveTypeBadge type={leave.type} size="sm" />
+                                                </div>
+                                                <div className="text-xs text-gray-500 mt-1">{leave.student?.grade}</div>
+                                                <div className="mt-2 text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                                                    {leave.reason}
+                                                </div>
+                                                <div className="mt-2 flex justify-end">
+                                                    {leave.status === 'approved' ?
+                                                        <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded-full font-bold">已核准</span> :
+                                                        <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">已駁回</span>
+                                                    }
+                                                </div>
                                             </div>
                                         ));
-                                    })()
-                                )}
+                                    })()}
+                                </div>
                             </div>
                         </div>
                     )}
@@ -425,6 +405,99 @@ export default function LeavePage() {
                     </div>
                 </div>
             )}
+        </div>
+    );
+}
+
+// Calendar Component
+function CalendarView({ historyLeaves, onDateSelect, selectedDate }: any) {
+    const [currentDate, setCurrentDate] = useState(new Date());
+
+    const getDaysInMonth = (date: Date) => {
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        return new Date(year, month + 1, 0).getDate();
+    };
+
+    const getFirstDayOfMonth = (date: Date) => {
+        const year = date.getFullYear();
+        const month = date.getMonth();
+        return new Date(year, month, 1).getDay();
+    };
+
+    const daysInMonth = getDaysInMonth(currentDate);
+    const firstDay = getFirstDayOfMonth(currentDate);
+    const today = new Date().toISOString().split('T')[0];
+
+    const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
+    const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
+
+    const renderDays = () => {
+        const days = [];
+        // Empty slots for previous month
+        for (let i = 0; i < firstDay; i++) {
+            days.push(<div key={`empty-${i}`} className="p-2"></div>);
+        }
+
+        // Days
+        for (let d = 1; d <= daysInMonth; d++) {
+            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const isToday = dateStr === today;
+            const isSelected = dateStr === selectedDate;
+
+            // Check for leaves on this day
+            const hasLeaves = historyLeaves.some((l: any) => l.start_date <= dateStr && l.end_date >= dateStr);
+            const leavesCount = historyLeaves.filter((l: any) => l.start_date <= dateStr && l.end_date >= dateStr).length;
+
+            days.push(
+                <div key={d} className="p-1">
+                    <button
+                        onClick={() => onDateSelect(dateStr)}
+                        className={`w-full aspect-square rounded-xl flex flex-col items-center justify-center relative transition
+                            ${isSelected ? 'bg-blue-600 text-white shadow-md scale-105' : 'hover:bg-gray-100 text-gray-700'}
+                            ${isToday && !isSelected ? 'border-2 border-blue-600 text-blue-700 font-bold' : ''}
+                        `}
+                    >
+                        <span className={`text-sm ${isSelected ? 'font-bold' : ''}`}>{d}</span>
+
+                        {/* Dot Indicators */}
+                        {hasLeaves && (
+                            <div className="absolute bottom-1.5 flex gap-0.5">
+                                <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-orange-500'}`}></span>
+                                {leavesCount > 1 && <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white/70' : 'bg-orange-300'}`}></span>}
+                            </div>
+                        )}
+                    </button>
+                </div>
+            );
+        }
+        return days;
+    };
+
+    return (
+        <div>
+            {/* Calendar Header */}
+            <div className="flex justify-between items-center mb-4 px-2">
+                <button onClick={prevMonth} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">◀</button>
+                <h2 className="text-lg font-black text-gray-800">
+                    {currentDate.getFullYear()}年 {currentDate.getMonth() + 1}月
+                </h2>
+                <button onClick={nextMonth} className="p-2 hover:bg-gray-100 rounded-full text-gray-500">▶</button>
+            </div>
+
+            {/* Week Days */}
+            <div className="grid grid-cols-7 mb-2 text-center">
+                {['日', '一', '二', '三', '四', '五', '六'].map((day, idx) => (
+                    <div key={day} className={`text-xs font-bold ${idx === 0 || idx === 6 ? 'text-red-400' : 'text-gray-400'}`}>
+                        {day}
+                    </div>
+                ))}
+            </div>
+
+            {/* Days Grid */}
+            <div className="grid grid-cols-7">
+                {renderDays()}
+            </div>
         </div>
     );
 }
