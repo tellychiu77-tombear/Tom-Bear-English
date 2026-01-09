@@ -9,11 +9,11 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [userName, setUserName] = useState('');
 
-    // 🔴 通知計數器 (Notification Badges)
+    // 🔴 通知計數器
     const [counts, setCounts] = useState({
-        pickup: 0,      // 等待接送人數
-        leaves: 0,      // 待審核假單
-        unreadChats: 0, // 未讀訊息
+        pickup: 0,
+        leaves: 0,
+        unreadChats: 0,
     });
 
     const router = useRouter();
@@ -21,22 +21,19 @@ export default function DashboardPage() {
     useEffect(() => {
         init();
 
-        // ⚡️ 建立全域監聽 (儀表板要最即時)
-        // 這裡我們監聽所有相關表格，只要有變動就更新數字
         const channel = supabase
             .channel('dashboard_realtime')
             .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-                fetchCounts(); // 資料庫一有風吹草動，馬上重算數字
+                fetchCounts();
             })
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, [role]); // 當角色確定後再開始監聽
+    }, [role]);
 
     async function init() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) {
-            // 尚未登入，顯示登入畫面 (這裡簡化處理，實際專案可能有獨立 Login 頁)
             setLoading(false);
             return;
         }
@@ -45,58 +42,36 @@ export default function DashboardPage() {
         if (profile) {
             setRole(profile.role);
             setUserName(profile.full_name || profile.email);
-            // 確定角色後，立刻抓一次通知數量
             fetchCounts(session.user.id, profile.role);
         }
         setLoading(false);
     }
 
-    // 🔢 核心：抓取各項通知數量
     async function fetchCounts(userId?: string, userRole?: string) {
         if (!userId) {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) return;
             userId = session.user.id;
-            // 如果沒傳 role，稍微查一下 (保險起見)
             if (!userRole && role) userRole = role;
         }
 
-        // 1. 未讀訊息 (通用)
-        // 邏輯：Receiver 是我，且 is_read 為 false
-        const { count: chatCount } = await supabase
-            .from('chat_messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('receiver_id', userId)
-            .eq('is_read', false);
+        const { count: chatCount } = await supabase.from('chat_messages').select('*', { count: 'exact', head: true }).eq('receiver_id', userId).eq('is_read', false);
 
-        // 2. 待審假單 (只有老師/主任看得到)
         let leaveCount = 0;
         if (userRole !== 'parent') {
-            const { count } = await supabase
-                .from('leave_requests')
-                .select('*', { count: 'exact', head: true })
-                .eq('status', 'pending');
+            const { count } = await supabase.from('leave_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending');
             leaveCount = count || 0;
         }
 
-        // 3. 等待接送 (只有老師/主任看得到)
         let pickupCount = 0;
         if (userRole !== 'parent') {
-            const { count } = await supabase
-                .from('pickup_requests')
-                .select('*', { count: 'exact', head: true })
-                .neq('status', 'completed'); // 只要還沒接走都算
+            const { count } = await supabase.from('pickup_requests').select('*', { count: 'exact', head: true }).neq('status', 'completed');
             pickupCount = count || 0;
         }
 
-        setCounts({
-            unreadChats: chatCount || 0,
-            leaves: leaveCount,
-            pickup: pickupCount
-        });
+        setCounts({ unreadChats: chatCount || 0, leaves: leaveCount, pickup: pickupCount });
     }
 
-    // 登入處理 (僅用於未登入狀態)
     const handleLogin = async (e: any) => {
         e.preventDefault();
         const email = e.target.email.value;
@@ -106,36 +81,84 @@ export default function DashboardPage() {
         else window.location.reload();
     };
 
-    // 登出
+    // 🟢 修復：強力登出函式
     const handleLogout = async () => {
+        // 1. 不管後端成不成功，先清空本地顯示狀態 (讓使用者覺得已經登出了)
+        setRole(null);
+        setUserName('');
+
+        // 2. 執行真正的登出
         await supabase.auth.signOut();
-        window.location.reload();
+
+        // 3. 強制轉跳回首頁並刷新，確保沒有殘留
+        router.replace('/');
+        window.location.href = '/';
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
     // =========== 尚未登入畫面 ===========
+    if (!role) {
+        return (
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 p-4">
+                <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
+                    <div className="text-center mb-8">
+                        <h1 className="text-3xl font-black text-gray-800 mb-2">🐻 Tom Bear</h1>
+                        <p className="text-gray-500">智慧補習班管理系統</p>
+                    </div>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                            <input name="email" type="email" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入帳號" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">密碼</label>
+                            <input name="password" type="password" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入密碼" />
+                        </div>
+                        <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 transition transform active:scale-95">
+                            登入系統
+                        </button>
+                    </form>
+
+                    {/* 註冊連結 */}
+                    <div className="mt-4 text-center">
+                        <p className="text-gray-500 text-sm">
+                            還沒有帳號嗎？
+                            <button
+                                type="button"
+                                onClick={() => router.push('/register')}
+                                className="text-indigo-600 font-bold hover:underline ml-1"
+                            >
+                                立即註冊
+                            </button>
+                        </p>
+                    </div>
+
+                    <div className="mt-6 text-center text-xs text-gray-400">
+                        Protected by Supabase Security
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // 🔴 新增：審核中擋修畫面
     if (role === 'pending') {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+            <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center animate-fade-in">
                     <div className="text-6xl mb-4">⏳</div>
                     <h1 className="text-2xl font-black text-gray-800 mb-2">帳號審核中</h1>
                     <p className="text-gray-500 mb-6 leading-relaxed">
-                        親愛的 <strong>{userName}</strong> 您好，<br />
-                        您的註冊申請已送出，目前正在等待行政人員開通權限。
+                        您好，<span className="font-bold text-gray-700">{userName}</span><br />
+                        您的註冊申請已送出，目前正在等待行政人員審核。<br />
+                        <span className="text-xs text-gray-400">(為了確保校園資訊安全，請耐心等候)</span>
                     </p>
-                    <div className="bg-yellow-50 text-yellow-800 p-4 rounded-lg text-sm mb-6 text-left">
-                        <strong>💡 為什麼我不能使用？</strong>
-                        <ul className="list-disc list-inside mt-1 opacity-80">
-                            <li>為了保護學生個資，所有帳號皆需人工審核。</li>
-                            <li>請耐心等候，或直接聯繫櫃台加快審核速度。</li>
-                        </ul>
+                    <div className="bg-yellow-50 text-yellow-800 text-sm p-4 rounded-xl mb-6 text-left">
+                        <strong>💡 提示：</strong><br />
+                        如果您急需使用，請直接聯繫櫃檯老師或是撥打補習班電話，告知您的姓名以加速開通。
                     </div>
-                    <button
-                        onClick={handleLogout}
-                        className="w-full py-3 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300"
-                    >
+                    <button onClick={handleLogout} className="w-full py-3 border border-gray-300 text-gray-600 font-bold rounded-lg hover:bg-gray-50">
                         登出並返回
                     </button>
                 </div>
@@ -162,13 +185,14 @@ export default function DashboardPage() {
                             </div>
                         </div>
                     </div>
+                    {/* 🔴 這裡綁定了新的登出函式 */}
                     <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-red-500 font-bold px-2 py-1">登出</button>
                 </div>
             </div>
 
             <div className="max-w-6xl mx-auto p-4 space-y-6">
 
-                {/* 📢 頂部狀態通知 (跑馬燈概念) */}
+                {/* 📢 頂部狀態通知 */}
                 {counts.pickup > 0 && role !== 'parent' && (
                     <div
                         onClick={() => router.push('/pickup')}
@@ -205,7 +229,7 @@ export default function DashboardPage() {
                         desc="即時溝通無障礙"
                     />
 
-                    {/* 3. 兵籍資料 (學生管理) */}
+                    {/* 3. 兵籍資料 */}
                     <DashboardCard
                         title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
                         icon="📂"
@@ -233,7 +257,7 @@ export default function DashboardPage() {
                         desc={role === 'parent' ? '查看詳細成績單' : '批次登錄與分析'}
                     />
 
-                    {/* 6. 人事管理 (只有管理員看得到) */}
+                    {/* 6. 人事管理 */}
                     {role !== 'parent' && role !== 'teacher' && (
                         <DashboardCard
                             title="人事權限"
@@ -245,7 +269,6 @@ export default function DashboardPage() {
                     )}
                 </div>
 
-                {/* 底部資訊 */}
                 <div className="text-center text-gray-400 text-xs mt-8">
                     Tom Bear Education System © 2026
                 </div>
@@ -267,7 +290,6 @@ function DashboardCard({ title, icon, color, onClick, badge = 0, desc }: any) {
             <h3 className="font-bold text-gray-800 text-lg mb-1">{title}</h3>
             <p className="text-xs text-gray-400 font-medium">{desc}</p>
 
-            {/* 🔴 小紅點 (如果有數量) */}
             {badge > 0 && (
                 <div className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce shadow-lg border-2 border-white">
                     {badge}
