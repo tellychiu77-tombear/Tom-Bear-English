@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
     const [loading, setLoading] = useState(false);
-    const [isSignUp, setIsSignUp] = useState(false); // 切換登入/註冊模式
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const router = useRouter();
@@ -15,29 +14,15 @@ export default function LoginPage() {
         e.preventDefault();
         setLoading(true);
 
-        if (isSignUp) {
-            // 註冊模式
-            const { error } = await supabase.auth.signUp({
-                email,
-                password,
-            });
-            if (error) {
-                alert('註冊失敗: ' + error.message);
-            } else {
-                alert('註冊成功！系統將自動登入...');
-                router.push('/');
-            }
+        const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+        });
+
+        if (error) {
+            alert('登入失敗: ' + error.message);
         } else {
-            // 登入模式
-            const { error } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
-            if (error) {
-                alert('登入失敗: ' + error.message);
-            } else {
-                router.push('/'); // 登入成功，回首頁
-            }
+            router.push('/'); // 登入成功，回首頁
         }
         setLoading(false);
     }
@@ -56,7 +41,7 @@ export default function LoginPage() {
                 {/* 右側/下方 表單區 */}
                 <div className="p-8 md:w-3/5">
                     <h2 className="text-2xl font-bold text-gray-800 mb-6">
-                        {isSignUp ? '註冊新帳號' : '歡迎回來'}
+                        歡迎回來
                     </h2>
 
                     <form onSubmit={handleAuth} className="space-y-4">
@@ -84,18 +69,18 @@ export default function LoginPage() {
                             disabled={loading}
                             className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50"
                         >
-                            {loading ? '處理中...' : (isSignUp ? '立即註冊' : '登入')}
+                            {loading ? '處理中...' : '登入'}
                         </button>
                     </form>
 
                     {/* 切換模式按鈕 */}
                     <div className="mt-6 text-center text-sm text-gray-500">
-                        {isSignUp ? '已經有帳號了？' : '還沒有帳號？'}
+                        還沒有帳號？
                         <button
-                            onClick={() => setIsSignUp(!isSignUp)}
+                            onClick={() => router.push('/register')}
                             className="text-blue-600 font-bold ml-1 hover:underline focus:outline-none"
                         >
-                            {isSignUp ? '直接登入' : '免費註冊'}
+                            免費註冊
                         </button>
                     </div>
                 </div>

@@ -3,19 +3,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
-export default function Home() {
+export default function DashboardPage() {
     const [role, setRole] = useState<string | null>(null);
-    const [userName, setUserName] = useState('');
     const [loading, setLoading] = useState(true);
+    const [userName, setUserName] = useState('');
 
-    // 🟢 戰情數據狀態 (預設都是 0)
-    const [stats, setStats] = useState({
-        total_students: 0,
-        pending_leaves: 0,
-        pickup_queue: 0,
-        unread_chats: 0
+    // 🔴 通知計數器 (Notification Badges)
+    const [counts, setCounts] = useState({
+        pickup: 0,      // 等待接送人數
+        leaves: 0,      // 待審核假單
+        unreadChats: 0, // 未讀訊息
     });
 
     const router = useRouter();
@@ -23,170 +21,271 @@ export default function Home() {
     useEffect(() => {
         init();
 
-        // 設定一個定時器，每 30 秒自動更新一次數據 (讓畫面像活的一樣)
-        const interval = setInterval(fetchStats, 30000);
-        return () => clearInterval(interval);
-    }, []);
+        // ⚡️ 建立全域監聽 (儀表板要最即時)
+        // 這裡我們監聽所有相關表格，只要有變動就更新數字
+        const channel = supabase
+            .channel('dashboard_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+                fetchCounts(); // 資料庫一有風吹草動，馬上重算數字
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [role]); // 當角色確定後再開始監聽
 
     async function init() {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { router.push('/login'); return; }
+        if (!session) {
+            // 尚未登入，顯示登入畫面 (這裡簡化處理，實際專案可能有獨立 Login 頁)
+            setLoading(false);
+            return;
+        }
 
-        const { data: profile } = await supabase.from('profiles').select('role, full_name, email').eq('id', session.user.id).single();
-
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
         if (profile) {
-            const isApplicationSubmitted = profile.full_name && (profile.full_name.includes('申請') || profile.full_name.includes('家長') || profile.full_name.includes('老師'));
-
-            if (!profile.role || (profile.role === 'pending' && !isApplicationSubmitted)) {
-                router.push('/onboarding');
-                return;
-            }
-
             setRole(profile.role);
-            setUserName(profile.full_name || profile.email?.split('@')[0] || 'User');
-
-            // 只要登入成功，就去抓取戰情數據
-            fetchStats();
+            setUserName(profile.full_name || profile.email);
+            // 確定角色後，立刻抓一次通知數量
+            fetchCounts(session.user.id, profile.role);
         }
         setLoading(false);
     }
 
-    // 🟢 抓取所有未讀數字 (呼叫我們剛剛修好的資料庫函數)
-    async function fetchStats() {
-        const { data, error } = await supabase.rpc('get_dashboard_stats');
-        if (data && !error) setStats(data);
+    // 🔢 核心：抓取各項通知數量
+    async function fetchCounts(userId?: string, userRole?: string) {
+        if (!userId) {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) return;
+            userId = session.user.id;
+            // 如果沒傳 role，稍微查一下 (保險起見)
+            if (!userRole && role) userRole = role;
+        }
+
+        // 1. 未讀訊息 (通用)
+        // 邏輯：Receiver 是我，且 is_read 為 false
+        const { count: chatCount } = await supabase
+            .from('chat_messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('receiver_id', userId)
+            .eq('is_read', false);
+
+        // 2. 待審假單 (只有老師/主任看得到)
+        let leaveCount = 0;
+        if (userRole !== 'parent') {
+            const { count } = await supabase
+                .from('leave_requests')
+                .select('*', { count: 'exact', head: true })
+                .eq('status', 'pending');
+            leaveCount = count || 0;
+        }
+
+        // 3. 等待接送 (只有老師/主任看得到)
+        let pickupCount = 0;
+        if (userRole !== 'parent') {
+            const { count } = await supabase
+                .from('pickup_requests')
+                .select('*', { count: 'exact', head: true })
+                .neq('status', 'completed'); // 只要還沒接走都算
+            pickupCount = count || 0;
+        }
+
+        setCounts({
+            unreadChats: chatCount || 0,
+            leaves: leaveCount,
+            pickup: pickupCount
+        });
     }
+
+    // 登入處理 (僅用於未登入狀態)
+    const handleLogin = async (e: any) => {
+        e.preventDefault();
+        const email = e.target.email.value;
+        const password = e.target.password.value;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) alert(error.message);
+        else window.location.reload();
+    };
+
+    // 登出
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        window.location.reload();
+    };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
-    if (role === 'pending') {
+    // =========== 尚未登入畫面 ===========
+    if (!role) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-                <div className="bg-white p-8 rounded-xl shadow-lg max-w-md text-center animate-fade-in">
-                    <div className="text-6xl mb-4">⏳</div>
-                    <h1 className="text-2xl font-bold text-gray-800 mb-2">帳號審核中</h1>
-                    <p className="text-gray-500 mb-6">您的註冊申請已送出，請耐心等待行政人員開通權限。<br />如果您急需使用，請聯繫櫃檯。</p>
-                    <div className="text-sm bg-gray-100 p-3 rounded text-gray-600 border border-gray-200">
-                        申請人：<span className="font-bold text-blue-600">{userName}</span>
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 p-4">
+                <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
+                    <div className="text-center mb-8">
+                        <h1 className="text-3xl font-black text-gray-800 mb-2">🐻 Tom Bear</h1>
+                        <p className="text-gray-500">智慧補習班管理系統</p>
                     </div>
-                    <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="mt-6 text-red-500 underline text-sm hover:text-red-700">登出</button>
+                    <form onSubmit={handleLogin} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
+                            <input name="email" type="email" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入帳號" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">密碼</label>
+                            <input name="password" type="password" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入密碼" />
+                        </div>
+                        <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 transition transform active:scale-95">
+                            登入系統
+                        </button>
+                        <div className="mt-4 text-center">
+                            <p className="text-gray-500 text-sm">
+                                還沒有帳號嗎？
+                                <button
+                                    type="button"
+                                    onClick={() => router.push('/register')}
+                                    className="text-indigo-600 font-bold hover:underline ml-1"
+                                >
+                                    立即註冊
+                                </button>
+                            </p>
+                        </div>
+                    </form>
+                    <div className="mt-6 text-center text-xs text-gray-400">
+                        Protected by Supabase Security
+                    </div>
                 </div>
             </div>
         );
     }
 
-    // Helper: 產生紅色通知氣泡元件
-    const Badge = ({ count, color = 'bg-red-500' }: { count: number, color?: string }) => {
-        if (count <= 0) return null;
-        return (
-            <span className={`absolute -top-2 -right-2 ${color} text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-md animate-bounce-slow border-2 border-white`}>
-                {count > 99 ? '99+' : count}
-            </span>
-        );
-    };
-
+    // =========== 已登入：戰情儀表板 ===========
     return (
-        <div className="min-h-screen bg-gray-100 font-sans">
-            <div className="bg-white p-6 shadow-sm border-b sticky top-0 z-10">
-                <div className="max-w-md mx-auto flex justify-between items-center">
-                    <div>
-                        <h1 className="text-2xl font-bold text-gray-800">早安，{userName.split('(')[0]} ☀️</h1>
-                        <p className="text-gray-500 text-sm flex items-center gap-2">
-                            {role === 'director' || role === 'manager' ? '校務戰情中心' : role === 'teacher' ? '教學管理後台' : '家長專區'}
-                            {/* 總未讀紅點 */}
-                            {(stats.pickup_queue + stats.pending_leaves + stats.unread_chats) > 0 && (
-                                <span className="h-2 w-2 bg-red-500 rounded-full animate-pulse"></span>
-                            )}
-                        </p>
+        <div className="min-h-screen bg-gray-50 pb-10">
+
+            {/* 頂部導航 */}
+            <div className="bg-white border-b sticky top-0 z-20 shadow-sm">
+                <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <span className="text-2xl">🐻</span>
+                        <div>
+                            <h1 className="font-bold text-gray-800 leading-tight">Tom Bear</h1>
+                            <div className="text-xs text-gray-500 font-medium">
+                                Hi, {userName}
+                                <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] text-white ${role === 'parent' ? 'bg-orange-400' : role === 'teacher' ? 'bg-blue-500' : 'bg-purple-600'}`}>
+                                    {role === 'parent' ? '家長' : role === 'teacher' ? '老師' : '管理員'}
+                                </span>
+                            </div>
+                        </div>
                     </div>
-                    <button onClick={async () => { await supabase.auth.signOut(); router.push('/login'); }} className="text-sm text-red-500 border border-red-200 px-3 py-1 rounded hover:bg-red-50">登出</button>
+                    <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-red-500 font-bold px-2 py-1">登出</button>
                 </div>
             </div>
 
-            <div className="max-w-md mx-auto p-4 space-y-6">
+            <div className="max-w-6xl mx-auto p-4 space-y-6">
 
-                {/* 🟢 戰情數據儀表板 (僅教職員) */}
-                {role !== 'parent' && (
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-blue-500 text-center relative">
-                            <div className="text-xs text-gray-500 font-bold mb-1">全校學生</div>
-                            <div className="text-2xl font-black text-gray-800">{stats.total_students}</div>
+                {/* 📢 頂部狀態通知 (跑馬燈概念) */}
+                {counts.pickup > 0 && role !== 'parent' && (
+                    <div
+                        onClick={() => router.push('/pickup')}
+                        className="bg-gradient-to-r from-orange-400 to-red-500 text-white p-4 rounded-xl shadow-lg flex justify-between items-center cursor-pointer hover:shadow-xl transition animate-pulse"
+                    >
+                        <div className="flex items-center gap-3 font-bold text-lg">
+                            <span className="bg-white text-orange-600 w-8 h-8 flex items-center justify-center rounded-full text-xl">🚌</span>
+                            目前有 {counts.pickup} 位學生正在等待接送！
                         </div>
-
-                        <Link href="/pickup" className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-yellow-500 text-center relative hover:bg-yellow-50 cursor-pointer transition">
-                            <div className="text-xs text-gray-500 font-bold mb-1">等待接送</div>
-                            <div className={`text-2xl font-black ${stats.pickup_queue > 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                                {stats.pickup_queue}
-                            </div>
-                            <Badge count={stats.pickup_queue} />
-                        </Link>
-
-                        <Link href="/leave" className="bg-white p-3 rounded-xl shadow-sm border-l-4 border-red-500 text-center relative hover:bg-red-50 cursor-pointer transition">
-                            <div className="text-xs text-gray-500 font-bold mb-1">待審假單</div>
-                            <div className="text-2xl font-black text-red-600">{stats.pending_leaves}</div>
-                            <Badge count={stats.pending_leaves} />
-                        </Link>
+                        <div className="bg-white/20 px-3 py-1 rounded text-sm font-bold">前往處理 →</div>
                     </div>
                 )}
 
-                <div className="space-y-3">
-                    <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider ml-1">快速入口</h2>
+                {/* 📱 功能按鈕網格 */}
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 
-                    {/* 接送管理按鈕 (帶紅點) */}
-                    <Link href="/pickup" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-yellow-300 relative group">
-                        <div className="bg-yellow-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">🚌</div>
-                        <div className="flex-1">
-                            <div className="font-bold text-gray-800 text-lg">接送管理</div>
-                            {role !== 'parent' && stats.pickup_queue > 0 && <div className="text-xs text-red-500 font-bold">⚠️ 有 {stats.pickup_queue} 位家長等待中</div>}
-                        </div>
-                        <Badge count={stats.pickup_queue} />
-                    </Link>
+                    {/* 1. 接送系統 */}
+                    <DashboardCard
+                        title={role === 'parent' ? '呼叫接送' : '接送戰情室'}
+                        icon="🚌"
+                        color="bg-yellow-400"
+                        onClick={() => router.push('/pickup')}
+                        badge={role !== 'parent' ? counts.pickup : 0}
+                        desc={role === 'parent' ? '抵達補習班時點擊' : '管理放學接送隊列'}
+                    />
 
-                    {/* 親師對話按鈕 (帶紅點) */}
-                    <Link href="/chat" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-green-300 relative group">
-                        <div className="bg-green-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">💬</div>
-                        <div className="flex-1">
-                            <div className="font-bold text-gray-800 text-lg">親師對話</div>
-                            {stats.unread_chats > 0 && <div className="text-xs text-green-600 font-bold">您有新訊息</div>}
-                        </div>
-                        <Badge count={stats.unread_chats} color="bg-green-500" />
-                    </Link>
+                    {/* 2. 親師對話 */}
+                    <DashboardCard
+                        title="親師對話"
+                        icon="💬"
+                        color="bg-blue-500"
+                        onClick={() => router.push('/chat')}
+                        badge={counts.unreadChats}
+                        desc="即時溝通無障礙"
+                    />
 
-                    {/* 聯絡簿 (修正為 contact-book) */}
-                    <Link href="/contact-book" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-orange-300 relative group">
-                        <div className="bg-orange-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">📝</div>
-                        <div className="flex-1"><div className="font-bold text-gray-800 text-lg">電子聯絡簿</div></div>
-                    </Link>
+                    {/* 3. 兵籍資料 (學生管理) */}
+                    <DashboardCard
+                        title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
+                        icon="📂"
+                        color="bg-indigo-600"
+                        onClick={() => router.push(role === 'parent' ? '/grades' : '/students')}
+                        desc={role === 'parent' ? '查看成績與紀錄' : '全校學生檔案與分析'}
+                    />
 
-                    <Link href="/grades" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-purple-300 group">
-                        <div className="bg-purple-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">📊</div>
-                        <div className="flex-1"><div className="font-bold text-gray-800 text-lg">成績管理</div></div>
-                    </Link>
+                    {/* 4. 請假中心 */}
+                    <DashboardCard
+                        title="請假中心"
+                        icon="📅"
+                        color="bg-teal-500"
+                        onClick={() => router.push('/leave')}
+                        badge={role !== 'parent' ? counts.leaves : 0}
+                        desc={role === 'parent' ? '線上請假申請' : '審核學生請假單'}
+                    />
 
-                    <Link href="/leave" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-blue-300 relative group">
-                        <div className="bg-blue-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">📅</div>
-                        <div className="flex-1"><div className="font-bold text-gray-800 text-lg">請假中心</div></div>
-                        {role !== 'parent' && <Badge count={stats.pending_leaves} />}
-                    </Link>
+                    {/* 5. 成績管理 */}
+                    <DashboardCard
+                        title="成績管理"
+                        icon="📊"
+                        color="bg-purple-500"
+                        onClick={() => router.push('/grades')}
+                        desc={role === 'parent' ? '查看詳細成績單' : '批次登錄與分析'}
+                    />
 
-                    {/* 只有教職員看得到的按鈕 */}
-                    {['director', 'manager', 'admin', 'teacher'].includes(role || '') && (
-                        <Link href="/students" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-gray-400 mt-6 group">
-                            <div className="bg-gray-200 p-3 rounded-full text-2xl group-hover:scale-110 transition">📂</div>
-                            <div className="flex-1"><div className="font-bold text-gray-800 text-lg">學生檔案管理</div></div>
-                        </Link>
+                    {/* 6. 人事管理 (只有管理員看得到) */}
+                    {role !== 'parent' && role !== 'teacher' && (
+                        <DashboardCard
+                            title="人事權限"
+                            icon="👥"
+                            color="bg-gray-700"
+                            onClick={() => router.push('/admin')}
+                            desc="設定師資與班級"
+                        />
                     )}
-                    {['director', 'manager', 'admin'].includes(role || '') && (
-                        <Link href="/admin" className="block bg-white p-4 rounded-xl shadow-sm flex items-center gap-4 hover:shadow-md transition border border-transparent hover:border-red-300 mt-2 group">
-                            <div className="bg-red-100 p-3 rounded-full text-2xl group-hover:scale-110 transition">👥</div>
-                            <div className="flex-1">
-                                <div className="font-bold text-gray-800 text-lg">人事與權限</div>
-                                <div className="text-xs text-gray-500">審核開通新帳號</div>
-                            </div>
-                        </Link>
-                    )}
+                </div>
+
+                {/* 底部資訊 */}
+                <div className="text-center text-gray-400 text-xs mt-8">
+                    Tom Bear Education System © 2026
                 </div>
             </div>
         </div>
+    );
+}
+
+// ✨ 精美卡片元件
+function DashboardCard({ title, icon, color, onClick, badge = 0, desc }: any) {
+    return (
+        <button
+            onClick={onClick}
+            className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 text-left relative overflow-hidden group"
+        >
+            <div className={`w-12 h-12 ${color} text-white rounded-xl flex items-center justify-center text-2xl shadow-md mb-4 group-hover:scale-110 transition`}>
+                {icon}
+            </div>
+            <h3 className="font-bold text-gray-800 text-lg mb-1">{title}</h3>
+            <p className="text-xs text-gray-400 font-medium">{desc}</p>
+
+            {/* 🔴 小紅點 (如果有數量) */}
+            {badge > 0 && (
+                <div className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce shadow-lg border-2 border-white">
+                    {badge}
+                </div>
+            )}
+        </button>
     );
 }
