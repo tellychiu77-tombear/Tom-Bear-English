@@ -10,7 +10,7 @@ export default function AnnouncementPage() {
     const [announcements, setAnnouncements] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    // 發布公告用
+    // 發布公告用 State
     const [showCreate, setShowCreate] = useState(false);
     const [newTitle, setNewTitle] = useState('');
     const [newContent, setNewContent] = useState('');
@@ -26,35 +26,32 @@ export default function AnnouncementPage() {
     async function fetchData() {
         try {
             setLoading(true);
-            // 1. 獲取當前用戶
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { router.push('/'); return; }
             setUserId(session.user.id);
 
-            // 2. 獲取角色
+            // 獲取角色 (修正：使用 users 表)
             const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
             const userRole = profile?.role || 'parent';
-            setRole(userRole);
+            setRole(userRole); // 更新狀態
 
-            // 3. 獲取公告 (並關聯已讀紀錄)
+            // 獲取公告
             const { data: list, error } = await supabase
                 .from('announcements')
-                .select(`
-                    *,
-                    announcement_reads (user_id)
-                `)
+                .select(`*, announcement_reads (user_id)`)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
 
-            // 處理資料：判斷這個 user 有沒有讀過
+            // 處理已讀數據
             const processed = list.map(item => ({
                 ...item,
                 isRead: item.announcement_reads.some((r: any) => r.user_id === session.user.id),
-                readCount: item.announcement_reads.length // 簡單統計已讀人數
+                readCount: item.announcement_reads.length
             }));
 
-            // Filter for non-admins (only see relevant + all)
+            // Client-side filtering for non-admins to avoid checking "audience" in RLS complexity for now
+            // If needed, we can move this to DB query RLS later
             if (!['director', 'manager', 'admin', 'admin_staff'].includes(userRole)) {
                 const relevant = processed.filter(p =>
                     p.audience === 'all' ||
@@ -66,69 +63,55 @@ export default function AnnouncementPage() {
                 setAnnouncements(processed);
             }
 
-        } catch (err: any) {
-            console.error('Error fetching announcements:', err);
+        } catch (err) {
+            console.error(err);
         } finally {
             setLoading(false);
         }
     }
 
-    // 標記已讀
     async function markAsRead(announcementId: string, isAlreadyRead: boolean) {
-        if (isAlreadyRead) return; // 讀過就不再寫入
-
-        // 前端先更新 UI (看起來比較快)
+        if (isAlreadyRead) return;
         setAnnouncements(prev => prev.map(a => a.id === announcementId ? { ...a, isRead: true } : a));
 
-        // 後端寫入
-        await supabase.from('announcement_reads').upsert({
-            announcement_id: announcementId,
-            user_id: userId
-        }, { onConflict: 'announcement_id, user_id', ignoreDuplicates: true });
+        // Explicit ignoreDuplicates logic via upsert
+        await supabase.from('announcement_reads').upsert(
+            { announcement_id: announcementId, user_id: userId },
+            { onConflict: 'announcement_id, user_id', ignoreDuplicates: true }
+        );
     }
 
-    // 發布公告
     async function handlePublish() {
         if (!newTitle.trim()) return alert('請輸入標題');
-
         try {
+            // 修正：created_by -> author_id
             const { error } = await supabase.from('announcements').insert({
-                title: newTitle,
-                content: newContent,
-                priority,
-                audience,
-                author_id: userId
+                title: newTitle, content: newContent, priority, audience, author_id: userId
             });
-
             if (error) throw error;
-
             alert('發布成功！');
             setShowCreate(false);
-            setNewTitle('');
-            setNewContent('');
-            fetchData(); // 重新整理列表
-
+            setNewTitle(''); setNewContent('');
+            fetchData();
         } catch (e: any) {
             alert('發布失敗: ' + e.message);
         }
     }
 
-    // 刪除公告 (NEW)
+    // 新增：刪除公告功能
     async function handleDelete(id: string) {
-        if (!confirm('⚠️ 確定要刪除這則公告嗎？\n\n刪除後無法復原，且所有人的已讀紀錄也會一併消失。')) return;
-
+        if (!confirm('確定要刪除此公告嗎？已讀紀錄也會一併消失。')) return;
         try {
             const { error } = await supabase.from('announcements').delete().eq('id', id);
             if (error) throw error;
-
-            // 更新畫面
             setAnnouncements(prev => prev.filter(a => a.id !== id));
-            alert('刪除成功');
-
         } catch (e: any) {
-            alert('刪除失敗: ' + e.message);
+            alert('刪除失敗 (可能權限不足): ' + e.message);
         }
     }
+
+    // 判斷是否為管理員
+    const isAdmin = ['director', 'manager', 'admin_staff', 'admin'].includes(role);
 
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -138,8 +121,6 @@ export default function AnnouncementPage() {
             </div>
         </div>
     );
-
-    const isAdmin = ['director', 'manager', 'admin', 'admin_staff'].includes(role);
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
@@ -151,7 +132,10 @@ export default function AnnouncementPage() {
                         <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
                             📢 校園公告欄
                         </h1>
-                        <p className="text-gray-500 text-sm mt-1">最新消息通知與重要事項發布</p>
+                        {/* Debug 用：顯示目前身分 */}
+                        <p className="text-xs text-gray-400 mt-1">
+                            當前帳號權限: <span className="font-bold text-indigo-500 uppercase">{role}</span>
+                        </p>
                     </div>
                     <div className="flex gap-2">
                         {isAdmin && (
@@ -168,21 +152,18 @@ export default function AnnouncementPage() {
                     </div>
                 </div>
 
-                {/* 公告列表 */}
+                {/* List */}
                 <div className="space-y-4">
                     {announcements.length === 0 ? (
-                        <div className="text-center py-12 bg-white rounded-xl shadow-sm border border-gray-100">
-                            <div className="text-5xl mb-4 opacity-30">📭</div>
-                            <p className="text-gray-400 font-bold">目前沒有任何公告</p>
-                        </div>
+                        <div className="text-center py-10 text-gray-400">目前沒有公告</div>
                     ) : (
                         announcements.map(item => (
                             <div
                                 key={item.id}
                                 onClick={() => markAsRead(item.id, item.isRead)}
-                                className={`bg-white p-6 rounded-xl shadow-sm border transition relative group cursor-pointer hover:shadow-md 
+                                className={`bg-white p-6 rounded-xl shadow-sm border transition relative cursor-pointer hover:shadow-md 
                             ${item.priority === 'urgent' ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-blue-500'}
-                            ${!item.isRead ? 'bg-blue-50/30' : ''}
+                            ${!item.isRead ? 'bg-blue-50/50' : ''}
                         `}
                             >
                                 <div className="flex justify-between items-start mb-2">
@@ -198,26 +179,22 @@ export default function AnnouncementPage() {
                                     </span>
                                 </div>
 
-                                <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">
+                                <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line mb-4">
                                     {item.content}
                                 </p>
 
-                                {/* 管理員才看得到的統計數據 與 刪除按鈕 */}
+                                {/* 管理員專屬控制區 */}
                                 {isAdmin && (
-                                    <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs text-gray-400">
-                                        <div className="flex items-center gap-4">
-                                            <span>發送對象: {item.audience === 'all' ? '全校' : item.audience}</span>
-                                            <span className="font-bold text-indigo-600">👁️ 已讀人數: {item.readCount} 人</span>
+                                    <div className="pt-3 border-t border-gray-100 flex justify-between items-center text-xs">
+                                        <div className="text-gray-400 flex gap-4">
+                                            <span>對象: {item.audience}</span>
+                                            <span className="font-bold text-indigo-600">👁️ 已讀人數: {item.readCount}</span>
                                         </div>
-
                                         <button
-                                            onClick={(e) => {
-                                                e.stopPropagation(); // 防止觸發卡片點擊
-                                                handleDelete(item.id);
-                                            }}
+                                            onClick={(e) => { e.stopPropagation(); handleDelete(item.id); }}
                                             className="text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition flex items-center gap-1"
                                         >
-                                            🗑️ 刪除公告
+                                            🗑️ 刪除
                                         </button>
                                     </div>
                                 )}
@@ -226,49 +203,33 @@ export default function AnnouncementPage() {
                     )}
                 </div>
 
-                {/* 發布公告 Modal */}
+                {/* Modal (保持原本的發布視窗邏輯) */}
                 {showCreate && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-                        <div className="bg-white w-full max-w-lg rounded-2xl p-6 shadow-2xl animate-fade-in-up">
+                        <div className="bg-white w-full max-w-lg rounded-2xl p-6 shadow-2xl">
                             <h2 className="text-xl font-bold mb-4">📝 發布新公告</h2>
-
                             <div className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">標題</label>
-                                    <input type="text" className="w-full p-3 border rounded-lg font-bold" placeholder="例如：本週五停課通知" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-gray-500 mb-1">內容</label>
-                                    <textarea className="w-full p-3 border rounded-lg h-32" placeholder="請輸入詳細內容..." value={newContent} onChange={e => setNewContent(e.target.value)}></textarea>
-                                </div>
-
+                                <input type="text" className="w-full p-3 border rounded-lg font-bold" placeholder="標題" value={newTitle} onChange={e => setNewTitle(e.target.value)} />
+                                <textarea className="w-full p-3 border rounded-lg h-32" placeholder="內容..." value={newContent} onChange={e => setNewContent(e.target.value)}></textarea>
                                 <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">重要性</label>
-                                        <select className="w-full p-2 border rounded" value={priority} onChange={e => setPriority(e.target.value)}>
-                                            <option value="normal">一般公告</option>
-                                            <option value="urgent">🔴 緊急通知</option>
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-gray-500 mb-1">發送對象</label>
-                                        <select className="w-full p-2 border rounded" value={audience} onChange={e => setAudience(e.target.value)}>
-                                            <option value="all">全校師生</option>
-                                            <option value="teacher">僅老師</option>
-                                            <option value="parent">僅家長</option>
-                                        </select>
-                                    </div>
+                                    <select className="w-full p-2 border rounded" value={priority} onChange={e => setPriority(e.target.value)}>
+                                        <option value="normal">一般公告</option>
+                                        <option value="urgent">🔴 緊急通知</option>
+                                    </select>
+                                    <select className="w-full p-2 border rounded" value={audience} onChange={e => setAudience(e.target.value)}>
+                                        <option value="all">全校師生</option>
+                                        <option value="teacher">僅老師</option>
+                                        <option value="parent">僅家長</option>
+                                    </select>
                                 </div>
                             </div>
-
                             <div className="mt-6 flex justify-end gap-2">
                                 <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-gray-500 hover:bg-gray-100 rounded font-bold">取消</button>
-                                <button onClick={handlePublish} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700">確認發布</button>
+                                <button onClick={handlePublish} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded shadow hover:bg-indigo-700">發布</button>
                             </div>
                         </div>
                     </div>
                 )}
-
             </div>
         </div>
     );
