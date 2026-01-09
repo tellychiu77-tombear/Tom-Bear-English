@@ -32,18 +32,17 @@ export default function AnnouncementPage() {
             setUserId(session.user.id);
 
             // 2. 獲取角色
-            const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+            const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
             const userRole = profile?.role || 'parent';
             setRole(userRole);
 
             // 3. 獲取公告 (並關聯已讀紀錄)
-            // 注意：這裡我們簡單抓取所有公告，並標記是否已讀
             const { data: list, error } = await supabase
                 .from('announcements')
                 .select(`
-            *,
-            announcement_reads (user_id)
-        `)
+                    *,
+                    announcement_reads (user_id)
+                `)
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -55,13 +54,21 @@ export default function AnnouncementPage() {
                 readCount: item.announcement_reads.length // 簡單統計已讀人數
             }));
 
-            setAnnouncements(processed);
+            // Filter for non-admins (only see relevant + all)
+            if (!['director', 'manager', 'admin', 'admin_staff'].includes(userRole)) {
+                const relevant = processed.filter(p =>
+                    p.audience === 'all' ||
+                    (userRole === 'parent' && p.audience === 'parent') ||
+                    (userRole !== 'parent' && p.audience === 'staff')
+                );
+                setAnnouncements(relevant);
+            } else {
+                setAnnouncements(processed);
+            }
 
         } catch (err: any) {
             console.error('Error fetching announcements:', err);
-            // 這裡可以選擇是否 alert 錯誤，目前先安靜處理
         } finally {
-            // 🟢 關鍵：不管成功失敗，最後一定要關掉 Loading
             setLoading(false);
         }
     }
@@ -74,10 +81,10 @@ export default function AnnouncementPage() {
         setAnnouncements(prev => prev.map(a => a.id === announcementId ? { ...a, isRead: true } : a));
 
         // 後端寫入
-        await supabase.from('announcement_reads').insert({
+        await supabase.from('announcement_reads').upsert({
             announcement_id: announcementId,
             user_id: userId
-        });
+        }, { onConflict: 'announcement_id, user_id', ignoreDuplicates: true });
     }
 
     // 發布公告
@@ -90,7 +97,7 @@ export default function AnnouncementPage() {
                 content: newContent,
                 priority,
                 audience,
-                created_by: userId
+                author_id: userId
             });
 
             if (error) throw error;
@@ -106,6 +113,23 @@ export default function AnnouncementPage() {
         }
     }
 
+    // 刪除公告 (NEW)
+    async function handleDelete(id: string) {
+        if (!confirm('⚠️ 確定要刪除這則公告嗎？\n\n刪除後無法復原，且所有人的已讀紀錄也會一併消失。')) return;
+
+        try {
+            const { error } = await supabase.from('announcements').delete().eq('id', id);
+            if (error) throw error;
+
+            // 更新畫面
+            setAnnouncements(prev => prev.filter(a => a.id !== id));
+            alert('刪除成功');
+
+        } catch (e: any) {
+            alert('刪除失敗: ' + e.message);
+        }
+    }
+
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
             <div className="text-center animate-pulse">
@@ -115,7 +139,7 @@ export default function AnnouncementPage() {
         </div>
     );
 
-    const isAdmin = ['director', 'manager', 'admin_staff'].includes(role);
+    const isAdmin = ['director', 'manager', 'admin', 'admin_staff'].includes(role);
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
@@ -178,11 +202,23 @@ export default function AnnouncementPage() {
                                     {item.content}
                                 </p>
 
-                                {/* 管理員才看得到的統計數據 */}
+                                {/* 管理員才看得到的統計數據 與 刪除按鈕 */}
                                 {isAdmin && (
-                                    <div className="mt-4 pt-3 border-t border-gray-100 flex items-center gap-4 text-xs text-gray-400">
-                                        <span>發送對象: {item.audience === 'all' ? '全校' : item.audience}</span>
-                                        <span className="font-bold text-indigo-600">👁️ 已讀人數: {item.readCount} 人</span>
+                                    <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs text-gray-400">
+                                        <div className="flex items-center gap-4">
+                                            <span>發送對象: {item.audience === 'all' ? '全校' : item.audience}</span>
+                                            <span className="font-bold text-indigo-600">👁️ 已讀人數: {item.readCount} 人</span>
+                                        </div>
+
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // 防止觸發卡片點擊
+                                                handleDelete(item.id);
+                                            }}
+                                            className="text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition flex items-center gap-1"
+                                        >
+                                            🗑️ 刪除公告
+                                        </button>
                                     </div>
                                 )}
                             </div>
