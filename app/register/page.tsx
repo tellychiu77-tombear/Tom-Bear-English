@@ -17,9 +17,22 @@ export default function RegisterPage() {
     const [phone, setPhone] = useState('');
 
     // 家長專屬資料
-    const [childName, setChildName] = useState('');
-    const [childGrade, setChildGrade] = useState('CEI-A');
-    const [childAfterSchool, setChildAfterSchool] = useState(false);
+    // 家長專屬資料 (多位學生)
+    const [children, setChildren] = useState([{ name: '', grade: 'CEI-A', afterSchool: false }]);
+
+    const handleAddChild = () => {
+        setChildren([...children, { name: '', grade: 'CEI-A', afterSchool: false }]);
+    };
+
+    const handleRemoveChild = (index: number) => {
+        setChildren(children.filter((_, i) => i !== index));
+    };
+
+    const handleChildChange = (index: number, field: string, value: any) => {
+        const newChildren = [...children];
+        (newChildren[index] as any)[field] = value;
+        setChildren(newChildren);
+    };
 
     const [loading, setLoading] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
@@ -38,7 +51,11 @@ export default function RegisterPage() {
         if (!fullName.trim()) { setErrorMsg('⚠️ 請輸入真實姓名'); setLoading(false); return; }
 
         // 家長必須填小孩資料
-        if (role === 'parent' && !childName.trim()) { setErrorMsg('⚠️ 家長請填寫學生姓名'); setLoading(false); return; }
+        // 家長必須填小孩資料
+        if (role === 'parent') {
+            const hasEmptyName = children.some(c => !c.name.trim());
+            if (hasEmptyName) { setErrorMsg('⚠️ 請填寫所有學生的姓名'); setLoading(false); return; }
+        }
 
         const { error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) { setErrorMsg('註冊失敗: ' + signUpError.message); setLoading(false); return; }
@@ -55,14 +72,18 @@ export default function RegisterPage() {
             });
 
             // 2. 家長：建立小孩資料
+            // 2. 家長：建立小孩資料
             if (role === 'parent') {
-                let finalGrade = childGrade;
-                if (childAfterSchool) finalGrade += ', 課後輔導班';
-                await supabase.from('students').insert({
-                    parent_id: user.id,
-                    chinese_name: childName,
-                    grade: finalGrade
+                const studentsToInsert = children.map(child => {
+                    let finalGrade = child.grade;
+                    if (child.afterSchool) finalGrade += ', 課後輔導班';
+                    return {
+                        parent_id: user.id,
+                        chinese_name: child.name,
+                        grade: finalGrade
+                    };
                 });
+                await supabase.from('students').insert(studentsToInsert);
             }
             alert('✅ 註冊申請已送出！\n\n請等待行政人員審核開通。');
             router.push('/');
@@ -111,18 +132,48 @@ export default function RegisterPage() {
 
                         {/* 家長專屬：小孩資料 */}
                         {role === 'parent' && (
-                            <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
-                                <label className="block text-xs font-bold text-orange-800 mb-2">綁定學生資料</label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <input type="text" placeholder="學生姓名" className="w-full p-2 border rounded" value={childName} onChange={e => setChildName(e.target.value)} />
-                                    <select className="w-full p-2 border rounded" value={childGrade} onChange={e => setChildGrade(e.target.value)}>
-                                        {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-                                <label className="flex items-center gap-2 mt-2 cursor-pointer">
-                                    <input type="checkbox" className="accent-orange-600" checked={childAfterSchool} onChange={e => setChildAfterSchool(e.target.checked)} />
-                                    <span className="text-sm text-gray-700 font-bold">有參加安親</span>
-                                </label>
+                            <div className="bg-orange-50 p-5 rounded-xl border border-orange-200">
+                                <label className="block text-xs font-bold text-orange-800 mb-3 uppercase">步驟 3：綁定學生資料</label>
+
+                                {children.map((child, index) => (
+                                    <div key={index} className="mb-4 pb-4 border-b border-orange-200 last:border-0">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <span className="text-xs font-bold text-orange-600">學生 {index + 1}</span>
+                                            {children.length > 1 && (
+                                                <button type="button" onClick={() => handleRemoveChild(index)} className="text-red-500 text-xs hover:underline">🗑️ 刪除</button>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder="學生姓名"
+                                                className="w-full p-2 border rounded"
+                                                value={child.name}
+                                                onChange={e => handleChildChange(index, 'name', e.target.value)}
+                                            />
+                                            <select
+                                                className="w-full p-2 border rounded"
+                                                value={child.grade}
+                                                onChange={e => handleChildChange(index, 'grade', e.target.value)}
+                                            >
+                                                {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                className="accent-orange-600"
+                                                checked={child.afterSchool}
+                                                onChange={e => handleChildChange(index, 'afterSchool', e.target.checked)}
+                                            />
+                                            <span className="text-sm text-gray-700 font-bold">有參加安親</span>
+                                        </label>
+                                    </div>
+                                ))}
+
+                                <button type="button" onClick={handleAddChild} className="w-full py-2 bg-white border-2 border-dashed border-orange-300 text-orange-500 rounded-lg font-bold hover:bg-orange-100 transition">
+                                    + 新增另一位學生
+                                </button>
                             </div>
                         )}
 

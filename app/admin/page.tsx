@@ -250,36 +250,46 @@ export default function AdminPage() {
                                 {editingUser.role === 'parent' && (
                                     <div className="bg-orange-50 p-4 rounded-xl border border-orange-100">
                                         <h4 className="font-bold text-orange-800 mb-4">👶 學生列表與兵籍資料</h4>
-                                        <div className="space-y-3 mb-4">
-                                            {editingUser.students?.map((s: any) => (
-                                                <div key={s.id} className="bg-white p-3 rounded shadow-sm border border-gray-100">
-                                                    {editingStudentId === s.id ? (
-                                                        <div className="space-y-2 animate-fade-in">
-                                                            <input type="text" className="w-full p-1 border rounded text-sm" value={editStudentName} onChange={e => setEditStudentName(e.target.value)} />
-                                                            <div className="flex gap-2">
-                                                                <select className="flex-1 p-1 border rounded text-sm bg-white" value={editStudentGrade} onChange={e => setEditStudentGrade(e.target.value)}>{ALL_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}</select>
+                                        <div className="space-y-2 mb-4">
+                                            {editingUser.students && editingUser.students.length > 0 ? (
+                                                editingUser.students.map((s: any) => (
+                                                    <div key={s.id} className="bg-white p-3 rounded shadow-sm border border-orange-200">
+                                                        {editingStudentId === s.id ? (
+                                                            // 編輯模式
+                                                            <div className="space-y-2 animate-fade-in">
+                                                                <input type="text" className="w-full p-1 border rounded" value={editStudentName} onChange={e => setEditStudentName(e.target.value)} />
+                                                                <div className="flex gap-2">
+                                                                    <select className="flex-1 p-1 border rounded bg-white" value={editStudentGrade} onChange={e => setEditStudentGrade(e.target.value)}>
+                                                                        {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                                                    </select>
+                                                                </div>
+                                                                <label className="flex items-center gap-2"><input type="checkbox" checked={editStudentAfterSchool} onChange={e => setEditStudentAfterSchool(e.target.checked)} /><span className="text-sm">參加課輔</span></label>
+                                                                <div className="flex justify-end gap-2">
+                                                                    <button onClick={() => setEditingStudentId(null)} className="text-gray-400 text-xs">取消</button>
+                                                                    <button onClick={saveStudentChanges} className="bg-green-500 text-white px-2 py-1 rounded text-xs font-bold">確認修改</button>
+                                                                </div>
                                                             </div>
-                                                            <label className="flex items-center gap-2"><input type="checkbox" checked={editStudentAfterSchool} onChange={e => setEditStudentAfterSchool(e.target.checked)} /><span className="text-sm">參加課輔</span></label>
-                                                            <div className="flex justify-end gap-2 mt-2"><button onClick={() => setEditingStudentId(null)} className="px-2 py-1 text-gray-500 text-xs">取消</button><button onClick={saveStudentChanges} className="px-3 py-1 bg-green-500 text-white text-xs font-bold rounded">確認</button></div>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="flex justify-between items-center">
-                                                            <div>
-                                                                <div className="font-bold text-gray-800 text-lg">{s.chinese_name}</div>
-                                                                <div className="text-xs text-gray-500">{s.grade}</div>
+                                                        ) : (
+                                                            // 顯示模式
+                                                            <div className="flex justify-between items-center">
+                                                                <div>
+                                                                    <div className="font-bold text-gray-800">{s.chinese_name}</div>
+                                                                    <div className="text-xs text-gray-500">{s.grade}</div>
+                                                                </div>
+                                                                <div className="flex gap-2">
+                                                                    <button onClick={() => fetchStudentProfile(s, editingUser)} className="text-white text-xs font-bold px-3 py-1.5 bg-purple-600 rounded shadow hover:bg-purple-700 flex items-center gap-1">
+                                                                        📂 檔案
+                                                                    </button>
+                                                                    <button onClick={() => startEditingStudent(s)} className="text-blue-500 text-xs font-bold px-2 py-1 bg-blue-50 rounded">✏️ 修改</button>
+                                                                    <button onClick={() => deleteStudent(s.id)} className="text-red-500 text-xs hover:underline px-2 py-1">🗑️ 移除</button>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex gap-2">
-                                                                {/* 🟢 兵籍資料按鈕 */}
-                                                                <button onClick={() => fetchStudentProfile(s, editingUser)} className="text-white text-xs font-bold px-3 py-1.5 bg-purple-600 rounded shadow hover:bg-purple-700 flex items-center gap-1">
-                                                                    📂 檔案
-                                                                </button>
-                                                                <button onClick={() => startEditingStudent(s)} className="text-blue-500 text-xs font-bold px-2 py-1 bg-blue-50 rounded border border-blue-100">✏️ 修改</button>
-                                                                <button onClick={() => deleteStudent(s.id)} className="text-red-500 text-xs hover:underline px-2 py-1">🗑️</button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
+                                                        )}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="text-center text-gray-400 text-sm py-2">目前沒有綁定學生</div>
+                                            )}
                                         </div>
                                         {/* 新增學生 (略) */}
                                         <div className="bg-white p-3 rounded-lg border border-orange-200 mt-2">
