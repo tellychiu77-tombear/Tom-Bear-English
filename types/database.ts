@@ -17,6 +17,7 @@ export type Database = {
                     phone: string | null
                     role: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
                     department: 'english' | 'after_school' | 'general' | null
+                    job_title: string | null
                     responsible_classes: string[] | null
                     created_at: string
                 }
@@ -27,6 +28,7 @@ export type Database = {
                     phone?: string | null
                     role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
                     department?: 'english' | 'after_school' | 'general' | null
+                    job_title?: string | null
                     responsible_classes?: string[] | null
                     created_at?: string
                 }
@@ -37,6 +39,7 @@ export type Database = {
                     phone?: string | null
                     role?: 'admin' | 'director' | 'manager' | 'teacher' | 'parent' | 'admin_staff' | 'pending'
                     department?: 'english' | 'after_school' | 'general' | null
+                    job_title?: string | null
                     responsible_classes?: string[] | null
                     created_at?: string
                 }

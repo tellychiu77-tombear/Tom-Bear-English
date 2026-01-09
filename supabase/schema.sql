@@ -6,6 +6,7 @@ create table users (
   id uuid references auth.users not null primary key,
   role text check (role in ('admin', 'director', 'manager', 'teacher', 'parent', 'admin_staff', 'pending')) default 'pending',
   department text check (department in ('english', 'after_school', 'general')),
+  job_title text,
   name text,
   contact_info jsonb,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null

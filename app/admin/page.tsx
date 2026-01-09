@@ -31,6 +31,7 @@ export default function AdminPage() {
     const [editingUser, setEditingUser] = useState<any>(null);
     const [editName, setEditName] = useState('');
     const [editDepartment, setEditDepartment] = useState(''); // 新增部門狀態
+    const [editJobTitle, setEditJobTitle] = useState('');     // 新增職稱狀態
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
     const [newChildName, setNewChildName] = useState('');
     const [newChildGrade, setNewChildGrade] = useState('CEI-A');
@@ -121,6 +122,7 @@ export default function AdminPage() {
         setEditingUser(user);
         setEditName(user.full_name || '');
         setEditDepartment(user.department || 'english'); // 預設英文部
+        setEditJobTitle(user.job_title || '');           // 設定職稱
         setTeacherClasses(user.responsible_classes || []);
         setNewChildName(''); setNewChildGrade('CEI-A'); setIsAfterSchool(false);
         setEditingStudentId(null);
@@ -153,10 +155,11 @@ export default function AdminPage() {
     async function handleSaveUser() {
         if (!editingUser) return;
         try {
-            // 儲存 Role 與 Department
+            // 儲存 Role, Department, JobTitle
             await supabase.from('profiles').update({
                 role: editingUser.role,
                 department: ['manager', 'teacher'].includes(editingUser.role) ? editDepartment : null, // 只有主管和老師需要存部門
+                job_title: editJobTitle,  // 儲存職稱
                 full_name: editName,
                 responsible_classes: editingUser.role === 'teacher' ? teacherClasses : null
             }).eq('id', editingUser.id);
@@ -238,12 +241,19 @@ export default function AdminPage() {
                                                                 user.role === 'parent' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100'}`}>
                                                 {ROLES.find(r => r.id === user.role)?.label || user.role}
                                             </span>
-                                            {/* 顯示部門標籤 */}
-                                            {user.department && ['manager', 'teacher'].includes(user.role) && (
-                                                <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-200">
-                                                    {DEPARTMENTS.find(d => d.id === user.department)?.label}
-                                                </span>
-                                            )}
+                                            {/* 顯示部門與職稱標籤 */}
+                                            <div className="flex gap-1 mt-1 flex-wrap">
+                                                {user.department && ['manager', 'teacher'].includes(user.role) && (
+                                                    <span className="text-[10px] bg-green-50 text-green-700 px-1.5 py-0.5 rounded border border-green-200">
+                                                        [{DEPARTMENTS.find(d => d.id === user.department)?.label}]
+                                                    </span>
+                                                )}
+                                                {user.job_title && (
+                                                    <span className="text-[10px] bg-gray-50 text-gray-600 px-1.5 py-0.5 rounded border border-gray-200 font-bold">
+                                                        {user.job_title}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </td>
                                     <td className="p-4">
@@ -299,7 +309,13 @@ export default function AdminPage() {
                                         </div>
                                     )}
 
-                                    <label className="block text-sm font-bold text-gray-700 mb-2">3. 顯示名稱</label>
+                                    {/* 職稱輸入框 */}
+                                    <div className="mb-4">
+                                        <label className="block text-sm font-bold text-gray-700 mb-2">3. 職稱 (Job Title)</label>
+                                        <input type="text" placeholder="例如：教務長、英文組長" className="w-full p-2 border rounded" value={editJobTitle} onChange={e => setEditJobTitle(e.target.value)} />
+                                    </div>
+
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">4. 顯示名稱</label>
                                     <input type="text" className="w-full p-2 border rounded" value={editName} onChange={e => setEditName(e.target.value)} />
                                 </div>
 

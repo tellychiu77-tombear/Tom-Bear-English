@@ -166,6 +166,11 @@ export default function DashboardPage() {
                     <DashboardCard title="請假中心" icon="📅" color="bg-teal-500" onClick={() => router.push('/leave')} badge={role !== 'parent' ? counts.leaves : 0} desc="線上請假/審核" />
                     <DashboardCard title="成績管理" icon="📊" color="bg-purple-500" onClick={() => router.push('/grades')} desc="查看/登錄成績" />
 
+                    {/* 🟢 主管專屬入口 */}
+                    {['director', 'manager'].includes(role || '') && (
+                        <DashboardCard title="部門戰情室" icon="💼" color="bg-cyan-600" onClick={() => router.push('/manager')} desc="查看績效與部門數據" />
+                    )}
+
                     {/* 只有非家長、非老師 (即管理員) 才看得到人事權限 */}
                     {role !== 'parent' && role !== 'teacher' && (
                         <DashboardCard title="人事權限" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
