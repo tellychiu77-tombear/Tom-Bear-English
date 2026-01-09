@@ -210,7 +210,15 @@ export default function AdminPage() {
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold text-gray-800">👥 人事與兵籍管理</h1>
-                    <button onClick={() => router.push('/')} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">回首頁</button>
+                    <div className="flex gap-2">
+                        {/* 只有 Director 可以查看日誌 */}
+                        {ROLES.find(r => r.id === 'director' && (!editingUser || editingUser.role === 'director')) && (
+                            <button onClick={() => router.push('/admin/logs')} className="px-4 py-2 bg-indigo-100 text-indigo-700 font-bold rounded hover:bg-indigo-200 border border-indigo-200 shadow-sm flex items-center gap-2">
+                                📜 查看日誌
+                            </button>
+                        )}
+                        <button onClick={() => router.push('/')} className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">回首頁</button>
+                    </div>
                 </div>
 
                 {/* 用戶列表 */}

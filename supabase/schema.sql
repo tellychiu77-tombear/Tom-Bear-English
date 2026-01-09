@@ -125,3 +125,18 @@ as $$
   select id from auth.users where email = user_email limit 1;
 $$;
 
+
+-- 15. Audit Logs Table
+create table audit_logs (
+  id uuid default uuid_generate_v4() primary key,
+  action text not null,
+  details text,
+  user_id uuid references users(id) not null,
+  user_name text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 16. Enable Realtime & RLS for Logs
+alter publication supabase_realtime add table audit_logs;
+alter table audit_logs enable row level security;
+create policy "Enable all access for now" on audit_logs for all using (true) with check (true);
