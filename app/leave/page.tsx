@@ -167,8 +167,8 @@ export default function LeavePage() {
                         <button
                             onClick={() => setActiveTab('pending')}
                             className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${activeTab === 'pending'
-                                    ? 'bg-orange-100 text-orange-700 shadow-sm'
-                                    : 'text-gray-400 hover:text-gray-600'
+                                ? 'bg-orange-100 text-orange-700 shadow-sm'
+                                : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             🔴 待審核 ({pendingLeaves.length})
@@ -176,8 +176,8 @@ export default function LeavePage() {
                         <button
                             onClick={() => setActiveTab('history')}
                             className={`flex-1 md:flex-none px-6 py-2 rounded-lg font-bold text-sm transition-all duration-200 ${activeTab === 'history'
-                                    ? 'bg-gray-800 text-white shadow-md'
-                                    : 'text-gray-400 hover:text-gray-600'
+                                ? 'bg-gray-800 text-white shadow-md'
+                                : 'text-gray-400 hover:text-gray-600'
                                 }`}
                         >
                             📋 歷史紀錄
@@ -277,35 +277,58 @@ export default function LeavePage() {
                                 {filteredHistory.length === 0 ? (
                                     <div className="p-10 text-center text-gray-400">查無紀錄</div>
                                 ) : (
-                                    filteredHistory.map(leave => (
-                                        <div key={leave.id} className="p-4 hover:bg-gray-50 transition flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold
-                                                    ${leave.status === 'approved' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}
-                                                `}>
-                                                    {leave.student?.chinese_name?.[0]}
-                                                </div>
-                                                <div>
-                                                    <div className="font-bold text-gray-800 flex items-center gap-2">
-                                                        {leave.student?.chinese_name}
-                                                        <span className="text-xs text-gray-400 font-normal">{leave.student?.grade}</span>
-                                                    </div>
-                                                    <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
-                                                        <span className="font-mono">{leave.start_date}</span>
-                                                        <LeaveTypeBadge type={leave.type} size="sm" />
-                                                    </div>
-                                                    <div className="text-sm text-gray-600 mt-1 line-clamp-1">
-                                                        {leave.reason}
-                                                    </div>
-                                                </div>
-                                            </div>
+                                    (() => {
+                                        // Group by YYYY-MM
+                                        const grouped = filteredHistory.reduce((acc: any, leave: any) => {
+                                            const month = leave.start_date.slice(0, 7); // YYYY-MM
+                                            if (!acc[month]) acc[month] = [];
+                                            acc[month].push(leave);
+                                            return acc;
+                                        }, {});
 
-                                            <div className="flex items-center gap-4 self-end md:self-auto">
-                                                {leave.status === 'approved' && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">已核准</span>}
-                                                {leave.status === 'rejected' && <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">已駁回</span>}
+                                        // Sort months descending
+                                        const sortedMonths = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+                                        return sortedMonths.map(month => (
+                                            <div key={month} className="bg-white">
+                                                {/* Month Header */}
+                                                <div className="bg-gray-50/80 px-4 py-2 text-sm font-bold text-gray-500 border-y border-gray-100 sticky top-0 backdrop-blur-sm">
+                                                    📅 {month.replace('-', '年 ')}月
+                                                </div>
+
+                                                {/* Leaves in this month */}
+                                                {grouped[month].map((leave: any) => (
+                                                    <div key={leave.id} className="p-4 hover:bg-gray-50 transition flex flex-col md:flex-row md:items-center justify-between gap-4 border-b last:border-b-0 border-gray-100">
+                                                        <div className="flex items-center gap-4">
+                                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shrink-0
+                                                                ${leave.status === 'approved' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}
+                                                            `}>
+                                                                {leave.student?.chinese_name?.[0]}
+                                                            </div>
+                                                            <div>
+                                                                <div className="font-bold text-gray-800 flex items-center gap-2">
+                                                                    {leave.student?.chinese_name}
+                                                                    <span className="text-xs text-gray-400 font-normal">{leave.student?.grade}</span>
+                                                                </div>
+                                                                <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
+                                                                    <span className="font-mono">{leave.start_date}</span>
+                                                                    <LeaveTypeBadge type={leave.type} size="sm" />
+                                                                </div>
+                                                                <div className="text-sm text-gray-600 mt-1 line-clamp-1 break-all">
+                                                                    {leave.reason}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-4 self-end md:self-auto shrink-0">
+                                                            {leave.status === 'approved' && <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">已核准</span>}
+                                                            {leave.status === 'rejected' && <span className="px-3 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">已駁回</span>}
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        </div>
-                                    ))
+                                        ));
+                                    })()
                                 )}
                             </div>
                         </div>
