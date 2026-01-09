@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { logAction } from '@/lib/logService';
 
 export default function LeavePage() {
     const [loading, setLoading] = useState(true);
@@ -99,6 +100,10 @@ export default function LeavePage() {
         }
     };
 
+    // (Import removed)
+
+    // ... (previous)
+
     const updateStatus = async (id: string, newStatus: string) => {
         const confirmed = confirm(`確定要將此申請標記為「${newStatus === 'approved' ? '核准' : '駁回'}」嗎？`);
         if (!confirmed) return;
@@ -111,6 +116,14 @@ export default function LeavePage() {
         if (error) {
             alert('更新失敗');
         } else {
+            // 🟢 Audit Log
+            const target = leaves.find(l => l.id === id);
+            if (target) {
+                const action = newStatus === 'approved' ? '核准請假' : '駁回請假';
+                const msg = `${action === '核准請假' ? '核准' : '駁回'}了學生 [${target.student?.chinese_name}] 在 [${target.start_date}] 的 [${target.type}] 申請`;
+                await logAction(action, msg);
+            }
+
             // Optimistic update
             setLeaves(prev => prev.map(l => l.id === id ? { ...l, status: newStatus } : l));
         }

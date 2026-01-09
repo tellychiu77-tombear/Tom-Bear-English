@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { logAction } from '@/lib/logService';
 
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
 const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
@@ -116,6 +117,10 @@ export default function GradesPage() {
         }
     };
 
+    // (Import removed)
+
+    // ... (previous code)
+
     const handleSave = async () => {
         if (!entryClass || !entryExamName) return alert('請填寫完整資訊');
 
@@ -153,6 +158,12 @@ export default function GradesPage() {
         if (error) {
             alert(`❌ ${modeText}失敗: ` + error.message);
         } else {
+            // 🟢 Audit Log
+            await logAction(
+                isUpdateMode ? '修改成績' : '新增成績',
+                `${modeText}了 [${entryClass}] [${entryExamName}] 的成績紀錄 (共 ${validEntries.length} 筆)`
+            );
+
             alert(`✅ ${modeText}成功！`);
             fetchHistory(); // 刷新歷史
             checkExistingScores(); // 重新確認狀態

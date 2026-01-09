@@ -222,9 +222,23 @@ export default function AdminPage() {
     }
 
     async function deleteStudent(studentId: string) {
-        if (!confirm('確定刪除？資料將無法復原。')) return;
-        await supabase.from('students').delete().eq('id', studentId);
-        fetchUsers();
+        // Find Info for Log
+        const targetParent = users.find(u => u.students?.some((s: any) => s.id === studentId));
+        const targetStudent = targetParent?.students.find((s: any) => s.id === studentId);
+
+        if (!confirm(`確定要刪除學生「${targetStudent?.chinese_name || '未知'}」？資料將無法復原。`)) return;
+
+        const { error } = await supabase.from('students').delete().eq('id', studentId);
+
+        if (!error) {
+            if (targetStudent && targetParent) {
+                await logAction('刪除資料', `移除了家長 [${targetParent.full_name}] 的學生資料：[${targetStudent.chinese_name}]`);
+            }
+            fetchUsers();
+            alert('刪除成功');
+        } else {
+            alert('刪除失敗');
+        }
     }
 
     // --- SVG 折線圖元件 (內嵌版) ---
