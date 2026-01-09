@@ -133,11 +133,17 @@ export default function GradesPage() {
         const targetStudentIds = entries.map(([sid]) => sid);
 
         // 1. Delete old (for these students)
-        await supabase.from('exam_results')
+        // 額外防呆：刪除操作必須成功才繼續
+        const { error: deleteError } = await supabase.from('exam_results')
             .delete()
             .in('student_id', targetStudentIds)
             .eq('exam_date', entryDate)
             .eq('exam_name', entryExamName);
+
+        if (deleteError) {
+            console.error('Delete error:', deleteError);
+            return alert('更新時發生錯誤 (無法清除舊資料)，請稍後再試');
+        }
 
         // 2. Insert new
         const payload = entries.map(([sid, val]) => ({
@@ -187,11 +193,29 @@ export default function GradesPage() {
         if (data) {
             // Client-side Class Filter & Grouping
             let filtered = data;
+
+            // 1. Data Cleaning: Filter out invalid students (null student object)
+            // 這會排除掉「學生已被刪除」但「成績紀錄還留著」的髒資料
+            filtered = filtered.filter((r: any) => r.student && r.student.id);
+
+            // 2. Filter by Class
             if (historyClass) {
-                filtered = data.filter((r: any) => r.student?.grade?.includes(historyClass));
+                filtered = filtered.filter((r: any) => r.student?.grade?.includes(historyClass));
             }
 
-            // Group By: Date + ExamName + (Class??)
+            // 3. Deduplicate: 確保「同一考試 (Date+Name)」下，「同一學生」只算一次
+            // 防止資料庫有重複紀錄導致計數錯誤
+            const uniqueRecords = new Map();
+            filtered.forEach((r: any) => {
+                const uniqueKey = `${r.exam_date}_${r.exam_name}_${r.student.id}`;
+                // 如果重複，保留最新的 (假設 id 較大或後面的較新，這裡雖是無序，但邏輯上只取一筆)
+                if (!uniqueRecords.has(uniqueKey)) {
+                    uniqueRecords.set(uniqueKey, r);
+                }
+            });
+            filtered = Array.from(uniqueRecords.values());
+
+            // 4. Group By: Date + ExamName + (Class??)
             // 題目要求：日期 | 考試名稱 | 班級 | 平均分
             // 由於 exam_results 沒有直接存 class，我們通常是透過學生判斷。
             // 但如果一次考試混了多個班級，這裡分組會比較複雜。
