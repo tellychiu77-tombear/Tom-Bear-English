@@ -309,11 +309,13 @@ export default function AdminPage() {
                                         </div>
                                     )}
 
-                                    {/* 職稱輸入框 */}
-                                    <div className="mb-4">
-                                        <label className="block text-sm font-bold text-gray-700 mb-2">3. 職稱 (Job Title)</label>
-                                        <input type="text" placeholder="例如：教務長、英文組長" className="w-full p-2 border rounded" value={editJobTitle} onChange={e => setEditJobTitle(e.target.value)} />
-                                    </div>
+                                    {/* 職稱輸入框 (非家長才顯示) */}
+                                    {editingUser.role !== 'parent' && (
+                                        <div className="mb-4 animate-fade-in">
+                                            <label className="block text-sm font-bold text-gray-700 mb-2">3. 職稱 (Job Title)</label>
+                                            <input type="text" placeholder="例如：教務長、英文組長" className="w-full p-2 border rounded" value={editJobTitle} onChange={e => setEditJobTitle(e.target.value)} />
+                                        </div>
+                                    )}
 
                                     <label className="block text-sm font-bold text-gray-700 mb-2">4. 顯示名稱</label>
                                     <input type="text" className="w-full p-2 border rounded" value={editName} onChange={e => setEditName(e.target.value)} />
