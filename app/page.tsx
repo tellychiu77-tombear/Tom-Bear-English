@@ -115,42 +115,29 @@ export default function DashboardPage() {
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
     // =========== 尚未登入畫面 ===========
-    if (!role) {
+    if (role === 'pending') {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 p-4">
-                <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
-                    <div className="text-center mb-8">
-                        <h1 className="text-3xl font-black text-gray-800 mb-2">🐻 Tom Bear</h1>
-                        <p className="text-gray-500">智慧補習班管理系統</p>
+            <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
+                <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center animate-fade-in">
+                    <div className="text-6xl mb-4">⏳</div>
+                    <h1 className="text-2xl font-black text-gray-800 mb-2">帳號審核中</h1>
+                    <p className="text-gray-500 mb-6 leading-relaxed">
+                        親愛的 <strong>{userName}</strong> 您好，<br />
+                        您的註冊申請已送出，目前正在等待行政人員開通權限。
+                    </p>
+                    <div className="bg-yellow-50 text-yellow-800 p-4 rounded-lg text-sm mb-6 text-left">
+                        <strong>💡 為什麼我不能使用？</strong>
+                        <ul className="list-disc list-inside mt-1 opacity-80">
+                            <li>為了保護學生個資，所有帳號皆需人工審核。</li>
+                            <li>請耐心等候，或直接聯繫櫃台加快審核速度。</li>
+                        </ul>
                     </div>
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Email</label>
-                            <input name="email" type="email" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入帳號" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">密碼</label>
-                            <input name="password" type="password" required className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-400 outline-none" placeholder="輸入密碼" />
-                        </div>
-                        <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-lg hover:bg-indigo-700 transition transform active:scale-95">
-                            登入系統
-                        </button>
-                        <div className="mt-4 text-center">
-                            <p className="text-gray-500 text-sm">
-                                還沒有帳號嗎？
-                                <button
-                                    type="button"
-                                    onClick={() => router.push('/register')}
-                                    className="text-indigo-600 font-bold hover:underline ml-1"
-                                >
-                                    立即註冊
-                                </button>
-                            </p>
-                        </div>
-                    </form>
-                    <div className="mt-6 text-center text-xs text-gray-400">
-                        Protected by Supabase Security
-                    </div>
+                    <button
+                        onClick={handleLogout}
+                        className="w-full py-3 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300"
+                    >
+                        登出並返回
+                    </button>
                 </div>
             </div>
         );
