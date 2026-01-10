@@ -28,14 +28,17 @@ export default function ContactBookPage() {
     const [todaySignatures, setTodaySignatures] = useState<Record<string, boolean>>({});
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
 
-    // 全班發布設定
+    // Batch Publish State
     const [standardHomework, setStandardHomework] = useState('');
     const [standardPhotoUrl, setStandardPhotoUrl] = useState('');
     const [batchUploading, setBatchUploading] = useState(false);
 
-    // History Mode State
+    // History & Date State
     const [historyLogs, setHistoryLogs] = useState<any[]>([]);
+    // 老師端的月份選擇
     const [historyMonth, setHistoryMonth] = useState(new Date().toISOString().slice(0, 7));
+    // 🔥 家長端的月份選擇 (新增)
+    const [parentViewMonth, setParentViewMonth] = useState(new Date().toISOString().slice(0, 7));
 
     // Modal & Upload State
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -102,7 +105,8 @@ export default function ContactBookPage() {
                     setMyChildren(children);
                     if (children.length > 0) {
                         setSelectedChildId(children[0].id);
-                        fetchChildLogs(children[0].id);
+                        // 初始載入當月資料
+                        fetchChildLogs(children[0].id, parentViewMonth);
                     }
                 }
             }
@@ -113,6 +117,7 @@ export default function ContactBookPage() {
         }
     }
 
+    // Teacher: Class Change Effect
     useEffect(() => {
         if (role === 'parent') return;
         if (!selectedClass) return;
@@ -125,11 +130,19 @@ export default function ContactBookPage() {
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
 
+    // Teacher: History Effect
     useEffect(() => {
         if (viewMode === 'history' && selectedClass && students.length > 0) {
             fetchClassHistory();
         }
     }, [viewMode, selectedClass, historyMonth, students]);
+
+    // Parent: Month Change Effect (🔥 新增：當家長切換月份時重新抓取)
+    useEffect(() => {
+        if (role === 'parent' && selectedChildId) {
+            fetchChildLogs(selectedChildId, parentViewMonth);
+        }
+    }, [parentViewMonth]);
 
     async function fetchStudentsInClass(className: string) {
         const { data: classData } = await supabase.from('classes').select('id').eq('name', className).single();
@@ -195,17 +208,27 @@ export default function ContactBookPage() {
         if (data) setHistoryLogs(data);
     }
 
-    async function fetchChildLogs(studentId: string) {
+    // 🔥 家長端：抓取特定月份的紀錄 (企業級優化)
+    async function fetchChildLogs(studentId: string, month: string) {
         setLogs([]);
+
+        const startDate = `${month}-01`;
+        const [y, m] = month.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        const endDate = `${month}-${lastDay}`;
+
         const { data } = await supabase
             .from('contact_books')
             .select('*')
             .eq('student_id', studentId)
+            .gte('date', startDate) // 只抓這個月
+            .lte('date', endDate)
             .order('date', { ascending: false });
+
         if (data) setLogs(data);
     }
 
-    // 🔥 家長簽名：按下去立刻變色
+    // 家長功能：簽名
     async function handleParentSign(logId: string) {
         if (!confirm('確定要簽名確認這則聯絡簿嗎？')) return;
 
@@ -220,7 +243,7 @@ export default function ContactBookPage() {
 
             alert('✅ 簽名成功！');
 
-            // 🔥 直接更新畫面，不用等重整
+            // 🔥 Optimistic UI Update (即時更新畫面，不需重整)
             setLogs(prevLogs => prevLogs.map(log =>
                 log.id === logId ? { ...log, signature_time: now } : log
             ));
@@ -413,18 +436,41 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center animate-pulse">載入聯絡簿資料中...</div>;
 
-    // --- PARENT VIEW ---
+    // --- PARENT VIEW (企業級優化版) ---
     if (role === 'parent') {
         return (
             <div className="min-h-screen bg-gray-50 p-4">
                 <div className="max-w-md mx-auto">
-                    <h1 className="text-2xl font-black mb-6 text-gray-800">📖 寶寶聯絡簿</h1>
+                    {/* 🔥 優化 1：頂部導航列 */}
+                    <div className="flex justify-between items-center mb-6">
+                        <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">
+                            📖 寶寶聯絡簿
+                        </h1>
+                        <button
+                            onClick={() => router.push('/')}
+                            className="bg-white px-3 py-2 rounded-lg text-gray-500 font-bold shadow-sm border border-gray-100 hover:bg-gray-50 transition flex items-center gap-1 text-sm"
+                        >
+                            ⬅️ 回首頁
+                        </button>
+                    </div>
+
+                    {/* 🔥 優化 2：月份選擇器 (歷史紀錄功能) */}
+                    <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 mb-6 flex justify-between items-center">
+                        <span className="font-bold text-gray-600 text-sm">📅 選擇月份</span>
+                        <input
+                            type="month"
+                            value={parentViewMonth}
+                            onChange={(e) => setParentViewMonth(e.target.value)}
+                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 font-bold outline-none focus:ring-2 focus:ring-indigo-200"
+                        />
+                    </div>
+
                     {myChildren.length > 1 && (
                         <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
                             {myChildren.map(child => (
                                 <button
                                     key={child.id}
-                                    onClick={() => { setSelectedChildId(child.id); fetchChildLogs(child.id); }}
+                                    onClick={() => { setSelectedChildId(child.id); fetchChildLogs(child.id, parentViewMonth); }}
                                     className={`px-4 py-2 rounded-full whitespace-nowrap font-bold transition
                                         ${selectedChildId === child.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-500 border'}
                                     `}
@@ -434,51 +480,92 @@ export default function ContactBookPage() {
                             ))}
                         </div>
                     )}
-                    <div className="space-y-4">
-                        {logs.map(log => (
-                            <div key={log.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-                                <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-50">
-                                    <div className="flex flex-col">
-                                        <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">DATE</span>
-                                        <span className="text-xl font-black text-indigo-900">{log.date}</span>
-                                    </div>
-                                    {log.photo_url && (
-                                        <a href={log.photo_url} target="_blank" className="block w-12 h-12 rounded-lg bg-gray-100 bg-cover bg-center border" style={{ backgroundImage: `url(${log.photo_url})` }} />
-                                    )}
-                                </div>
-                                <div className="grid grid-cols-3 gap-2 mb-5">
-                                    <div className="bg-orange-50 rounded-xl p-3 text-center"><div className="text-xs text-orange-400 font-bold mb-1">心情</div>{renderStars(log.mood, 'mood')}</div>
-                                    <div className="bg-blue-50 rounded-xl p-3 text-center"><div className="text-xs text-blue-400 font-bold mb-1">專注</div>{renderStars(log.focus, 'focus')}</div>
-                                    <div className="bg-green-50 rounded-xl p-3 text-center"><div className="text-xs text-green-400 font-bold mb-1">食慾</div>{renderStars(log.appetite, 'appetite')}</div>
-                                </div>
-                                <div className="space-y-3">
-                                    <div className="bg-gray-50 p-3 rounded-xl text-gray-700 text-sm">{log.homework || '無作業'}</div>
-                                    {log.comment && <div className="p-1 text-gray-600 text-sm">💡 {log.comment}</div>}
-                                </div>
 
-                                {/* 🔥 家長簽名區域 (即時更新) */}
-                                <div className="mt-4 pt-4 border-t flex justify-end">
-                                    {log.signature_time ? (
-                                        <div className="text-green-600 font-bold flex items-center gap-1 bg-green-50 px-3 py-2 rounded-lg text-sm border border-green-200">
-                                            <span>📝 已於 {new Date(log.signature_time).toLocaleDateString()} {new Date(log.signature_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 簽名</span>
-                                        </div>
-                                    ) : (
-                                        <button
-                                            onClick={() => handleParentSign(log.id)}
-                                            className="bg-green-500 text-white font-bold px-6 py-2 rounded-lg shadow-md hover:bg-green-600 transition flex items-center gap-2 transform hover:scale-105"
-                                        >
-                                            ✅ 我知道了 / 簽名確認
-                                        </button>
-                                    )}
-                                </div>
+                    <div className="space-y-6">
+                        {logs.length === 0 ? (
+                            <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed">
+                                <p className="text-4xl mb-2">📭</p>
+                                <p>本月份尚無聯絡簿紀錄</p>
                             </div>
-                        ))}
+                        ) : (
+                            logs.map(log => (
+                                <div key={log.id} className="bg-white rounded-3xl p-5 shadow-lg border border-gray-100 relative overflow-hidden">
+                                    {/* 頂部裝飾條 */}
+                                    <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-400 to-purple-400"></div>
+
+                                    <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-50 mt-2">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">DATE</span>
+                                            <span className="text-2xl font-black text-indigo-900 tracking-tight">{log.date}</span>
+                                        </div>
+                                        {log.photo_url && (
+                                            <a
+                                                href={log.photo_url}
+                                                target="_blank"
+                                                className="block w-16 h-16 rounded-xl bg-gray-100 bg-cover bg-center border-2 border-white shadow-md transform hover:scale-105 transition"
+                                                style={{ backgroundImage: `url(${log.photo_url})` }}
+                                            />
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2 mb-5">
+                                        <div className="bg-orange-50 rounded-2xl p-3 text-center"><div className="text-xs text-orange-400 font-bold mb-1">心情</div>{renderStars(log.mood, 'mood')}</div>
+                                        <div className="bg-blue-50 rounded-2xl p-3 text-center"><div className="text-xs text-blue-400 font-bold mb-1">專注</div>{renderStars(log.focus, 'focus')}</div>
+                                        <div className="bg-green-50 rounded-2xl p-3 text-center"><div className="text-xs text-green-400 font-bold mb-1">食慾</div>{renderStars(log.appetite, 'appetite')}</div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <div className="text-xs font-bold text-gray-400 mb-1 flex items-center gap-1">
+                                                <span>🏠 回家作業</span>
+                                            </div>
+                                            <div className="bg-gray-50 p-4 rounded-2xl text-gray-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">
+                                                {log.homework || '無作業'}
+                                            </div>
+                                        </div>
+
+                                        {log.comment && (
+                                            <div>
+                                                <div className="text-xs font-bold text-gray-400 mb-1">💬 老師評語</div>
+                                                <div className="p-1 text-gray-600 text-sm italic border-l-4 border-gray-200 pl-3">
+                                                    {log.comment}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 🔥 家長簽名區域 (優化版) */}
+                                    <div className="mt-6 pt-4 border-t flex justify-end">
+                                        {log.signature_time ? (
+                                            <div className="flex flex-col items-end">
+                                                <div className="flex items-center gap-1 text-green-600 font-bold bg-green-50 px-3 py-1.5 rounded-full text-sm border border-green-100">
+                                                    <span className="text-lg">✓</span>
+                                                    <span>我已簽名確認</span>
+                                                </div>
+                                                <span className="text-[10px] text-gray-400 mt-1 mr-2">
+                                                    {new Date(log.signature_time).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <button
+                                                onClick={() => handleParentSign(log.id)}
+                                                className="w-full bg-indigo-600 text-white font-bold px-4 py-3 rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center gap-2"
+                                            >
+                                                <span>✏️</span>
+                                                <span>簽名 / 確認已讀</span>
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
             </div>
         );
     }
 
+    // Teacher View remains same as previous strict version
     return (
         <div className="min-h-screen bg-gray-50 p-6">
             <div className="max-w-6xl mx-auto">
@@ -556,7 +643,6 @@ export default function ContactBookPage() {
                             <span className="text-sm font-bold text-orange-800 mr-2">選擇月份:</span>
                             <input type="month" value={historyMonth} onChange={e => setHistoryMonth(e.target.value)} className="bg-white border border-orange-200 rounded px-2 py-1 text-gray-700 font-bold" />
 
-                            {/* 🔥 新增：重新整理按鈕 */}
                             <button
                                 onClick={fetchClassHistory}
                                 className="ml-2 bg-orange-100 text-orange-700 px-3 py-1 rounded-lg font-bold hover:bg-orange-200 transition flex items-center gap-1"
