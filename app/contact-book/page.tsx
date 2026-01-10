@@ -25,9 +25,7 @@ export default function ContactBookPage() {
     // Teacher View State
     const [viewMode, setViewMode] = useState<ViewMode>('today');
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({});
-    // 🔥 新增：紀錄今日哪些家長已經簽名
     const [todaySignatures, setTodaySignatures] = useState<Record<string, boolean>>({});
-
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
 
     // 全班發布設定
@@ -122,7 +120,7 @@ export default function ContactBookPage() {
         setStudents([]);
         setHistoryLogs([]);
         setTodayStatus({});
-        setTodaySignatures({}); // 重置簽名狀態
+        setTodaySignatures({});
 
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
@@ -162,14 +160,14 @@ export default function ContactBookPage() {
             .eq('date', today);
 
         const statusMap: Record<string, boolean> = {};
-        const signMap: Record<string, boolean> = {}; // 簽名狀態
+        const signMap: Record<string, boolean> = {};
         const logsMap: Record<string, any> = {};
 
         todaysLogs?.forEach((log: any) => {
             statusMap[log.student_id] = true;
             logsMap[log.student_id] = log;
             if (log.signature_time) {
-                signMap[log.student_id] = true; // 有簽名
+                signMap[log.student_id] = true;
             }
         });
         setTodayStatus(statusMap);
@@ -207,21 +205,25 @@ export default function ContactBookPage() {
         if (data) setLogs(data);
     }
 
-    // 🔥 家長功能：簽名
+    // 🔥 家長簽名：按下去立刻變色
     async function handleParentSign(logId: string) {
         if (!confirm('確定要簽名確認這則聯絡簿嗎？')) return;
 
         try {
+            const now = new Date().toISOString();
             const { error } = await supabase
                 .from('contact_books')
-                .update({ signature_time: new Date().toISOString() })
+                .update({ signature_time: now })
                 .eq('id', logId);
 
             if (error) throw error;
 
-            alert('✅ 簽名成功！老師會收到通知。');
-            // 重新整理資料
-            fetchChildLogs(selectedChildId);
+            alert('✅ 簽名成功！');
+
+            // 🔥 直接更新畫面，不用等重整
+            setLogs(prevLogs => prevLogs.map(log =>
+                log.id === logId ? { ...log, signature_time: now } : log
+            ));
 
         } catch (e: any) {
             alert('簽名失敗: ' + e.message);
@@ -454,16 +456,16 @@ export default function ContactBookPage() {
                                     {log.comment && <div className="p-1 text-gray-600 text-sm">💡 {log.comment}</div>}
                                 </div>
 
-                                {/* 🔥 家長簽名區域 */}
+                                {/* 🔥 家長簽名區域 (即時更新) */}
                                 <div className="mt-4 pt-4 border-t flex justify-end">
                                     {log.signature_time ? (
-                                        <div className="text-green-600 font-bold flex items-center gap-1 bg-green-50 px-3 py-2 rounded-lg text-sm">
+                                        <div className="text-green-600 font-bold flex items-center gap-1 bg-green-50 px-3 py-2 rounded-lg text-sm border border-green-200">
                                             <span>📝 已於 {new Date(log.signature_time).toLocaleDateString()} {new Date(log.signature_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 簽名</span>
                                         </div>
                                     ) : (
                                         <button
                                             onClick={() => handleParentSign(log.id)}
-                                            className="bg-green-500 text-white font-bold px-6 py-2 rounded-lg shadow-md hover:bg-green-600 transition flex items-center gap-2"
+                                            className="bg-green-500 text-white font-bold px-6 py-2 rounded-lg shadow-md hover:bg-green-600 transition flex items-center gap-2 transform hover:scale-105"
                                         >
                                             ✅ 我知道了 / 簽名確認
                                         </button>
@@ -553,6 +555,14 @@ export default function ContactBookPage() {
                             <span className="text-xl">📅</span>
                             <span className="text-sm font-bold text-orange-800 mr-2">選擇月份:</span>
                             <input type="month" value={historyMonth} onChange={e => setHistoryMonth(e.target.value)} className="bg-white border border-orange-200 rounded px-2 py-1 text-gray-700 font-bold" />
+
+                            {/* 🔥 新增：重新整理按鈕 */}
+                            <button
+                                onClick={fetchClassHistory}
+                                className="ml-2 bg-orange-100 text-orange-700 px-3 py-1 rounded-lg font-bold hover:bg-orange-200 transition flex items-center gap-1"
+                            >
+                                🔄 重新整理
+                            </button>
                         </div>
                     )}
                 </div>
@@ -565,7 +575,7 @@ export default function ContactBookPage() {
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {students.map(s => {
                                     const isDone = todayStatus[s.id];
-                                    const isSigned = todaySignatures[s.id]; // 是否已簽名
+                                    const isSigned = todaySignatures[s.id];
                                     return (
                                         <button
                                             key={s.id}
@@ -588,7 +598,6 @@ export default function ContactBookPage() {
                                             </div>
                                             <div className="flex justify-between items-end">
                                                 <div className="text-xs text-gray-400 truncate">{s.grade || selectedClass}</div>
-                                                {/* 🔥 顯示簽名狀態 */}
                                                 {isSigned && (
                                                     <span className="text-[10px] bg-green-600 text-white px-1.5 py-0.5 rounded font-bold shadow-sm">
                                                         📝 已簽
@@ -610,7 +619,6 @@ export default function ContactBookPage() {
                                                 <th className="p-4 font-bold text-gray-600 w-32">日期</th>
                                                 <th className="p-4 font-bold text-gray-600 w-24">學生</th>
                                                 <th className="p-4 font-bold text-gray-600 w-24 text-center">狀態</th>
-                                                {/* 🔥 新增簽名欄位 */}
                                                 <th className="p-4 font-bold text-gray-600 w-24 text-center">簽名</th>
                                                 <th className="p-4 font-bold text-gray-600 w-16 text-center">照片</th>
                                                 <th className="p-4 font-bold text-gray-600">作業內容</th>
@@ -633,7 +641,6 @@ export default function ContactBookPage() {
                                                                 <span title="專注">{renderStars(log.focus, 'focus')}</span>
                                                             </div>
                                                         </td>
-                                                        {/* 🔥 簽名狀態顯示 */}
                                                         <td className="p-4 text-center">
                                                             {log.signature_time ? (
                                                                 <span className="text-green-600 font-bold text-xs bg-green-100 px-2 py-1 rounded-full">✓ 已簽</span>
