@@ -222,11 +222,11 @@ export default function ContactBookPage() {
             if (error) throw error;
 
             alert('✅ 簽名成功！');
-            // 即時更新畫面狀態 (Optimistic UI)
+            // Optimistic UI Update
             setLogs(prevLogs => prevLogs.map(log =>
                 log.id === logId ? { ...log, signature_time: now } : log
             ));
-            // 背景同步最新資料
+            // Sync
             fetchChildLogs(selectedChildId, parentViewMonth);
 
         } catch (e: any) {
@@ -234,7 +234,6 @@ export default function ContactBookPage() {
         }
     }
 
-    // Teacher Batch & Single Actions
     async function handleBatchImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
         try {
             if (!event.target.files || event.target.files.length === 0) return;
@@ -363,7 +362,7 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center animate-pulse">載入中...</div>;
 
-    // --- PARENT VIEW (企業級表格化) ---
+    // --- PARENT VIEW ---
     if (role === 'parent') {
         const today = new Date().toISOString().split('T')[0];
         const todayLog = logs.find(l => l.date === today);
@@ -436,30 +435,40 @@ export default function ContactBookPage() {
                                 {logs.length === 0 ? (
                                     <div className="p-10 text-center text-gray-400">本月份尚無紀錄</div>
                                 ) : (
-                                    // 🔥 家長端：企業級表格 (跟老師的一樣清楚)
+                                    // 🔥 家長端：企業級表格 (新增照片顯示功能)
                                     <table className="w-full text-left text-sm">
                                         <thead className="bg-gray-50 border-b border-gray-100 text-gray-500">
                                             <tr>
-                                                <th className="p-4 w-20">日期</th>
-                                                <th className="p-4">作業內容</th>
-                                                <th className="p-4 w-12 text-center">照片</th>
-                                                <th className="p-4 w-20 text-center">簽名</th>
+                                                <th className="p-3 w-16">日期</th>
+                                                <th className="p-3">作業</th>
+                                                <th className="p-3 w-14 text-center">照片</th>
+                                                <th className="p-3 w-16 text-center">簽名</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             {logs.map(log => (
                                                 <tr key={log.id} className="hover:bg-gray-50 transition">
-                                                    <td className="p-4 font-bold text-indigo-900 whitespace-nowrap align-top">{log.date.slice(5)}</td>
-                                                    <td className="p-4 text-gray-600 align-top">
-                                                        <div className="font-medium">{log.homework}</div>
-                                                        {log.comment && <div className="text-xs text-gray-400 mt-1 italic">❝ {log.comment} ❞</div>}
+                                                    <td className="p-3 font-bold text-indigo-900 align-middle">
+                                                        <div className="text-xs text-gray-400">{new Date(log.date).getMonth() + 1}月</div>
+                                                        <div className="text-lg">{new Date(log.date).getDate()}</div>
                                                     </td>
-                                                    <td className="p-4 text-center align-top">
+                                                    <td className="p-3 align-middle">
+                                                        <div className="text-gray-700 font-medium line-clamp-2">{log.homework}</div>
+                                                        {log.comment && <div className="text-xs text-gray-400 mt-1 truncate">💬 {log.comment}</div>}
+                                                    </td>
+                                                    {/* 🔥 照片欄位優化 */}
+                                                    <td className="p-3 text-center align-middle">
                                                         {log.photo_url ? (
-                                                            <a href={log.photo_url} target="_blank" className="inline-block w-8 h-8 rounded-lg bg-gray-200 bg-cover bg-center border hover:scale-110 transition shadow-sm" style={{ backgroundImage: `url(${log.photo_url})` }}></a>
-                                                        ) : <span className="text-gray-200">-</span>}
+                                                            <a
+                                                                href={log.photo_url}
+                                                                target="_blank"
+                                                                className="block w-10 h-10 rounded-lg bg-gray-100 bg-cover bg-center border shadow-sm mx-auto hover:scale-110 transition"
+                                                                style={{ backgroundImage: `url(${log.photo_url})` }}
+                                                            >
+                                                            </a>
+                                                        ) : <span className="text-gray-200 text-xs">-</span>}
                                                     </td>
-                                                    <td className="p-4 text-center align-top">
+                                                    <td className="p-3 text-center align-middle">
                                                         {log.signature_time ? (
                                                             <div className="flex flex-col items-center">
                                                                 <span className="text-green-500 font-bold text-lg">✓</span>
@@ -552,4 +561,3 @@ export default function ContactBookPage() {
         </div>
     );
 }
-```順帶一提，如果要取得所有應用程式的完整功能，請開啟 Gemini 系列應用程式活動記錄。
