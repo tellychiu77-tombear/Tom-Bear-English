@@ -108,14 +108,12 @@ export default function ContactBookPage() {
         }
     }
 
-    // Teacher: Fetch Students (🔥 關鍵修正區)
+    // Teacher: Fetch Students
     useEffect(() => {
         if (role === 'parent') return;
         if (!selectedClass) return;
 
-        // 🔥【Bug 修復核心】
-        // 切換班級時，立刻清空「學生名單」和「歷史紀錄」
-        // 這樣畫面會暫時變白，直到新資料載入，防止「A班名單」對上「B班紀錄」導致的錯亂
+        // 切換班級時，清空舊資料，避免殘影
         setStudents([]);
         setHistoryLogs([]);
         setTodayStatus({});
@@ -123,37 +121,42 @@ export default function ContactBookPage() {
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
 
-    // History: Fetch History
+    // History: Fetch History (確保名單同步後才抓)
     useEffect(() => {
-        // 只有當學生名單載入完畢 (students.length > 0) 才去抓歷史紀錄
         if (viewMode === 'history' && selectedClass && students.length > 0) {
             fetchClassHistory();
         }
     }, [viewMode, selectedClass, historyMonth, students]);
 
+    // 🔥 核心修正：改用 ID 抓人，不再用文字比對
     async function fetchStudentsInClass(className: string) {
-        const { data: list } = await supabase
-            .from('students')
-            .select('*')
-            .eq('grade', className)
-            .order('chinese_name');
+        // 1. 先去查這個班級的 ID 是什麼
+        const { data: classData } = await supabase
+            .from('classes')
+            .select('id')
+            .eq('name', className)
+            .single();
 
-        if (!list || list.length === 0) {
-            // 備用方案：用 Class ID 抓
-            const { data: classData } = await supabase.from('classes').select('id').eq('name', className).single();
-            if (classData) {
-                const { data: listById } = await supabase.from('students').select('*').eq('class_id', classData.id).order('chinese_name');
-                if (listById) {
-                    setStudents(listById);
-                    checkTodaysLogs(listById);
-                    return;
-                }
+        if (!classData) {
+            // 如果真的找不到 ID (極端情況)，才退回去用文字抓
+            const { data: list } = await supabase.from('students').select('*').eq('grade', className).order('chinese_name');
+            if (list) {
+                setStudents(list);
+                checkTodaysLogs(list);
             }
+            return;
         }
 
-        if (list) {
-            setStudents(list);
-            checkTodaysLogs(list);
+        // 2. 用 ID 去抓學生 (這樣就算後面有 "課後輔導班" 字樣，只要 ID 對了就能抓到！)
+        const { data: listById } = await supabase
+            .from('students')
+            .select('*')
+            .eq('class_id', classData.id)
+            .order('chinese_name');
+
+        if (listById) {
+            setStudents(listById);
+            checkTodaysLogs(listById);
         }
     }
 
@@ -209,7 +212,6 @@ export default function ContactBookPage() {
 
     // Modal Actions
     function openModal(student: any, logData: any = null) {
-        // 安全防護：如果真的遇到資料不一致，顯示未知學生，防止白畫面
         const targetStudent = student || { id: logData?.student_id, chinese_name: '未知學生' };
 
         setCurrentStudent(targetStudent);
@@ -324,7 +326,6 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center animate-pulse">載入聯絡簿資料中...</div>;
 
-    // --- PARENT VIEW ---
     if (role === 'parent') {
         return (
             <div className="min-h-screen bg-gray-50 p-4">
@@ -374,7 +375,6 @@ export default function ContactBookPage() {
         );
     }
 
-    // --- TEACHER VIEW ---
     return (
         <div className="min-h-screen bg-gray-50 p-6">
             <div className="max-w-6xl mx-auto">
