@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 
 // Types
 type Role = 'director' | 'manager' | 'teacher' | 'parent' | 'admin' | 'loading';
-type ViewMode = 'today' | 'history'; // 新增：控制頁面模式
+type ViewMode = 'today' | 'history';
 
 export default function ContactBookPage() {
     const router = useRouter();
@@ -23,7 +23,7 @@ export default function ContactBookPage() {
     const [logs, setLogs] = useState<any[]>([]);
 
     // Teacher View State
-    const [viewMode, setViewMode] = useState<ViewMode>('today'); // 預設看今日
+    const [viewMode, setViewMode] = useState<ViewMode>('today');
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({});
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
     const [standardHomework, setStandardHomework] = useState('');
@@ -35,10 +35,10 @@ export default function ContactBookPage() {
     // Modal State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentStudent, setCurrentStudent] = useState<any>(null);
-    const [editingLogId, setEditingLogId] = useState<string | null>(null); // 用來判斷是否在編輯舊紀錄
+    const [editingLogId, setEditingLogId] = useState<string | null>(null);
 
     const [formData, setFormData] = useState({
-        date: '', // 新增日期欄位
+        date: '',
         mood: 3,
         focus: 3,
         appetite: 3,
@@ -108,30 +108,38 @@ export default function ContactBookPage() {
         }
     }
 
-    // Teacher: Fetch Students
+    // Teacher: Fetch Students (🔥 關鍵修正區)
     useEffect(() => {
         if (role === 'parent') return;
         if (!selectedClass) return;
+
+        // 🔥【Bug 修復核心】
+        // 切換班級時，立刻清空「學生名單」和「歷史紀錄」
+        // 這樣畫面會暫時變白，直到新資料載入，防止「A班名單」對上「B班紀錄」導致的錯亂
+        setStudents([]);
+        setHistoryLogs([]);
+        setTodayStatus({});
+
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
 
-    // History: Fetch History when switching mode or month
+    // History: Fetch History
     useEffect(() => {
-        if (viewMode === 'history' && selectedClass) {
+        // 只有當學生名單載入完畢 (students.length > 0) 才去抓歷史紀錄
+        if (viewMode === 'history' && selectedClass && students.length > 0) {
             fetchClassHistory();
         }
-    }, [viewMode, selectedClass, historyMonth]);
+    }, [viewMode, selectedClass, historyMonth, students]);
 
     async function fetchStudentsInClass(className: string) {
-        // 先嘗試用文字匹配
         const { data: list } = await supabase
             .from('students')
             .select('*')
             .eq('grade', className)
             .order('chinese_name');
 
-        // 備用：用 Class ID
         if (!list || list.length === 0) {
+            // 備用方案：用 Class ID 抓
             const { data: classData } = await supabase.from('classes').select('id').eq('name', className).single();
             if (classData) {
                 const { data: listById } = await supabase.from('students').select('*').eq('class_id', classData.id).order('chinese_name');
@@ -168,14 +176,14 @@ export default function ContactBookPage() {
         setExistingLogs(logsMap);
     }
 
-    // 🔥 抓取全班歷史紀錄 (依照月份)
     async function fetchClassHistory() {
         if (!students.length) return;
         const studentIds = students.map(s => s.id);
 
-        // 計算月份區間
         const startDate = `${historyMonth}-01`;
-        const endDate = `${historyMonth}-31`; // 簡單處理
+        const [y, m] = historyMonth.split('-').map(Number);
+        const lastDay = new Date(y, m, 0).getDate();
+        const endDate = `${historyMonth}-${lastDay}`;
 
         const { data } = await supabase
             .from('contact_books')
@@ -200,16 +208,18 @@ export default function ContactBookPage() {
     }
 
     // Modal Actions
-    // logData: 如果是從歷史紀錄點進來的，會傳入該筆資料
     function openModal(student: any, logData: any = null) {
-        setCurrentStudent(student);
+        // 安全防護：如果真的遇到資料不一致，顯示未知學生，防止白畫面
+        const targetStudent = student || { id: logData?.student_id, chinese_name: '未知學生' };
+
+        setCurrentStudent(targetStudent);
         const today = new Date().toISOString().split('T')[0];
 
         if (logData) {
             // 📝 編輯歷史資料
             setEditingLogId(logData.id);
             setFormData({
-                date: logData.date, // 鎖定原本的日期
+                date: logData.date,
                 mood: logData.mood || 3,
                 focus: logData.focus || 3,
                 appetite: logData.appetite || 3,
@@ -219,10 +229,10 @@ export default function ContactBookPage() {
             });
         } else {
             // 📝 新增/編輯今日資料
-            const todayLog = existingLogs[student.id];
+            const todayLog = existingLogs[targetStudent.id];
             setEditingLogId(todayLog ? todayLog.id : null);
             setFormData({
-                date: today, // 預設今日
+                date: today,
                 mood: todayLog?.mood || 3,
                 focus: todayLog?.focus || 3,
                 appetite: todayLog?.appetite || 3,
@@ -240,7 +250,7 @@ export default function ContactBookPage() {
         try {
             const payload = {
                 student_id: currentStudent.id,
-                date: formData.date, // 使用表單內的日期 (支援修改歷史)
+                date: formData.date,
                 mood: formData.mood,
                 focus: formData.focus,
                 appetite: formData.appetite,
@@ -252,14 +262,12 @@ export default function ContactBookPage() {
             let error;
 
             if (editingLogId) {
-                // 更新指定的那一筆 (無論是今日還是歷史)
                 const { error: updateError } = await supabase
                     .from('contact_books')
                     .update(payload)
                     .eq('id', editingLogId);
                 error = updateError;
             } else {
-                // 檢查是否已存在 (避免重複 Insert)
                 const { data: check } = await supabase
                     .from('contact_books')
                     .select('id')
@@ -287,10 +295,9 @@ export default function ContactBookPage() {
             const today = new Date().toISOString().split('T')[0];
             if (formData.date === today) {
                 setTodayStatus(prev => ({ ...prev, [currentStudent.id]: true }));
-                setExistingLogs(prev => ({ ...prev, [currentStudent.id]: { ...payload, id: editingLogId } })); // 簡單更新 cache
+                setExistingLogs(prev => ({ ...prev, [currentStudent.id]: { ...payload, id: editingLogId } }));
             }
 
-            // 如果在歷史模式，重新抓取列表以顯示變更
             if (viewMode === 'history') {
                 fetchClassHistory();
             }
@@ -307,7 +314,6 @@ export default function ContactBookPage() {
         setFormData(prev => ({ ...prev, homework: standardHomework }));
     }
 
-    // Helpers
     const renderStars = (count: number, type: string) => {
         let icon = '⭐';
         if (type === 'mood') icon = count === 1 ? '😢' : count === 2 ? '😐' : '😊';
@@ -347,6 +353,9 @@ export default function ContactBookPage() {
                                         <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">DATE</span>
                                         <span className="text-xl font-black text-indigo-900">{log.date}</span>
                                     </div>
+                                    {log.photo_url && (
+                                        <a href={log.photo_url} target="_blank" className="block w-12 h-12 rounded-lg bg-gray-100 bg-cover bg-center border" style={{ backgroundImage: `url(${log.photo_url})` }} />
+                                    )}
                                 </div>
                                 <div className="grid grid-cols-3 gap-2 mb-5">
                                     <div className="bg-orange-50 rounded-xl p-3 text-center"><div className="text-xs text-orange-400 font-bold mb-1">心情</div>{renderStars(log.mood, 'mood')}</div>
@@ -365,11 +374,10 @@ export default function ContactBookPage() {
         );
     }
 
-    // --- TEACHER / DIRECTOR VIEW ---
+    // --- TEACHER VIEW ---
     return (
         <div className="min-h-screen bg-gray-50 p-6">
             <div className="max-w-6xl mx-auto">
-                {/* Control Header */}
                 <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-6">
                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
                         <div>
@@ -388,7 +396,6 @@ export default function ContactBookPage() {
                                 {classes.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
 
-                            {/* 🔥 模式切換按鈕 */}
                             <div className="bg-gray-100 p-1 rounded-lg flex">
                                 <button
                                     onClick={() => setViewMode('today')}
@@ -408,7 +415,6 @@ export default function ContactBookPage() {
                         </div>
                     </div>
 
-                    {/* 今日模式的快速作業欄 */}
                     {viewMode === 'today' && (
                         <div className="flex gap-2 items-center bg-indigo-50 p-4 rounded-xl border border-indigo-100">
                             <span className="text-xl">⚡</span>
@@ -422,7 +428,6 @@ export default function ContactBookPage() {
                         </div>
                     )}
 
-                    {/* 歷史模式的月份選擇 */}
                     {viewMode === 'history' && (
                         <div className="flex gap-2 items-center bg-orange-50 p-4 rounded-xl border border-orange-100">
                             <span className="text-xl">📅</span>
@@ -437,12 +442,10 @@ export default function ContactBookPage() {
                     )}
                 </div>
 
-                {/* Main Content Area */}
                 {!selectedClass ? (
                     <div className="text-center py-20 text-gray-400">請先選擇班級</div>
                 ) : (
                     <>
-                        {/* Mode 1: Today Grid View */}
                         {viewMode === 'today' && (
                             <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                                 {students.map(s => {
@@ -450,7 +453,7 @@ export default function ContactBookPage() {
                                     return (
                                         <button
                                             key={s.id}
-                                            onClick={() => openModal(s)} // 無參數 = 今日
+                                            onClick={() => openModal(s)}
                                             className={`relative p-4 rounded-2xl border transition text-left group
                                                 ${isDone
                                                     ? 'bg-green-50/50 border-green-200 hover:bg-green-100'
@@ -471,7 +474,6 @@ export default function ContactBookPage() {
                             </div>
                         )}
 
-                        {/* Mode 2: History Table View (Big & Clear) */}
                         {viewMode === 'history' && (
                             <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden animate-fade-in">
                                 <div className="overflow-x-auto">
@@ -490,9 +492,11 @@ export default function ContactBookPage() {
                                             {historyLogs.map(log => {
                                                 const student = students.find(s => s.id === log.student_id);
                                                 return (
-                                                    <tr key={log.id} className="hover:bg-indigo-50/50 transition cursor-pointer" onClick={() => openModal(student || { id: log.student_id, chinese_name: '未知' }, log)}>
+                                                    <tr key={log.id} className="hover:bg-indigo-50/50 transition cursor-pointer" onClick={() => openModal(student, log)}>
                                                         <td className="p-4 font-mono text-indigo-900 font-bold">{log.date}</td>
-                                                        <td className="p-4 font-bold text-gray-800">{student?.chinese_name || '已刪除'}</td>
+                                                        <td className="p-4 font-bold text-gray-800">
+                                                            {student?.chinese_name || <span className="text-red-300 italic">已刪除</span>}
+                                                        </td>
                                                         <td className="p-4 text-center">
                                                             <div className="flex justify-center gap-1 text-sm">
                                                                 <span title="心情">{renderStars(log.mood, 'mood')}</span>
@@ -520,12 +524,9 @@ export default function ContactBookPage() {
                     </>
                 )}
 
-                {/* Common Modal for Write/Edit */}
                 {isModalOpen && currentStudent && (
                     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                         <div className="bg-white w-full max-w-lg rounded-3xl p-6 shadow-2xl animate-fade-in-up flex flex-col max-h-[90vh]">
-
-                            {/* Header */}
                             <div className="flex justify-between items-center mb-4">
                                 <div>
                                     <h2 className="text-2xl font-black text-gray-800">{currentStudent.chinese_name}</h2>
@@ -535,10 +536,7 @@ export default function ContactBookPage() {
                                 </div>
                                 <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200 transition">✕</button>
                             </div>
-
-                            {/* Body */}
                             <div className="flex-1 overflow-y-auto pr-2 space-y-6">
-                                {/* Date Picker (Editable!) */}
                                 <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100 flex items-center justify-between">
                                     <label className="text-xs font-bold text-yellow-700">📅 日期</label>
                                     <input
@@ -548,7 +546,6 @@ export default function ContactBookPage() {
                                         className="bg-transparent border-none font-bold text-gray-800 text-right outline-none"
                                     />
                                 </div>
-
                                 <div className="grid grid-cols-3 gap-4">
                                     {[
                                         { label: '心情', key: 'mood', options: ['😢', '😐', '😊'] },
@@ -577,7 +574,6 @@ export default function ContactBookPage() {
                                         </div>
                                     ))}
                                 </div>
-
                                 <div>
                                     <div className="flex justify-between items-center mb-1">
                                         <label className="text-xs font-bold text-gray-500">🏠 回家作業</label>
@@ -594,7 +590,6 @@ export default function ContactBookPage() {
                                         onChange={e => setFormData({ ...formData, homework: e.target.value })}
                                     />
                                 </div>
-
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 mb-1 block">💬 老師評語</label>
                                     <textarea
@@ -604,9 +599,17 @@ export default function ContactBookPage() {
                                         onChange={e => setFormData({ ...formData, comment: e.target.value })}
                                     />
                                 </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 mb-1 block">📷 照片連結 (選填)</label>
+                                    <input
+                                        type="text"
+                                        className="w-full p-3 border rounded-xl bg-gray-50 focus:bg-white transition"
+                                        placeholder="https://..."
+                                        value={formData.photo_url}
+                                        onChange={e => setFormData({ ...formData, photo_url: e.target.value })}
+                                    />
+                                </div>
                             </div>
-
-                            {/* Footer */}
                             <div className="mt-6 pt-4 border-t">
                                 <button
                                     onClick={handleSave}
