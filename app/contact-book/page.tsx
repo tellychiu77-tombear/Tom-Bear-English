@@ -36,7 +36,7 @@ export default function ContactBookPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentStudent, setCurrentStudent] = useState<any>(null);
     const [editingLogId, setEditingLogId] = useState<string | null>(null);
-    const [uploading, setUploading] = useState(false); // 🔥 新增：上傳狀態
+    const [uploading, setUploading] = useState(false);
 
     const [formData, setFormData] = useState({
         date: '',
@@ -195,7 +195,49 @@ export default function ContactBookPage() {
         if (data) setLogs(data);
     }
 
-    // 🔥 新增：處理圖片上傳
+    // 🔥 批次發布功能
+    async function handleBatchPublish() {
+        if (!standardHomework) {
+            alert('請先輸入作業內容再按發布！');
+            return;
+        }
+        if (!confirm(`確定要將「${standardHomework}」發布給全班 ${students.length} 位學生嗎？\n(已填寫過的學生只會更新作業，不會覆蓋評語)`)) {
+            return;
+        }
+
+        try {
+            const today = new Date().toISOString().split('T')[0];
+            const updates = students.map(student => {
+                const existing = existingLogs[student.id];
+                return {
+                    id: existing?.id, // 如果有舊紀錄，帶入 ID 進行更新
+                    student_id: student.id,
+                    date: today,
+                    homework: standardHomework, // 更新作業
+                    // 如果是舊紀錄，保留原本的分數；如果是新的，給預設值 3
+                    mood: existing?.mood || 3,
+                    focus: existing?.focus || 3,
+                    appetite: existing?.appetite || 3,
+                    comment: existing?.comment || '',
+                    photo_url: existing?.photo_url || ''
+                };
+            });
+
+            const { error } = await supabase
+                .from('contact_books')
+                .upsert(updates); // Supabase 支援批次 Upsert
+
+            if (error) throw error;
+
+            alert('🎉 全班發布成功！');
+            // 重新整理狀態
+            checkTodaysLogs(students);
+
+        } catch (e: any) {
+            alert('發布失敗: ' + e.message);
+        }
+    }
+
     async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
         try {
             if (!event.target.files || event.target.files.length === 0) return;
@@ -206,19 +248,16 @@ export default function ContactBookPage() {
             const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
             const filePath = `${fileName}`;
 
-            // 上傳到 Supabase Storage
             const { error: uploadError } = await supabase.storage
-                .from('contact-book-photos') // 務必確認 bucket 名稱正確
+                .from('contact-book-photos')
                 .upload(filePath, file);
 
             if (uploadError) throw uploadError;
 
-            // 取得公開連結
             const { data: { publicUrl } } = supabase.storage
                 .from('contact-book-photos')
                 .getPublicUrl(filePath);
 
-            // 更新表單
             setFormData(prev => ({ ...prev, photo_url: publicUrl }));
 
         } catch (error: any) {
@@ -228,7 +267,6 @@ export default function ContactBookPage() {
         }
     }
 
-    // 🔥 新增：移除圖片
     function removeImage() {
         setFormData(prev => ({ ...prev, photo_url: '' }));
     }
@@ -444,6 +482,13 @@ export default function ContactBookPage() {
                                 onChange={e => setStandardHomework(e.target.value)}
                                 className="flex-1 bg-transparent border-none outline-none font-bold text-indigo-900 placeholder-indigo-300"
                             />
+                            {/* 🔥 新增：一鍵發布按鈕 */}
+                            <button
+                                onClick={handleBatchPublish}
+                                className="whitespace-nowrap px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition flex items-center gap-1"
+                            >
+                                🚀 一鍵發布
+                            </button>
                         </div>
                     )}
 
@@ -619,7 +664,6 @@ export default function ContactBookPage() {
                                     />
                                 </div>
 
-                                {/* 🔥 升級版：照片上傳區 */}
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 mb-1 block">📷 照片紀錄</label>
 
