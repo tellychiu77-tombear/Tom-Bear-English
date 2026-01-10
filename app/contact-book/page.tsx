@@ -32,10 +32,11 @@ export default function ContactBookPage() {
     const [historyLogs, setHistoryLogs] = useState<any[]>([]);
     const [historyMonth, setHistoryMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
 
-    // Modal State
+    // Modal & Upload State
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [currentStudent, setCurrentStudent] = useState<any>(null);
     const [editingLogId, setEditingLogId] = useState<string | null>(null);
+    const [uploading, setUploading] = useState(false); // 🔥 新增：上傳狀態
 
     const [formData, setFormData] = useState({
         date: '',
@@ -108,12 +109,10 @@ export default function ContactBookPage() {
         }
     }
 
-    // Teacher: Fetch Students
     useEffect(() => {
         if (role === 'parent') return;
         if (!selectedClass) return;
 
-        // 切換班級時，清空舊資料，避免殘影
         setStudents([]);
         setHistoryLogs([]);
         setTodayStatus({});
@@ -121,24 +120,16 @@ export default function ContactBookPage() {
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
 
-    // History: Fetch History (確保名單同步後才抓)
     useEffect(() => {
         if (viewMode === 'history' && selectedClass && students.length > 0) {
             fetchClassHistory();
         }
     }, [viewMode, selectedClass, historyMonth, students]);
 
-    // 🔥 核心修正：改用 ID 抓人，不再用文字比對
     async function fetchStudentsInClass(className: string) {
-        // 1. 先去查這個班級的 ID 是什麼
-        const { data: classData } = await supabase
-            .from('classes')
-            .select('id')
-            .eq('name', className)
-            .single();
+        const { data: classData } = await supabase.from('classes').select('id').eq('name', className).single();
 
         if (!classData) {
-            // 如果真的找不到 ID (極端情況)，才退回去用文字抓
             const { data: list } = await supabase.from('students').select('*').eq('grade', className).order('chinese_name');
             if (list) {
                 setStudents(list);
@@ -147,12 +138,7 @@ export default function ContactBookPage() {
             return;
         }
 
-        // 2. 用 ID 去抓學生 (這樣就算後面有 "課後輔導班" 字樣，只要 ID 對了就能抓到！)
-        const { data: listById } = await supabase
-            .from('students')
-            .select('*')
-            .eq('class_id', classData.id)
-            .order('chinese_name');
+        const { data: listById } = await supabase.from('students').select('*').eq('class_id', classData.id).order('chinese_name');
 
         if (listById) {
             setStudents(listById);
@@ -199,7 +185,6 @@ export default function ContactBookPage() {
         if (data) setHistoryLogs(data);
     }
 
-    // Parent: Fetch Logs
     async function fetchChildLogs(studentId: string) {
         setLogs([]);
         const { data } = await supabase
@@ -210,7 +195,44 @@ export default function ContactBookPage() {
         if (data) setLogs(data);
     }
 
-    // Modal Actions
+    // 🔥 新增：處理圖片上傳
+    async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+        try {
+            if (!event.target.files || event.target.files.length === 0) return;
+
+            setUploading(true);
+            const file = event.target.files[0];
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const filePath = `${fileName}`;
+
+            // 上傳到 Supabase Storage
+            const { error: uploadError } = await supabase.storage
+                .from('contact-book-photos') // 務必確認 bucket 名稱正確
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            // 取得公開連結
+            const { data: { publicUrl } } = supabase.storage
+                .from('contact-book-photos')
+                .getPublicUrl(filePath);
+
+            // 更新表單
+            setFormData(prev => ({ ...prev, photo_url: publicUrl }));
+
+        } catch (error: any) {
+            alert('上傳失敗: ' + error.message);
+        } finally {
+            setUploading(false);
+        }
+    }
+
+    // 🔥 新增：移除圖片
+    function removeImage() {
+        setFormData(prev => ({ ...prev, photo_url: '' }));
+    }
+
     function openModal(student: any, logData: any = null) {
         const targetStudent = student || { id: logData?.student_id, chinese_name: '未知學生' };
 
@@ -218,7 +240,6 @@ export default function ContactBookPage() {
         const today = new Date().toISOString().split('T')[0];
 
         if (logData) {
-            // 📝 編輯歷史資料
             setEditingLogId(logData.id);
             setFormData({
                 date: logData.date,
@@ -230,7 +251,6 @@ export default function ContactBookPage() {
                 photo_url: logData.photo_url || ''
             });
         } else {
-            // 📝 新增/編輯今日資料
             const todayLog = existingLogs[targetStudent.id];
             setEditingLogId(todayLog ? todayLog.id : null);
             setFormData({
@@ -293,7 +313,6 @@ export default function ContactBookPage() {
 
             if (error) throw error;
 
-            // Success Updates
             const today = new Date().toISOString().split('T')[0];
             if (formData.date === today) {
                 setTodayStatus(prev => ({ ...prev, [currentStudent.id]: true }));
@@ -599,16 +618,42 @@ export default function ContactBookPage() {
                                         onChange={e => setFormData({ ...formData, comment: e.target.value })}
                                     />
                                 </div>
+
+                                {/* 🔥 升級版：照片上傳區 */}
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 mb-1 block">📷 照片連結 (選填)</label>
-                                    <input
-                                        type="text"
-                                        className="w-full p-3 border rounded-xl bg-gray-50 focus:bg-white transition"
-                                        placeholder="https://..."
-                                        value={formData.photo_url}
-                                        onChange={e => setFormData({ ...formData, photo_url: e.target.value })}
-                                    />
+                                    <label className="text-xs font-bold text-gray-500 mb-1 block">📷 照片紀錄</label>
+
+                                    {!formData.photo_url ? (
+                                        <div className="border-2 border-dashed border-gray-300 rounded-xl p-4 text-center hover:bg-gray-50 transition cursor-pointer relative">
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                                onChange={handleImageUpload}
+                                                disabled={uploading}
+                                            />
+                                            {uploading ? (
+                                                <div className="text-indigo-500 font-bold">⏳ 上傳中...</div>
+                                            ) : (
+                                                <>
+                                                    <div className="text-3xl mb-1">📸</div>
+                                                    <div className="text-sm text-gray-400 font-bold">點擊拍攝或上傳照片</div>
+                                                </>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="relative rounded-xl overflow-hidden border border-gray-200">
+                                            <img src={formData.photo_url} alt="Uploaded" className="w-full h-48 object-cover" />
+                                            <button
+                                                onClick={removeImage}
+                                                className="absolute top-2 right-2 bg-red-500 text-white w-8 h-8 rounded-full flex items-center justify-center shadow-lg hover:bg-red-600"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
+
                             </div>
                             <div className="mt-6 pt-4 border-t">
                                 <button
