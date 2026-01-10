@@ -26,7 +26,11 @@ export default function ContactBookPage() {
     const [viewMode, setViewMode] = useState<ViewMode>('today');
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({});
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
+
+    // 🔥 全班發布設定 (文字 + 照片)
     const [standardHomework, setStandardHomework] = useState('');
+    const [standardPhotoUrl, setStandardPhotoUrl] = useState(''); // 新增：全班照片
+    const [batchUploading, setBatchUploading] = useState(false);  // 新增：全班照片上傳中
 
     // History Mode State
     const [historyLogs, setHistoryLogs] = useState<any[]>([]);
@@ -195,13 +199,49 @@ export default function ContactBookPage() {
         if (data) setLogs(data);
     }
 
-    // 🔥 批次發布功能
+    // 🔥 全班發布：上傳照片
+    async function handleBatchImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+        try {
+            if (!event.target.files || event.target.files.length === 0) return;
+
+            setBatchUploading(true);
+            const file = event.target.files[0];
+            const fileExt = file.name.split('.').pop();
+            const fileName = `batch-${Date.now()}.${fileExt}`;
+            const filePath = `${fileName}`;
+
+            const { error: uploadError } = await supabase.storage
+                .from('contact-book-photos')
+                .upload(filePath, file);
+
+            if (uploadError) throw uploadError;
+
+            const { data: { publicUrl } } = supabase.storage
+                .from('contact-book-photos')
+                .getPublicUrl(filePath);
+
+            setStandardPhotoUrl(publicUrl); // 設定全班照片
+
+        } catch (error: any) {
+            alert('全班照片上傳失敗: ' + error.message);
+        } finally {
+            setBatchUploading(false);
+        }
+    }
+
+    // 🔥 全班發布：執行
     async function handleBatchPublish() {
-        if (!standardHomework) {
-            alert('請先輸入作業內容再按發布！');
+        // 檢查：至少要有文字 或 照片 才能發布
+        if (!standardHomework && !standardPhotoUrl) {
+            alert('請至少輸入「作業內容」或「上傳一張照片」再按發布！');
             return;
         }
-        if (!confirm(`確定要將「${standardHomework}」發布給全班 ${students.length} 位學生嗎？\n(已填寫過的學生只會更新作業，不會覆蓋評語)`)) {
+
+        const msg = standardPhotoUrl
+            ? `確定要將「作業：${standardHomework || '無'}」與「照片」發布給全班 ${students.length} 位學生嗎？`
+            : `確定要將「${standardHomework}」發布給全班 ${students.length} 位學生嗎？`;
+
+        if (!confirm(`${msg}\n(已填寫過的學生將更新作業與照片，不會覆蓋評語)`)) {
             return;
         }
 
@@ -210,34 +250,38 @@ export default function ContactBookPage() {
             const updates = students.map(student => {
                 const existing = existingLogs[student.id];
                 return {
-                    id: existing?.id, // 如果有舊紀錄，帶入 ID 進行更新
+                    id: existing?.id,
                     student_id: student.id,
                     date: today,
-                    homework: standardHomework, // 更新作業
-                    // 如果是舊紀錄，保留原本的分數；如果是新的，給預設值 3
+                    // 🔥 邏輯：如果有設定全班內容，就使用全班的；如果沒設定，就保留原本的
+                    homework: standardHomework ? standardHomework : (existing?.homework || ''),
+                    photo_url: standardPhotoUrl ? standardPhotoUrl : (existing?.photo_url || ''),
+
                     mood: existing?.mood || 3,
                     focus: existing?.focus || 3,
                     appetite: existing?.appetite || 3,
                     comment: existing?.comment || '',
-                    photo_url: existing?.photo_url || ''
                 };
             });
 
             const { error } = await supabase
                 .from('contact_books')
-                .upsert(updates); // Supabase 支援批次 Upsert
+                .upsert(updates);
 
             if (error) throw error;
 
             alert('🎉 全班發布成功！');
-            // 重新整理狀態
             checkTodaysLogs(students);
+            // 清空設定，避免誤按
+            // setStandardHomework(''); 
+            // setStandardPhotoUrl('');
 
         } catch (e: any) {
             alert('發布失敗: ' + e.message);
         }
     }
 
+    // 單人照片上傳
     async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
         try {
             if (!event.target.files || event.target.files.length === 0) return;
@@ -298,7 +342,7 @@ export default function ContactBookPage() {
                 appetite: todayLog?.appetite || 3,
                 homework: todayLog?.homework || standardHomework || '',
                 comment: todayLog?.comment || '',
-                photo_url: todayLog?.photo_url || ''
+                photo_url: todayLog?.photo_url || standardPhotoUrl || '' // 預帶全班照片
             });
         }
         setIsModalOpen(true);
@@ -477,17 +521,47 @@ export default function ContactBookPage() {
                             <span className="text-xl">⚡</span>
                             <input
                                 type="text"
-                                placeholder="設定今日全班預設作業..."
+                                placeholder="全班作業內容 (可空白)..."
                                 value={standardHomework}
                                 onChange={e => setStandardHomework(e.target.value)}
                                 className="flex-1 bg-transparent border-none outline-none font-bold text-indigo-900 placeholder-indigo-300"
                             />
-                            {/* 🔥 新增：一鍵發布按鈕 */}
+
+                            {/* 🔥 全班照片按鈕 */}
+                            <div className="relative">
+                                {standardPhotoUrl ? (
+                                    <div className="relative w-10 h-10 rounded-lg overflow-hidden border border-gray-200 group">
+                                        <img src={standardPhotoUrl} className="w-full h-full object-cover" />
+                                        <button
+                                            onClick={() => setStandardPhotoUrl('')}
+                                            className="absolute inset-0 bg-black/50 text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="relative w-10 h-10 bg-white rounded-lg border border-indigo-200 flex items-center justify-center cursor-pointer hover:bg-indigo-50 transition">
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="absolute inset-0 opacity-0 cursor-pointer"
+                                            onChange={handleBatchImageUpload}
+                                            disabled={batchUploading}
+                                        />
+                                        <span className="text-xl">📷</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 一鍵發布 */}
                             <button
                                 onClick={handleBatchPublish}
-                                className="whitespace-nowrap px-4 py-2 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition flex items-center gap-1"
+                                disabled={batchUploading}
+                                className={`whitespace-nowrap px-4 py-2 text-white font-bold rounded-lg shadow-md transition flex items-center gap-1
+                                    ${batchUploading ? 'bg-gray-400' : 'bg-indigo-600 hover:bg-indigo-700'}
+                                `}
                             >
-                                🚀 一鍵發布
+                                {batchUploading ? '上傳中...' : '🚀 一鍵發布'}
                             </button>
                         </div>
                     )}
