@@ -51,6 +51,19 @@ export type Database = {
                     chinese_name: string
                     grade: string | null
                     class_name: string | null
+                    photo_url: string | null
+                    english_name: string | null
+                    student_id_display: string | null
+                    birthday: string | null
+                    allergies: string | null
+                    health_notes: string | null
+                    parent_name_1: string | null
+                    parent_phone_1: string | null
+                    parent_name_2: string | null
+                    parent_phone_2: string | null
+                    pickup_method: string | null
+                    teacher_note: string | null
+                    internal_tags: string[] | null
                     profile_details: Json | null
                     created_at: string
                 }
@@ -60,6 +73,19 @@ export type Database = {
                     chinese_name: string
                     grade?: string | null
                     class_name?: string | null
+                    photo_url?: string | null
+                    english_name?: string | null
+                    student_id_display?: string | null
+                    birthday?: string | null
+                    allergies?: string | null
+                    health_notes?: string | null
+                    parent_name_1?: string | null
+                    parent_phone_1?: string | null
+                    parent_name_2?: string | null
+                    parent_phone_2?: string | null
+                    pickup_method?: string | null
+                    teacher_note?: string | null
+                    internal_tags?: string[] | null
                     profile_details?: Json | null
                     created_at?: string
                 }
@@ -69,10 +95,23 @@ export type Database = {
                     chinese_name?: string
                     grade?: string | null
                     class_name?: string | null
+                    photo_url?: string | null
+                    english_name?: string | null
+                    student_id_display?: string | null
+                    birthday?: string | null
+                    allergies?: string | null
+                    health_notes?: string | null
+                    parent_name_1?: string | null
+                    parent_phone_1?: string | null
+                    parent_name_2?: string | null
+                    parent_phone_2?: string | null
+                    pickup_method?: string | null
+                    teacher_note?: string | null
+                    internal_tags?: string[] | null
                     profile_details?: Json | null
                     created_at?: string
                 }
-            }
+            },
             pick_up_queue: {
                 Row: {
                     id: string

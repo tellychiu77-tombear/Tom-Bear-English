@@ -189,7 +189,7 @@ export default function DashboardPage() {
                         title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
                         icon="📂"
                         color="bg-indigo-600"
-                        onClick={() => router.push(role === 'parent' ? '/grades' : '/students')}
+                        onClick={() => router.push(role === 'parent' ? '/my-child' : '/students')}
                         desc="查看詳細檔案"
                     />
 
