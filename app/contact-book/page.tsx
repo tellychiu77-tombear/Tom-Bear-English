@@ -27,10 +27,10 @@ export default function ContactBookPage() {
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({});
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
 
-    // 🔥 全班發布設定 (文字 + 照片)
+    // 🔥 全班發布設定
     const [standardHomework, setStandardHomework] = useState('');
-    const [standardPhotoUrl, setStandardPhotoUrl] = useState(''); // 新增：全班照片
-    const [batchUploading, setBatchUploading] = useState(false);  // 新增：全班照片上傳中
+    const [standardPhotoUrl, setStandardPhotoUrl] = useState('');
+    const [batchUploading, setBatchUploading] = useState(false);
 
     // History Mode State
     const [historyLogs, setHistoryLogs] = useState<any[]>([]);
@@ -220,7 +220,7 @@ export default function ContactBookPage() {
                 .from('contact-book-photos')
                 .getPublicUrl(filePath);
 
-            setStandardPhotoUrl(publicUrl); // 設定全班照片
+            setStandardPhotoUrl(publicUrl);
 
         } catch (error: any) {
             alert('全班照片上傳失敗: ' + error.message);
@@ -229,9 +229,8 @@ export default function ContactBookPage() {
         }
     }
 
-    // 🔥 全班發布：執行
+    // 🔥🔥【關鍵修復】全班發布：執行 (安全分流版)
     async function handleBatchPublish() {
-        // 檢查：至少要有文字 或 照片 才能發布
         if (!standardHomework && !standardPhotoUrl) {
             alert('請至少輸入「作業內容」或「上傳一張照片」再按發布！');
             return;
@@ -247,34 +246,53 @@ export default function ContactBookPage() {
 
         try {
             const today = new Date().toISOString().split('T')[0];
-            const updates = students.map(student => {
+
+            const toInsert: any[] = [];
+            const toUpdate: any[] = [];
+
+            students.forEach(student => {
                 const existing = existingLogs[student.id];
-                return {
-                    id: existing?.id,
+
+                // 共用的資料包
+                const payload = {
                     student_id: student.id,
                     date: today,
-                    // 🔥 邏輯：如果有設定全班內容，就使用全班的；如果沒設定，就保留原本的
+                    // 如果有全班設定就用全班的，否則保留個人的
                     homework: standardHomework ? standardHomework : (existing?.homework || ''),
                     photo_url: standardPhotoUrl ? standardPhotoUrl : (existing?.photo_url || ''),
-
+                    // 沒寫過的人預設 3 分，寫過的人保留分數
                     mood: existing?.mood || 3,
                     focus: existing?.focus || 3,
                     appetite: existing?.appetite || 3,
                     comment: existing?.comment || '',
                 };
+
+                if (existing?.id) {
+                    // ✅ 舊生：走 Update 通道，必須帶 ID
+                    toUpdate.push({ ...payload, id: existing.id });
+                } else {
+                    // ✅ 新生：走 Insert 通道，絕對不能帶 ID (讓資料庫自己產生)
+                    toInsert.push(payload);
+                }
             });
 
-            const { error } = await supabase
-                .from('contact_books')
-                .upsert(updates);
+            // 分頭進行寫入
+            const promises = [];
+            if (toInsert.length > 0) {
+                promises.push(supabase.from('contact_books').insert(toInsert));
+            }
+            if (toUpdate.length > 0) {
+                promises.push(supabase.from('contact_books').upsert(toUpdate));
+            }
 
-            if (error) throw error;
+            const results = await Promise.all(promises);
+
+            // 檢查有沒有錯誤
+            const errors = results.filter(r => r.error).map(r => r.error?.message);
+            if (errors.length > 0) throw new Error(errors.join(', '));
 
             alert('🎉 全班發布成功！');
             checkTodaysLogs(students);
-            // 清空設定，避免誤按
-            // setStandardHomework(''); 
-            // setStandardPhotoUrl('');
 
         } catch (e: any) {
             alert('發布失敗: ' + e.message);
@@ -342,7 +360,7 @@ export default function ContactBookPage() {
                 appetite: todayLog?.appetite || 3,
                 homework: todayLog?.homework || standardHomework || '',
                 comment: todayLog?.comment || '',
-                photo_url: todayLog?.photo_url || standardPhotoUrl || '' // 預帶全班照片
+                photo_url: todayLog?.photo_url || standardPhotoUrl || ''
             });
         }
         setIsModalOpen(true);
@@ -521,7 +539,7 @@ export default function ContactBookPage() {
                             <span className="text-xl">⚡</span>
                             <input
                                 type="text"
-                                placeholder="全班作業內容 (可空白)..."
+                                placeholder="設定今日全班預設作業..."
                                 value={standardHomework}
                                 onChange={e => setStandardHomework(e.target.value)}
                                 className="flex-1 bg-transparent border-none outline-none font-bold text-indigo-900 placeholder-indigo-300"
