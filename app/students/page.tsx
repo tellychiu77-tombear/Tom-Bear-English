@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
+// 保持原本的 UI 選單邏輯 (A-Z)，但後端會改用動態 ID
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
 const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
 
@@ -14,7 +15,6 @@ export default function StudentsPage() {
     const [searchTerm, setSearchTerm] = useState('');
 
     // 🟢 整合型狀態：管理模式 (Manager Mode)
-    // 不再分 viewing 和 editing，統一用這個「指揮艙」
     const [managerStudent, setManagerStudent] = useState<any>(null);
 
     // 指揮艙 - 左側 (編輯資料)
@@ -22,7 +22,7 @@ export default function StudentsPage() {
         name: '',
         grade: 'CEI-A',
         hasAfterSchool: false,
-        note: '' // 備註
+        note: ''
     });
 
     // 指揮艙 - 右側 (分析數據)
@@ -34,7 +34,7 @@ export default function StudentsPage() {
         leaves: [] as any[]
     });
 
-    // 新增學生模式 (獨立的小視窗)
+    // 新增學生模式
     const [isAddingNew, setIsAddingNew] = useState(false);
     const [newStudentForm, setNewStudentForm] = useState({ name: '', grade: 'CEI-A', hasAfterSchool: false });
 
@@ -49,32 +49,59 @@ export default function StudentsPage() {
         const { data } = await supabase
             .from('students')
             .select(`
-        *,
-        parent:profiles (full_name, email, phone)
-      `)
-            .order('grade', { ascending: true })
+                *,
+                parent:profiles (full_name, email, phone)
+            `)
+            .order('grade', { ascending: true }) // 保持原本排序
             .order('chinese_name', { ascending: true });
 
         if (data) setStudents(data);
         setLoading(false);
     }
 
-    // --- 🟢 核心功能：開啟「學生指揮艙」 ---
+    // 🔥 核心魔法：確保班級 ID 永遠同步 (防止脫鉤)
+    async function getOrCreateClassId(gradeName: string) {
+        // 1. 先去 classes 表找找看有沒有這個班級
+        const { data: existingClass } = await supabase
+            .from('classes')
+            .select('id')
+            .eq('name', gradeName)
+            .single();
+
+        if (existingClass) {
+            return existingClass.id; // 找到了！回傳 ID
+        }
+
+        // 2. 如果沒找到 (例如 CEI-Z 是新開的)，就自動建立一個！
+        const { data: newClass, error } = await supabase
+            .from('classes')
+            .insert({ name: gradeName })
+            .select('id')
+            .single();
+
+        if (error) {
+            console.error('自動建立班級失敗:', error);
+            return null;
+        }
+        return newClass.id; // 回傳新建立的 ID
+    }
+
+    // --- 🟢 開啟「學生指揮艙」 ---
     async function openStudentManager(student: any) {
-        // 1. 初始化左側編輯區
         setManagerStudent(student);
+        // 解析文字班級，還原 checkboxes
+        const rawGrade = student.grade || 'CEI-A';
         setEditForm({
             name: student.chinese_name,
-            grade: student.grade.replace(', 課後輔導班', '').replace('課後輔導班', '').trim() || 'CEI-A',
-            hasAfterSchool: student.grade.includes('課後輔導班'),
+            grade: rawGrade.replace(', 課後輔導班', '').replace('課後輔導班', '').trim() || 'CEI-A',
+            hasAfterSchool: rawGrade.includes('課後輔導班'),
             note: student.status_note || ''
         });
 
-        // 2. 抓取右側分析數據 (成績 + 請假)
+        // 抓取分析數據
         const { data: grades } = await supabase.from('exam_results').select('*').eq('student_id', student.id).order('exam_date', { ascending: true });
         const { data: leaves } = await supabase.from('leave_requests').select('*').eq('student_id', student.id).eq('status', 'approved').order('start_date', { ascending: false });
 
-        // 3. 計算 KPI
         let avg = 0;
         let last = { name: '無紀錄', score: 0 };
         if (grades && grades.length > 0) {
@@ -93,28 +120,32 @@ export default function StudentsPage() {
         });
     }
 
-    // 儲存變更 (左側表單)
+    // 儲存變更 (編輯)
     async function saveManagerChanges() {
         if (!managerStudent) return;
 
+        // 1. 組合出完整的文字班級名稱 (為了相容舊系統)
         let finalGrade = editForm.grade;
         if (editForm.hasAfterSchool && !finalGrade.includes('課後輔導班')) finalGrade += ', 課後輔導班';
         else if (!editForm.hasAfterSchool) finalGrade = finalGrade.replace(', 課後輔導班', '').replace('課後輔導班', '').trim();
 
+        // 2. 🔥 取得對應的 ID (為了新聯絡簿)
+        const classId = await getOrCreateClassId(finalGrade);
+
+        // 3. 雙重寫入：同時更新 grade (文字) 和 class_id (ID)
         const { error } = await supabase
             .from('students')
             .update({
                 chinese_name: editForm.name,
-                grade: finalGrade,
+                grade: finalGrade,       // 給舊系統看
+                class_id: classId,       // 給新系統看 (自動同步!)
                 status_note: editForm.note
             })
             .eq('id', managerStudent.id);
 
         if (!error) {
-            alert('✅ 資料更新成功');
-            // 更新列表顯示
+            alert('✅ 資料更新成功 (已自動同步聯絡簿班級)');
             fetchStudents();
-            // 這裡不關閉視窗，讓老師可以繼續看，或者手動關閉
         } else {
             alert('失敗: ' + error.message);
         }
@@ -122,12 +153,18 @@ export default function StudentsPage() {
 
     // 新增學生
     async function addNewStudent() {
+        // 1. 組合文字
         let finalGrade = newStudentForm.grade;
         if (newStudentForm.hasAfterSchool) finalGrade += ', 課後輔導班';
 
+        // 2. 🔥 取得對應的 ID
+        const classId = await getOrCreateClassId(finalGrade);
+
+        // 3. 雙重寫入
         const { error } = await supabase.from('students').insert({
             chinese_name: newStudentForm.name,
-            grade: finalGrade
+            grade: finalGrade,
+            class_id: classId // 這樣新學生一建立，聯絡簿馬上就看得到了
         });
 
         if (!error) {
@@ -136,7 +173,7 @@ export default function StudentsPage() {
             setNewStudentForm({ name: '', grade: 'CEI-A', hasAfterSchool: false });
             fetchStudents();
         } else {
-            alert('失敗');
+            alert('失敗: ' + error.message);
         }
     }
 
