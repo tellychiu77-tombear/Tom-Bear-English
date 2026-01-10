@@ -21,14 +21,11 @@ export default function ContactBookPage() {
     const [myChildren, setMyChildren] = useState<any[]>([]);
     const [selectedChildId, setSelectedChildId] = useState<string>('');
 
-    // Core Logs Data (Single Source of Truth)
+    // Core Data
     const [logs, setLogs] = useState<any[]>([]);
 
     // View States
     const [viewMode, setViewMode] = useState<ViewMode>('today');
-    // 家長端的檢視模式：cards (卡片) | list (列表)
-    const [parentViewMode, setParentViewMode] = useState<'cards' | 'list'>('cards');
-
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({});
     const [todaySignatures, setTodaySignatures] = useState<Record<string, boolean>>({});
     const [existingLogs, setExistingLogs] = useState<Record<string, any>>({});
@@ -119,7 +116,7 @@ export default function ContactBookPage() {
         }
     }
 
-    // Teacher: Class Change
+    // Teacher Logic
     useEffect(() => {
         if (role === 'parent') return;
         if (!selectedClass) return;
@@ -130,17 +127,16 @@ export default function ContactBookPage() {
         fetchStudentsInClass(selectedClass);
     }, [selectedClass, role]);
 
-    // Teacher: History
     useEffect(() => {
         if (viewMode === 'history' && selectedClass && students.length > 0) {
             fetchClassHistory();
         }
     }, [viewMode, selectedClass, historyMonth, students]);
 
-    // Parent: Child or Month Change (🔥 確保切換小孩時強制重抓)
+    // Parent Logic
     useEffect(() => {
         if (role === 'parent' && selectedChildId) {
-            setLogs([]); // 先清空，避免殘影
+            setLogs([]);
             fetchChildLogs(selectedChildId, parentViewMonth);
         }
     }, [selectedChildId, parentViewMonth]);
@@ -197,7 +193,6 @@ export default function ContactBookPage() {
         if (data) setHistoryLogs(data);
     }
 
-    // 🔥 家長端抓取邏輯 (增強版)
     async function fetchChildLogs(studentId: string, month: string) {
         const startDate = `${month}-01`;
         const [y, m] = month.split('-').map(Number);
@@ -215,10 +210,8 @@ export default function ContactBookPage() {
         if (data) setLogs(data);
     }
 
-    // 🔥 家長簽名 (企業級：簽完後強制從伺服器驗證)
     async function handleParentSign(logId: string) {
         if (!confirm('確定要簽名確認這則聯絡簿嗎？')) return;
-
         try {
             const now = new Date().toISOString();
             const { error } = await supabase
@@ -229,15 +222,19 @@ export default function ContactBookPage() {
             if (error) throw error;
 
             alert('✅ 簽名成功！');
-            // 🔥 關鍵：簽名後立刻重新從資料庫抓一次，確保資料絕對同步
+            // 即時更新畫面狀態 (Optimistic UI)
+            setLogs(prevLogs => prevLogs.map(log =>
+                log.id === logId ? { ...log, signature_time: now } : log
+            ));
+            // 背景同步最新資料
             fetchChildLogs(selectedChildId, parentViewMonth);
 
         } catch (e: any) {
-            alert('簽名失敗: ' + e.message + '\n請聯繫管理員確認權限。');
+            alert('簽名失敗: ' + e.message);
         }
     }
 
-    // ... (Batch Upload & Publish functions similar to previous, kept concise for length)
+    // Teacher Batch & Single Actions
     async function handleBatchImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
         try {
             if (!event.target.files || event.target.files.length === 0) return;
@@ -245,10 +242,9 @@ export default function ContactBookPage() {
             const file = event.target.files[0];
             const fileExt = file.name.split('.').pop();
             const fileName = `batch-${Date.now()}.${fileExt}`;
-            const filePath = `${fileName}`;
-            const { error: uploadError } = await supabase.storage.from('contact-book-photos').upload(filePath, file);
+            const { error: uploadError } = await supabase.storage.from('contact-book-photos').upload(fileName, file);
             if (uploadError) throw uploadError;
-            const { data: { publicUrl } } = supabase.storage.from('contact-book-photos').getPublicUrl(filePath);
+            const { data: { publicUrl } } = supabase.storage.from('contact-book-photos').getPublicUrl(fileName);
             setStandardPhotoUrl(publicUrl);
         } catch (error: any) { alert('上傳失敗: ' + error.message); } finally { setBatchUploading(false); }
     }
@@ -367,154 +363,126 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center animate-pulse">載入中...</div>;
 
-    // --- PARENT VIEW (企業級優化 V2) ---
+    // --- PARENT VIEW (企業級表格化) ---
     if (role === 'parent') {
+        const today = new Date().toISOString().split('T')[0];
+        const todayLog = logs.find(l => l.date === today);
+
         return (
             <div className="min-h-screen bg-gray-50 p-4">
                 <div className="max-w-md mx-auto">
-                    {/* Header with Back Button */}
+                    {/* Header */}
                     <div className="flex justify-between items-center mb-4">
                         <h1 className="text-2xl font-black text-gray-800 flex items-center gap-2">📖 寶寶聯絡簿</h1>
-                        <button onClick={() => router.push('/')} className="bg-white px-3 py-2 rounded-lg text-gray-500 font-bold shadow-sm border border-gray-100 hover:bg-gray-50 transition text-sm">
-                            ⬅️ 回首頁
-                        </button>
+                        <button onClick={() => router.push('/')} className="bg-white px-3 py-2 rounded-lg text-gray-500 font-bold shadow-sm border border-gray-100 hover:bg-gray-50 transition text-sm">⬅️ 回首頁</button>
                     </div>
 
                     {/* Child Selector */}
                     {myChildren.length > 1 && (
                         <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
                             {myChildren.map(child => (
-                                <button
-                                    key={child.id}
-                                    onClick={() => setSelectedChildId(child.id)}
-                                    className={`px-4 py-2 rounded-full whitespace-nowrap font-bold transition
-                                        ${selectedChildId === child.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-500 border'}
-                                    `}
-                                >
-                                    {child.chinese_name || child.name}
-                                </button>
+                                <button key={child.id} onClick={() => setSelectedChildId(child.id)} className={`px-4 py-2 rounded-full whitespace-nowrap font-bold transition ${selectedChildId === child.id ? 'bg-indigo-600 text-white shadow-lg' : 'bg-white text-gray-500 border'}`}>{child.chinese_name || child.name}</button>
                             ))}
                         </div>
                     )}
 
-                    {/* 🔥 視圖模式切換 (卡片 vs 列表) */}
-                    <div className="flex bg-white p-1 rounded-xl shadow-sm mb-4">
-                        <button
-                            onClick={() => setParentViewMode('cards')}
-                            className={`flex-1 py-2 rounded-lg font-bold text-sm transition ${parentViewMode === 'cards' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'}`}
-                        >
-                            🗂️ 今日/卡片
-                        </button>
-                        <button
-                            onClick={() => setParentViewMode('list')}
-                            className={`flex-1 py-2 rounded-lg font-bold text-sm transition ${parentViewMode === 'list' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'}`}
-                        >
-                            📜 歷史/列表
-                        </button>
+                    {/* Tabs */}
+                    <div className="flex bg-white p-1 rounded-xl shadow-sm mb-6">
+                        <button onClick={() => setViewMode('today')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition ${viewMode === 'today' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'}`}>📝 今日聯絡簿</button>
+                        <button onClick={() => setViewMode('history')} className={`flex-1 py-2 rounded-lg font-bold text-sm transition ${viewMode === 'history' ? 'bg-indigo-100 text-indigo-700' : 'text-gray-400'}`}>📅 歷史表格</button>
                     </div>
 
-                    {/* 🔥 月份選擇器 (兩個模式都可用) */}
-                    <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 mb-6 flex justify-between items-center">
-                        <span className="font-bold text-gray-600 text-sm">📅 查詢月份</span>
-                        <input
-                            type="month"
-                            value={parentViewMonth}
-                            onChange={(e) => setParentViewMonth(e.target.value)}
-                            className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 font-bold outline-none"
-                        />
-                    </div>
-
-                    {/* 內容顯示區 */}
-                    {logs.length === 0 ? (
-                        <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed">
-                            <p className="text-4xl mb-2">📭</p>
-                            <p>本月份尚無紀錄</p>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Mode A: Card View (詳細內容) */}
-                            {parentViewMode === 'cards' && (
-                                <div className="space-y-6">
-                                    {logs.map(log => (
-                                        <div key={log.id} className="bg-white rounded-3xl p-5 shadow-lg border border-gray-100 relative overflow-hidden">
-                                            <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-400 to-purple-400"></div>
-                                            <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-50 mt-2">
-                                                <div className="flex flex-col">
-                                                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">DATE</span>
-                                                    <span className="text-2xl font-black text-indigo-900 tracking-tight">{log.date}</span>
-                                                </div>
-                                                {log.photo_url && (
-                                                    <a href={log.photo_url} target="_blank" className="block w-16 h-16 rounded-xl bg-gray-100 bg-cover bg-center border-2 border-white shadow-md transform hover:scale-105 transition" style={{ backgroundImage: `url(${log.photo_url})` }} />
-                                                )}
-                                            </div>
-                                            <div className="grid grid-cols-3 gap-2 mb-5">
-                                                <div className="bg-orange-50 rounded-2xl p-3 text-center"><div className="text-xs text-orange-400 font-bold mb-1">心情</div>{renderStars(log.mood, 'mood')}</div>
-                                                <div className="bg-blue-50 rounded-2xl p-3 text-center"><div className="text-xs text-blue-400 font-bold mb-1">專注</div>{renderStars(log.focus, 'focus')}</div>
-                                                <div className="bg-green-50 rounded-2xl p-3 text-center"><div className="text-xs text-green-400 font-bold mb-1">食慾</div>{renderStars(log.appetite, 'appetite')}</div>
-                                            </div>
-                                            <div className="space-y-4">
-                                                <div className="bg-gray-50 p-4 rounded-2xl text-gray-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">
-                                                    {log.homework || '無作業'}
-                                                </div>
-                                                {log.comment && <div className="p-2 text-gray-600 text-sm italic border-l-4 border-gray-200 pl-3">{log.comment}</div>}
-                                            </div>
-                                            <div className="mt-6 pt-4 border-t flex justify-end">
-                                                {log.signature_time ? (
-                                                    <div className="flex flex-col items-end text-green-600">
-                                                        <div className="flex items-center gap-1 font-bold bg-green-50 px-3 py-1.5 rounded-full text-sm border border-green-100">
-                                                            <span className="text-lg">✓</span> <span>我已簽名</span>
-                                                        </div>
-                                                        <span className="text-[10px] text-gray-400 mt-1 mr-2">{new Date(log.signature_time).toLocaleString()}</span>
-                                                    </div>
-                                                ) : (
-                                                    <button onClick={() => handleParentSign(log.id)} className="w-full bg-indigo-600 text-white font-bold px-4 py-3 rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center gap-2">
-                                                        <span>✏️</span> <span>簽名 / 確認已讀</span>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))}
+                    {/* Content */}
+                    {viewMode === 'today' && (
+                        <div>
+                            {todayLog ? (
+                                <div className="bg-white rounded-3xl p-5 shadow-lg border border-gray-100 relative overflow-hidden animate-fade-in-up">
+                                    <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-indigo-400 to-purple-400"></div>
+                                    <div className="flex justify-between items-start mb-4 pb-4 border-b border-gray-50 mt-2">
+                                        <div className="flex flex-col"><span className="text-xs font-bold text-gray-400 uppercase tracking-wider">TODAY</span><span className="text-2xl font-black text-indigo-900 tracking-tight">{todayLog.date}</span></div>
+                                        {todayLog.photo_url && (<a href={todayLog.photo_url} target="_blank" className="block w-16 h-16 rounded-xl bg-gray-100 bg-cover bg-center border-2 border-white shadow-md transform hover:scale-105 transition" style={{ backgroundImage: `url(${todayLog.photo_url})` }} />)}
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 mb-5">
+                                        <div className="bg-orange-50 rounded-2xl p-3 text-center"><div className="text-xs text-orange-400 font-bold mb-1">心情</div>{renderStars(todayLog.mood, 'mood')}</div>
+                                        <div className="bg-blue-50 rounded-2xl p-3 text-center"><div className="text-xs text-blue-400 font-bold mb-1">專注</div>{renderStars(todayLog.focus, 'focus')}</div>
+                                        <div className="bg-green-50 rounded-2xl p-3 text-center"><div className="text-xs text-green-400 font-bold mb-1">食慾</div>{renderStars(todayLog.appetite, 'appetite')}</div>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <div className="bg-gray-50 p-4 rounded-2xl text-gray-700 text-sm font-medium leading-relaxed whitespace-pre-wrap">{todayLog.homework || '無作業'}</div>
+                                        {todayLog.comment && <div className="p-2 text-gray-600 text-sm italic border-l-4 border-gray-200 pl-3">{todayLog.comment}</div>}
+                                    </div>
+                                    <div className="mt-6 pt-4 border-t flex justify-end">
+                                        {todayLog.signature_time ? (
+                                            <div className="flex flex-col items-end text-green-600"><div className="flex items-center gap-1 font-bold bg-green-50 px-3 py-1.5 rounded-full text-sm border border-green-100"><span className="text-lg">✓</span> <span>我已簽名</span></div><span className="text-[10px] text-gray-400 mt-1 mr-2">{new Date(todayLog.signature_time).toLocaleString()}</span></div>
+                                        ) : (
+                                            <button onClick={() => handleParentSign(todayLog.id)} className="w-full bg-indigo-600 text-white font-bold px-4 py-3 rounded-xl shadow-md hover:bg-indigo-700 active:scale-95 transition flex items-center justify-center gap-2"><span>✏️</span> <span>簽名 / 確認已讀</span></button>
+                                        )}
+                                    </div>
                                 </div>
+                            ) : (
+                                <div className="text-center py-20 text-gray-400 bg-white rounded-2xl border border-dashed"><p className="text-4xl mb-2">😴</p><p>今日尚未發布聯絡簿</p></div>
                             )}
+                        </div>
+                    )}
 
-                            {/* Mode B: List View (簡潔列表 - 新功能) */}
-                            {parentViewMode === 'list' && (
-                                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    {viewMode === 'history' && (
+                        <div className="animate-fade-in">
+                            <div className="bg-white p-3 rounded-xl shadow-sm border border-gray-100 mb-4 flex justify-between items-center">
+                                <span className="font-bold text-gray-600 text-sm">📅 選擇月份</span>
+                                <input type="month" value={parentViewMonth} onChange={(e) => setParentViewMonth(e.target.value)} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 font-bold outline-none" />
+                            </div>
+
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                                {logs.length === 0 ? (
+                                    <div className="p-10 text-center text-gray-400">本月份尚無紀錄</div>
+                                ) : (
+                                    // 🔥 家長端：企業級表格 (跟老師的一樣清楚)
                                     <table className="w-full text-left text-sm">
                                         <thead className="bg-gray-50 border-b border-gray-100 text-gray-500">
                                             <tr>
-                                                <th className="p-3">日期</th>
-                                                <th className="p-3">作業</th>
-                                                <th className="p-3 text-center">簽名</th>
+                                                <th className="p-4 w-20">日期</th>
+                                                <th className="p-4">作業內容</th>
+                                                <th className="p-4 w-12 text-center">照片</th>
+                                                <th className="p-4 w-20 text-center">簽名</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-gray-100">
                                             {logs.map(log => (
-                                                <tr key={log.id}>
-                                                    <td className="p-3 font-bold text-indigo-900 whitespace-nowrap">{log.date.slice(5)}</td>
-                                                    <td className="p-3 text-gray-600 truncate max-w-[120px]">{log.homework}</td>
-                                                    <td className="p-3 text-center">
+                                                <tr key={log.id} className="hover:bg-gray-50 transition">
+                                                    <td className="p-4 font-bold text-indigo-900 whitespace-nowrap align-top">{log.date.slice(5)}</td>
+                                                    <td className="p-4 text-gray-600 align-top">
+                                                        <div className="font-medium">{log.homework}</div>
+                                                        {log.comment && <div className="text-xs text-gray-400 mt-1 italic">❝ {log.comment} ❞</div>}
+                                                    </td>
+                                                    <td className="p-4 text-center align-top">
+                                                        {log.photo_url ? (
+                                                            <a href={log.photo_url} target="_blank" className="inline-block w-8 h-8 rounded-lg bg-gray-200 bg-cover bg-center border hover:scale-110 transition shadow-sm" style={{ backgroundImage: `url(${log.photo_url})` }}></a>
+                                                        ) : <span className="text-gray-200">-</span>}
+                                                    </td>
+                                                    <td className="p-4 text-center align-top">
                                                         {log.signature_time ? (
-                                                            <span className="text-green-500 font-bold">✓</span>
+                                                            <div className="flex flex-col items-center">
+                                                                <span className="text-green-500 font-bold text-lg">✓</span>
+                                                                <span className="text-[10px] text-gray-400">{new Date(log.signature_time).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}</span>
+                                                            </div>
                                                         ) : (
-                                                            <button onClick={() => handleParentSign(log.id)} className="text-xs bg-indigo-100 text-indigo-600 px-2 py-1 rounded">簽</button>
+                                                            <button onClick={() => handleParentSign(log.id)} className="text-xs bg-indigo-100 text-indigo-600 px-3 py-1.5 rounded-full font-bold hover:bg-indigo-200 whitespace-nowrap">補簽</button>
                                                         )}
                                                     </td>
                                                 </tr>
                                             ))}
                                         </tbody>
                                     </table>
-                                </div>
-                            )}
-                        </>
+                                )}
+                            </div>
+                        </div>
                     )}
                 </div>
             </div>
         );
     }
 
-    // Teacher View... (保持原樣，篇幅關係這裡省略重複代碼，因為上方已經有完整的 Teacher View 邏輯，您可以直接用上面那個版本的 Teacher View 區塊，或是如果需要我再貼一次也可以，但核心改動都在 Parent View)
-    // 為了確保您複製方便，以下是 Teacher View (跟上一版一樣，但整合在這個檔案裡)
+    // Teacher View
     return (
         <div className="min-h-screen bg-gray-50 p-6">
             <div className="max-w-6xl mx-auto">
@@ -523,10 +491,7 @@ export default function ContactBookPage() {
                         <div><h1 className="text-2xl font-black text-gray-800">📝 電子聯絡簿</h1><p className="text-gray-400 text-xs mt-1">{role === 'director' ? '管理員模式' : '教師模式'}</p></div>
                         <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
                             <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)} className="p-2 border rounded-lg font-bold text-gray-700 w-32"><option value="" disabled>班級</option>{classes.map(c => <option key={c} value={c}>{c}</option>)}</select>
-                            <div className="bg-gray-100 p-1 rounded-lg flex">
-                                <button onClick={() => setViewMode('today')} className={`px-3 py-1.5 rounded-md text-sm font-bold transition ${viewMode === 'today' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>今日作業</button>
-                                <button onClick={() => setViewMode('history')} className={`px-3 py-1.5 rounded-md text-sm font-bold transition ${viewMode === 'history' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>歷史總覽</button>
-                            </div>
+                            <div className="bg-gray-100 p-1 rounded-lg flex"><button onClick={() => setViewMode('today')} className={`px-3 py-1.5 rounded-md text-sm font-bold transition ${viewMode === 'today' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>今日作業</button><button onClick={() => setViewMode('history')} className={`px-3 py-1.5 rounded-md text-sm font-bold transition ${viewMode === 'history' ? 'bg-white shadow text-indigo-600' : 'text-gray-500'}`}>歷史總覽</button></div>
                             <button onClick={() => router.push('/')} className="px-3 py-2 text-gray-500 hover:bg-gray-100 rounded-lg">離開</button>
                         </div>
                     </div>
@@ -587,3 +552,4 @@ export default function ContactBookPage() {
         </div>
     );
 }
+```順帶一提，如果要取得所有應用程式的完整功能，請開啟 Gemini 系列應用程式活動記錄。
