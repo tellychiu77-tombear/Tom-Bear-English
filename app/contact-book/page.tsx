@@ -23,6 +23,7 @@ export default function ContactBookPage() {
 
     // Teacher View State
     const [todayStatus, setTodayStatus] = useState<Record<string, boolean>>({}); // student_id -> has_log
+    const [existingLogs, setExistingLogs] = useState<Record<string, any>>({}); // student_id -> log content (用來暫存今天的內容)
     const [standardHomework, setStandardHomework] = useState(''); // Global homework setting
 
     // Modal State
@@ -64,12 +65,12 @@ export default function ContactBookPage() {
 
             // Role-based Fetching
             if (['director', 'manager', 'admin'].includes(userRole)) {
-                // Director: Fetch ALL distinct classes
-                const { data: list } = await supabase.from('students').select('class_name');
+                // Director: 改為直接讀取 classes 資料表，確保班級列表最正確
+                const { data: list } = await supabase.from('classes').select('name').order('name');
                 if (list) {
-                    const uniqueClasses = Array.from(new Set(list.map(i => i.class_name).filter(Boolean))) as string[];
-                    setClasses(uniqueClasses);
-                    if (uniqueClasses.length > 0) setSelectedClass(uniqueClasses[0]);
+                    const classNames = list.map(c => c.name);
+                    setClasses(classNames);
+                    if (classNames.length > 0) setSelectedClass(classNames[0]);
                 }
 
             } else if (userRole === 'teacher') {
@@ -87,7 +88,6 @@ export default function ContactBookPage() {
 
             } else if (userRole === 'parent') {
                 // Parent: Fetch linked students
-                // Using view or direct query on student.parent_id
                 const { data: children } = await supabase
                     .from('students')
                     .select('*')
@@ -117,28 +117,55 @@ export default function ContactBookPage() {
     }, [selectedClass, role]);
 
     async function fetchStudentsInClass(className: string) {
+        // 先抓學生
+        // 注意：這裡假設學生表有用 class_id 關聯，或者還有保留 class_name 欄位
+        // 為了相容性，我們先嘗試用 class_name 抓，如果不準確再改
         const { data: list } = await supabase
             .from('students')
+            // 這裡用關聯查詢：抓學生，並且確認他的班級名稱是目前選的
+            // 如果您的學生表還保留 class_name 欄位，這行沒問題
+            // 如果只有 class_id，建議後端要用 join，但這裡先維持原樣，假設 DB 有 class_name 欄位
             .select('*')
-            .eq('class_name', className)
-            .order('name'); // Assuming logic for seat number or name
+            .eq('class_name', className) // 如果這行抓不到人，可能要改用 class_id 查詢
+            .order('name');
+
+        // 如果上面用 class_name 抓不到，備用方案：先抓 Class ID 再抓學生
+        if (!list || list.length === 0) {
+            const { data: classData } = await supabase.from('classes').select('id').eq('name', className).single();
+            if (classData) {
+                const { data: listById } = await supabase.from('students').select('*').eq('class_id', classData.id).order('name');
+                if (listById) {
+                    setStudents(listById);
+                    checkTodaysLogs(listById);
+                    return;
+                }
+            }
+        }
 
         if (list) {
             setStudents(list);
-            // Check today's status for these students
-            const today = new Date().toISOString().split('T')[0];
-            const { data: todaysLogs } = await supabase
-                .from('contact_books')
-                .select('student_id')
-                .in('student_id', list.map(s => s.id))
-                .eq('date', today);
-
-            const statusMap: Record<string, boolean> = {};
-            todaysLogs?.forEach((log: any) => {
-                statusMap[log.student_id] = true;
-            });
-            setTodayStatus(statusMap);
+            checkTodaysLogs(list);
         }
+    }
+
+    // 檢查今日已完成的日誌
+    async function checkTodaysLogs(studentList: any[]) {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: todaysLogs } = await supabase
+            .from('contact_books')
+            .select('*') // 這裡改成 select * 以便把內容存下來
+            .in('student_id', studentList.map(s => s.id))
+            .eq('date', today);
+
+        const statusMap: Record<string, boolean> = {};
+        const logsMap: Record<string, any> = {};
+
+        todaysLogs?.forEach((log: any) => {
+            statusMap[log.student_id] = true;
+            logsMap[log.student_id] = log; // 把該學生的日誌存起來
+        });
+        setTodayStatus(statusMap);
+        setExistingLogs(logsMap);
     }
 
     // Parent: Fetch Logs when child changes
@@ -155,18 +182,29 @@ export default function ContactBookPage() {
     // Modal Actions
     function openModal(student: any) {
         setCurrentStudent(student);
-        // Pre-fill or Reset
-        // If editing existing for today? simplified: always create new/overwrite logic?
-        // Let's assume we are creating new or updating today's. 
-        // For simplicity, just reset form for now, but pre-fill homework if 'Standard' is set
-        setFormData({
-            mood: 3,
-            focus: 3,
-            appetite: 3,
-            homework: standardHomework || '',
-            comment: '',
-            photo_url: ''
-        });
+        const todayLog = existingLogs[student.id];
+
+        if (todayLog) {
+            // 如果今天已經寫過，載入舊資料 (編輯模式)
+            setFormData({
+                mood: todayLog.mood,
+                focus: todayLog.focus,
+                appetite: todayLog.appetite,
+                homework: todayLog.homework || '',
+                comment: todayLog.comment || '',
+                photo_url: todayLog.photo_url || ''
+            });
+        } else {
+            // 如果沒寫過，開新單 (新增模式)
+            setFormData({
+                mood: 3,
+                focus: 3,
+                appetite: 3,
+                homework: standardHomework || '', // 預帶全班作業
+                comment: '',
+                photo_url: ''
+            });
+        }
         setIsModalOpen(true);
     }
 
@@ -175,10 +213,6 @@ export default function ContactBookPage() {
 
         try {
             const today = new Date().toISOString().split('T')[0];
-            // Check if exists today to Update vs Insert? 
-            // Or just Insert. Schema doesn't enforce unique date per student yet, but usually 1 per day.
-            // Let's try upsert logic manually or just insert.
-            // Simplified: Insert.
 
             const payload = {
                 student_id: currentStudent.id,
@@ -191,13 +225,38 @@ export default function ContactBookPage() {
                 photo_url: formData.photo_url
             };
 
-            const { error } = await supabase.from('contact_books').insert(payload);
+            // 檢查是新增還是更新
+            const { data: existing } = await supabase
+                .from('contact_books')
+                .select('id')
+                .eq('student_id', currentStudent.id)
+                .eq('date', today)
+                .single();
+
+            let error;
+            if (existing) {
+                // 更新模式 (Update)
+                const { error: updateError } = await supabase
+                    .from('contact_books')
+                    .update(payload)
+                    .eq('id', existing.id);
+                error = updateError;
+            } else {
+                // 新增模式 (Insert)
+                const { error: insertError } = await supabase
+                    .from('contact_books')
+                    .insert(payload);
+                error = insertError;
+            }
+
             if (error) throw error;
 
-            // Success
+            // Success & Update Local State
             setTodayStatus(prev => ({ ...prev, [currentStudent.id]: true }));
+            setExistingLogs(prev => ({ ...prev, [currentStudent.id]: payload })); // 更新本地暫存，這樣再次點開就是最新的
+
             setIsModalOpen(false);
-            alert('儲存成功！');
+            // alert('儲存成功！'); // 不需要一直彈窗，體驗比較好
 
         } catch (e: any) {
             alert('儲存失敗: ' + e.message);
@@ -215,7 +274,7 @@ export default function ContactBookPage() {
         if (type === 'focus') icon = count === 1 ? '☁️' : count === 2 ? '⚡' : '🔥';
         if (type === 'appetite') icon = count === 1 ? '🥣' : count === 2 ? '🍱' : '🍗';
 
-        return <span className="text-xl">{icon}</span>; // Simplify to single emoji rep or repetition
+        return <span className="text-xl">{icon}</span>;
     };
 
     if (loading) return <div className="p-10 text-center animate-pulse">載入聯絡簿資料中...</div>;
@@ -379,7 +438,9 @@ export default function ContactBookPage() {
                             <div className="flex justify-between items-center mb-6">
                                 <div>
                                     <h2 className="text-2xl font-black text-gray-800">{currentStudent.chinese_name}</h2>
-                                    <p className="text-gray-400 text-xs">填寫今日聯絡簿</p>
+                                    <p className="text-gray-400 text-xs">
+                                        {todayStatus[currentStudent.id] ? '編輯今日聯絡簿' : '填寫今日聯絡簿'}
+                                    </p>
                                 </div>
                                 <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full">✕</button>
                             </div>
@@ -458,7 +519,7 @@ export default function ContactBookPage() {
                                     onClick={handleSave}
                                     className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-lg hover:bg-indigo-700 transform hover:scale-[1.02] transition"
                                 >
-                                    ✅ 完成並儲存
+                                    ✅ {todayStatus[currentStudent.id] ? '更新儲存' : '完成並儲存'}
                                 </button>
                             </div>
                         </div>
