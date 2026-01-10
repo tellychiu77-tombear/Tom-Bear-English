@@ -253,14 +253,11 @@ export default function ContactBookPage() {
             students.forEach(student => {
                 const existing = existingLogs[student.id];
 
-                // 共用的資料包
                 const payload = {
                     student_id: student.id,
                     date: today,
-                    // 如果有全班設定就用全班的，否則保留個人的
                     homework: standardHomework ? standardHomework : (existing?.homework || ''),
                     photo_url: standardPhotoUrl ? standardPhotoUrl : (existing?.photo_url || ''),
-                    // 沒寫過的人預設 3 分，寫過的人保留分數
                     mood: existing?.mood || 3,
                     focus: existing?.focus || 3,
                     appetite: existing?.appetite || 3,
@@ -268,15 +265,12 @@ export default function ContactBookPage() {
                 };
 
                 if (existing?.id) {
-                    // ✅ 舊生：走 Update 通道，必須帶 ID
                     toUpdate.push({ ...payload, id: existing.id });
                 } else {
-                    // ✅ 新生：走 Insert 通道，絕對不能帶 ID (讓資料庫自己產生)
                     toInsert.push(payload);
                 }
             });
 
-            // 分頭進行寫入
             const promises = [];
             if (toInsert.length > 0) {
                 promises.push(supabase.from('contact_books').insert(toInsert));
@@ -287,7 +281,6 @@ export default function ContactBookPage() {
 
             const results = await Promise.all(promises);
 
-            // 檢查有沒有錯誤
             const errors = results.filter(r => r.error).map(r => r.error?.message);
             if (errors.length > 0) throw new Error(errors.join(', '));
 
@@ -639,6 +632,8 @@ export default function ContactBookPage() {
                                                 <th className="p-4 font-bold text-gray-600 w-32">日期</th>
                                                 <th className="p-4 font-bold text-gray-600 w-24">學生</th>
                                                 <th className="p-4 font-bold text-gray-600 w-32 text-center">狀態</th>
+                                                {/* 🔥 新增照片欄位 */}
+                                                <th className="p-4 font-bold text-gray-600 w-16 text-center">照片</th>
                                                 <th className="p-4 font-bold text-gray-600">作業內容</th>
                                                 <th className="p-4 font-bold text-gray-600 w-48">評語</th>
                                                 <th className="p-4 font-bold text-gray-600 w-20 text-center">修改</th>
@@ -658,6 +653,23 @@ export default function ContactBookPage() {
                                                                 <span title="心情">{renderStars(log.mood, 'mood')}</span>
                                                                 <span title="專注">{renderStars(log.focus, 'focus')}</span>
                                                             </div>
+                                                        </td>
+                                                        {/* 🔥 新增照片縮圖儲存格 */}
+                                                        <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}> {/* 防止觸發列點擊 */}
+                                                            {log.photo_url ? (
+                                                                <a
+                                                                    href={log.photo_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="inline-block w-8 h-8 bg-gray-100 rounded-lg bg-cover bg-center border border-gray-200 hover:scale-110 transition shadow-sm"
+                                                                    style={{ backgroundImage: `url(${log.photo_url})` }}
+                                                                    title="點擊查看大圖"
+                                                                >
+                                                                    {/* 縮圖內容為空，背景圖顯示 */}
+                                                                </a>
+                                                            ) : (
+                                                                <span className="text-gray-300">-</span>
+                                                            )}
                                                         </td>
                                                         <td className="p-4 text-gray-600 text-sm">{log.homework}</td>
                                                         <td className="p-4 text-gray-500 text-sm truncate max-w-xs">{log.comment}</td>
