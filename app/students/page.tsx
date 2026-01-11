@@ -13,7 +13,7 @@ export default function StudentManagementPage() {
     const [students, setStudents] = useState<any[]>([]);
     const [classes, setClasses] = useState<any[]>([]);
 
-    // Filters (這裡改存 class 物件，包含 id 和 name，確保資料正確)
+    // Filters
     const [selectedClass, setSelectedClass] = useState<any>(null);
 
     // Modal State
@@ -26,9 +26,11 @@ export default function StudentManagementPage() {
         english_name: '',
         student_id_display: '',
         birthday: '',
-        grade: '',        // 顯示用的班級名稱
-        class_id: '',     // 🔥 關鍵：系統用的班級 ID (保留舊功能核心)
+        grade: '',
+        class_id: '',
         photo_url: '',
+        // 🔥 新增：家長帳號綁定欄位
+        parent_email: '',
         parent_name_1: '',
         parent_phone_1: '',
         parent_name_2: '',
@@ -54,7 +56,6 @@ export default function StudentManagementPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        // 簡單權限檢查
         const { data: user } = await supabase.from('users').select('role').eq('id', session.user.id).single();
         if (user?.role === 'parent') {
             alert('權限不足');
@@ -64,18 +65,16 @@ export default function StudentManagementPage() {
     }
 
     async function fetchClasses() {
-        // 🔥 抓取 id 和 name，確保我們有完整的班級資料
         const { data } = await supabase.from('classes').select('id, name').order('name');
         if (data) {
             setClasses(data);
-            if (data.length > 0) setSelectedClass(data[0]); // 預設選第一個班
+            if (data.length > 0) setSelectedClass(data[0]);
         }
     }
 
     async function fetchStudents() {
         if (!selectedClass) return;
 
-        // 🔥 優先使用 class_id 查詢 (最準確)，如果沒有則 fallback 到 grade 文字
         let query = supabase.from('students').select('*').order('chinese_name');
 
         if (selectedClass.id) {
@@ -91,7 +90,6 @@ export default function StudentManagementPage() {
     function openModal(student: any = null) {
         setEditingStudent(student);
         if (student) {
-            // 編輯模式：載入舊資料
             setFormData({
                 chinese_name: student.chinese_name || '',
                 english_name: student.english_name || '',
@@ -100,6 +98,7 @@ export default function StudentManagementPage() {
                 grade: student.grade || selectedClass?.name || '',
                 class_id: student.class_id || selectedClass?.id || '',
                 photo_url: student.photo_url || '',
+                parent_email: student.parent_email || '', // 🔥 載入家長 Email
                 parent_name_1: student.parent_name_1 || '',
                 parent_phone_1: student.parent_phone_1 || '',
                 parent_name_2: student.parent_name_2 || '',
@@ -110,15 +109,15 @@ export default function StudentManagementPage() {
                 teacher_note: student.teacher_note || ''
             });
         } else {
-            // 新增模式：預帶當前班級
             setFormData({
                 chinese_name: '',
                 english_name: '',
                 student_id_display: '',
                 birthday: '',
-                grade: selectedClass?.name || '', // 自動填入當前班級名稱
-                class_id: selectedClass?.id || '', // 自動填入當前班級 ID
+                grade: selectedClass?.name || '',
+                class_id: selectedClass?.id || '',
                 photo_url: '',
+                parent_email: '', // 🔥 預設空白
                 parent_name_1: '',
                 parent_phone_1: '',
                 parent_name_2: '',
@@ -159,14 +158,13 @@ export default function StudentManagementPage() {
         }
     }
 
-    // 🔥 處理班級變更 (連動 ID 和 Name)
     function handleGradeChange(e: React.ChangeEvent<HTMLSelectElement>) {
         const newClassName = e.target.value;
         const targetClass = classes.find(c => c.name === newClassName);
         setFormData(prev => ({
             ...prev,
             grade: newClassName,
-            class_id: targetClass ? targetClass.id : '' // 自動更新 ID
+            class_id: targetClass ? targetClass.id : ''
         }));
     }
 
@@ -177,20 +175,45 @@ export default function StudentManagementPage() {
         }
 
         try {
+            // 🔥 智慧綁定邏輯：如果老師輸入了 Email，我們嘗試去 User 表找人
+            let foundParentId = null;
+            if (formData.parent_email) {
+                // 去 users 表查詢有沒有這個 email
+                // 注意：這需要您的 users 表 email 欄位是可供查詢的
+                // 這裡我們做一個假設性的查詢，實際上 Supabase Auth 的 email 不一定能直接 select
+                // 但如果您的 users 表有同步 email，這招就有效
+                const { data: parentUser } = await supabase
+                    .from('users')
+                    .select('id')
+                    .eq('email', formData.parent_email.trim())
+                    .single();
+
+                if (parentUser) {
+                    foundParentId = parentUser.id; // 找到了！直接綁定
+                }
+            }
+
+            // 準備要寫入的資料
+            const payload = {
+                ...formData,
+                // 如果找到了家長 ID，就直接更新 parent_id；如果沒找到但有填 email，保持現狀(等待未來綁定)
+                ...(foundParentId && { parent_id: foundParentId })
+            };
+
             if (editingStudent) {
                 const { error } = await supabase
                     .from('students')
-                    .update(formData)
+                    .update(payload)
                     .eq('id', editingStudent.id);
                 if (error) throw error;
             } else {
                 const { error } = await supabase
                     .from('students')
-                    .insert(formData);
+                    .insert(payload);
                 if (error) throw error;
             }
 
-            alert('儲存成功！');
+            alert(foundParentId ? '儲存成功！已自動連結家長帳號 🎉' : '儲存成功！(家長尚未註冊，等待連結)');
             setIsModalOpen(false);
             fetchStudents();
 
@@ -210,6 +233,20 @@ export default function StudentManagementPage() {
         }
     }
 
+    // 🔥 解除綁定功能
+    async function handleUnbind(studentId: string) {
+        if (!confirm('確定要解除這位學生的家長綁定嗎？(家長將無法再看到此學生資料)')) return;
+        const { error } = await supabase
+            .from('students')
+            .update({ parent_id: null, parent_email: null }) // 清空綁定
+            .eq('id', studentId);
+
+        if (!error) {
+            alert('已解除綁定');
+            fetchStudents();
+        }
+    }
+
     if (loading) return <div className="p-10 text-center">載入中...</div>;
 
     return (
@@ -218,7 +255,6 @@ export default function StudentManagementPage() {
                 <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h1 className="text-2xl font-black text-gray-800">🎓 學生資料管理</h1>
                     <div className="flex gap-2">
-                        {/* 班級選擇器 */}
                         <select
                             value={selectedClass?.name || ''}
                             onChange={e => {
@@ -247,7 +283,7 @@ export default function StudentManagementPage() {
                                 <th className="p-4 w-16">照片</th>
                                 <th className="p-4">姓名</th>
                                 <th className="p-4">英文名</th>
-                                <th className="p-4">家長</th>
+                                <th className="p-4">家長連結</th>
                                 <th className="p-4">電話</th>
                                 <th className="p-4 text-center">操作</th>
                             </tr>
@@ -266,7 +302,34 @@ export default function StudentManagementPage() {
                                     </td>
                                     <td className="p-4 font-bold text-gray-800">{student.chinese_name}</td>
                                     <td className="p-4 text-indigo-600 font-medium">{student.english_name || '-'}</td>
-                                    <td className="p-4 text-gray-600">{student.parent_name_1 || '-'}</td>
+
+                                    {/* 🔥 智慧綁定狀態顯示 */}
+                                    <td className="p-4">
+                                        <div className="flex flex-col items-start">
+                                            <span className="text-gray-800 font-bold text-sm mb-1">{student.parent_name_1 || '-'}</span>
+                                            {student.parent_id ? (
+                                                <div className="flex items-center gap-1">
+                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">
+                                                        ✅ 已綁定APP
+                                                    </span>
+                                                    <button onClick={() => handleUnbind(student.id)} className="text-[10px] text-red-300 hover:text-red-500 underline">解除</button>
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col">
+                                                    {student.parent_email ? (
+                                                        <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-bold" title={student.parent_email}>
+                                                            ⏳ 等待 {student.parent_email} 註冊
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] bg-gray-100 text-gray-400 px-2 py-0.5 rounded-full font-bold">
+                                                            ☁️ 未設定 Email
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </td>
+
                                     <td className="p-4 font-mono text-gray-500">{student.parent_phone_1 || '-'}</td>
                                     <td className="p-4 text-center">
                                         <button onClick={() => openModal(student)} className="text-indigo-600 hover:text-indigo-800 font-bold mr-3">編輯</button>
@@ -321,15 +384,12 @@ export default function StudentManagementPage() {
                                         <label className="text-xs font-bold text-gray-500">英文姓名</label>
                                         <input type="text" value={formData.english_name} onChange={e => setFormData({ ...formData, english_name: e.target.value })} className="w-full p-2 border rounded-lg" placeholder="e.g. Tom Bear" />
                                     </div>
-
-                                    {/* 🔥 班級選擇 (確保連動 class_id) */}
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500">所屬班級</label>
                                         <select value={formData.grade} onChange={handleGradeChange} className="w-full p-2 border rounded-lg">
                                             {classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                                         </select>
                                     </div>
-
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold text-gray-500">顯示學號</label>
                                         <input type="text" value={formData.student_id_display} onChange={e => setFormData({ ...formData, student_id_display: e.target.value })} className="w-full p-2 border rounded-lg font-mono" placeholder="S2026001" />
@@ -342,7 +402,20 @@ export default function StudentManagementPage() {
 
                                 {/* Column 2: Contact Info */}
                                 <div className="space-y-4">
-                                    <h3 className="font-bold text-indigo-900 border-b pb-2">📞 聯絡資訊</h3>
+                                    <h3 className="font-bold text-indigo-900 border-b pb-2">📞 聯絡與綁定</h3>
+
+                                    {/* 🔥 新增：家長帳號綁定區 */}
+                                    <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100">
+                                        <label className="text-xs font-bold text-indigo-600 block mb-1">家長註冊 Email (用於自動綁定)</label>
+                                        <input
+                                            type="email"
+                                            value={formData.parent_email}
+                                            onChange={e => setFormData({ ...formData, parent_email: e.target.value })}
+                                            className="w-full p-2 border rounded-lg text-sm"
+                                            placeholder="請輸入家長註冊的 Email..."
+                                        />
+                                        <p className="text-[10px] text-indigo-400 mt-1">※ 若家長用此 Email 註冊，系統將自動連結學生資料。</p>
+                                    </div>
 
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="space-y-1">
