@@ -1,441 +1,479 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-export default function StudentManagementPage() {
+// 🎓 1. 英文班級選項 (含 "無")
+const ENGLISH_CLASS_OPTIONS = [
+    { value: 'NONE', label: '❌ 無英文主修 (純安親/課輔)' },
+    ...Array.from({ length: 26 }, (_, i) => ({
+        value: `CEI-${String.fromCharCode(65 + i)}`,
+        label: `CEI-${String.fromCharCode(65 + i)}`
+    }))
+];
+
+// 🏫 2. 學校年級選項 (依照您的要求：國小~國中)
+const SCHOOL_GRADE_OPTIONS = [
+    '國小 一年級', '國小 二年級', '國小 三年級', '國小 四年級', '國小 五年級', '國小 六年級',
+    '國中 七年級', '國中 八年級', '國中 九年級'
+];
+
+export default function StudentsPage() {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [uploading, setUploading] = useState(false);
-
-    // Data
     const [students, setStudents] = useState<any[]>([]);
-    const [classes, setClasses] = useState<any[]>([]);
-    const [selectedClass, setSelectedClass] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [filterClass, setFilterClass] = useState(''); // 篩選用
 
-    // Modal
+    // Modal 狀態
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingStudent, setEditingStudent] = useState<any>(null);
+    const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
+    const [currentId, setCurrentId] = useState<string | null>(null);
 
-    // Form Data
+    // --- 📝 完整表單資料 ---
     const [formData, setFormData] = useState({
         chinese_name: '',
         english_name: '',
-        student_id_display: '',
         birthday: '',
-        grade: '',
-        class_id: '',
-        photo_url: '',
+        school_grade: '國小 一年級', // 預設
 
-        // 👨‍👩‍👧‍👦 雙家長設定
-        parent_email: '',    // 家長 1 Email
-        parent_id: '',       // 家長 1 ID (隱藏)
+        // 核心分班邏輯
+        english_class: 'CEI-A',    // 下拉選單值
+        is_after_school: false,    // 是否安親
 
-        parent_email_2: '',  // 家長 2 Email
-        parent_id_2: '',     // 家長 2 ID (隱藏)
+        // 家長 1
+        parent_email: '',
+        parent_relationship: '',
+        parent_phone: '',
+        // 家長 2
+        parent_2_email: '',
+        parent_2_relationship: '',
+        parent_2_phone: '',
 
-        parent_name_1: '',   // 家長 1 稱謂/姓名
-        parent_phone_1: '',
-        parent_name_2: '',   // 家長 2 稱謂/姓名
-        parent_phone_2: '',
-
+        // 詳細備註
         pickup_method: '家長接送',
         allergies: '',
-        health_notes: '',
-        teacher_note: ''
+        special_needs: '',
+        internal_note: '',
+        photo_url: ''
     });
 
+    // 照片上傳 Ref
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const [uploading, setUploading] = useState(false);
+
     useEffect(() => {
-        checkPermission();
-        fetchClasses();
+        checkPermissionAndFetch();
     }, []);
 
-    useEffect(() => {
-        if (selectedClass) {
-            fetchStudents();
-        }
-    }, [selectedClass]);
-
-    async function checkPermission() {
+    async function checkPermissionAndFetch() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
-        const { data: user } = await supabase.from('users').select('role').eq('id', session.user.id).single();
-        if (user?.role === 'parent') {
-            alert('權限不足');
-            router.push('/');
-        }
-        setLoading(false);
-    }
-
-    async function fetchClasses() {
-        const { data } = await supabase.from('classes').select('id, name').order('name');
-        if (data) {
-            setClasses(data);
-            if (data.length > 0) setSelectedClass(data[0]);
-        }
+        fetchStudents();
     }
 
     async function fetchStudents() {
-        if (!selectedClass) return;
-        let query = supabase.from('students').select('*').order('chinese_name');
-        if (selectedClass.id) {
-            query = query.eq('class_id', selectedClass.id);
-        } else {
-            query = query.eq('grade', selectedClass.name);
-        }
-        const { data } = await query;
-        if (data) setStudents(data);
+        setLoading(true);
+        const { data, error } = await supabase
+            .from('students')
+            .select(`
+                *,
+                parent:users!parent_id(email),
+                parent2:users!parent_id_2(email)
+            `)
+            .order('grade')
+            .order('chinese_name');
+
+        if (error) console.error(error);
+        else setStudents(data || []);
+        setLoading(false);
     }
 
-    // 🔥 更強壯的 openModal：確保一定抓得到 Email
-    async function openModal(student: any = null) {
-        setEditingStudent(student);
+    // --- 邏輯核心：解析與組合班級字串 ---
 
-        // 預設表單值
-        let initialData = {
-            chinese_name: '',
-            english_name: '',
-            student_id_display: '',
-            birthday: '',
-            grade: selectedClass?.name || '',
-            class_id: selectedClass?.id || '',
-            photo_url: '',
-            parent_email: '',
-            parent_id: '',
-            parent_email_2: '',
-            parent_id_2: '',
-            parent_name_1: '',
-            parent_phone_1: '',
-            parent_name_2: '',
-            parent_phone_2: '',
-            pickup_method: '家長接送',
-            allergies: '',
-            health_notes: '',
-            teacher_note: ''
-        };
+    // 1. 把資料庫的 "CEI-A, 課後輔導" 拆解回 表單狀態
+    function parseGradeToForm(fullGrade: string) {
+        if (!fullGrade) return { eng: 'CEI-A', after: false };
 
-        if (student) {
-            // 先填入基本資料
-            initialData = {
-                ...initialData,
-                chinese_name: student.chinese_name || '',
-                english_name: student.english_name || '',
-                student_id_display: student.student_id_display || '',
-                birthday: student.birthday || '',
-                grade: student.grade || selectedClass?.name || '',
-                class_id: student.class_id || selectedClass?.id || '',
-                photo_url: student.photo_url || '',
-                parent_id: student.parent_id || '',
-                parent_id_2: student.parent_id_2 || '',
-                parent_email: student.parent_email || '',
-                parent_email_2: student.parent_email_2 || '',
-                parent_name_1: student.parent_name_1 || '',
-                parent_phone_1: student.parent_phone_1 || '',
-                parent_name_2: student.parent_name_2 || '',
-                parent_phone_2: student.parent_phone_2 || '',
-                pickup_method: student.pickup_method || '家長接送',
-                allergies: student.allergies || '',
-                health_notes: student.health_notes || '',
-                teacher_note: student.teacher_note || ''
-            };
+        const hasAfterSchool = fullGrade.includes('課後輔導');
+        // 移除 "課後輔導" 和逗號，剩下的就是英文班
+        let engClass = fullGrade.replace(', 課後輔導', '').replace('課後輔導', '').trim();
+        // 移除尾隨逗號
+        if (engClass.endsWith(',') || engClass.endsWith('，')) engClass = engClass.slice(0, -1).trim();
 
-            // 🔥 自動修復邏輯：如果已綁定但 Email 是空的，嘗試去 User 表抓回來
-            // 這裡我們會顯示 "載入中..." 的感覺，因為這是非同步請求
-            try {
-                if (!initialData.parent_email && student.parent_id) {
-                    console.log("嘗試抓取家長1 Email...");
-                    const { data: user1, error: err1 } = await supabase
-                        .from('users')
-                        .select('email')
-                        .eq('id', student.parent_id)
-                        .single();
+        // 如果剩下的為空，代表原本是純安親
+        if (!engClass) engClass = 'NONE';
 
-                    if (user1) {
-                        console.log("抓到家長1 Email:", user1.email);
-                        initialData.parent_email = user1.email;
-                    } else {
-                        console.warn("抓取家長1失敗:", err1);
-                    }
-                }
+        return { eng: engClass || 'CEI-A', after: hasAfterSchool };
+    }
 
-                if (!initialData.parent_email_2 && student.parent_id_2) {
-                    console.log("嘗試抓取家長2 Email...");
-                    const { data: user2, error: err2 } = await supabase
-                        .from('users')
-                        .select('email')
-                        .eq('id', student.parent_id_2)
-                        .single();
+    // 2. 把表單狀態 組合回 資料庫字串
+    function combineFormToGrade(eng: string, after: boolean) {
+        if (eng === 'NONE' && after) return '課後輔導'; // 純安親
+        if (eng === 'NONE' && !after) return '未分類';   // 什麼都沒選
+        if (after) return `${eng}, 課後輔導`;           // 雙修
+        return eng;                                     // 純英文
+    }
 
-                    if (user2) {
-                        console.log("抓到家長2 Email:", user2.email);
-                        initialData.parent_email_2 = user2.email;
-                    }
-                }
-            } catch (e) {
-                console.error("自動抓取 Email 發生錯誤:", e);
-            }
-        }
+    // --- Modal 操作 ---
 
-        // 最後再一次性更新表單，避免閃爍
-        setFormData(initialData);
+    function openAddModal() {
+        setModalMode('add');
+        setCurrentId(null);
+        setFormData({
+            chinese_name: '', english_name: '', birthday: '', school_grade: '國小 一年級',
+            english_class: 'CEI-A', is_after_school: false,
+            parent_email: '', parent_relationship: '', parent_phone: '',
+            parent_2_email: '', parent_2_relationship: '', parent_2_phone: '',
+            pickup_method: '家長接送', allergies: '', special_needs: '', internal_note: '', photo_url: ''
+        });
         setIsModalOpen(true);
     }
 
-    async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
-        try {
-            if (!event.target.files || event.target.files.length === 0) return;
-            setUploading(true);
-            const file = event.target.files[0];
-            const fileExt = file.name.split('.').pop();
-            const fileName = `avatar-${Date.now()}.${fileExt}`;
-            const { error: uploadError } = await supabase.storage.from('contact-book-photos').upload(fileName, file);
-            if (uploadError) throw uploadError;
-            const { data: { publicUrl } } = supabase.storage.from('contact-book-photos').getPublicUrl(fileName);
-            setFormData(prev => ({ ...prev, photo_url: publicUrl }));
-        } catch (error: any) { alert('上傳失敗: ' + error.message); } finally { setUploading(false); }
+    function openEditModal(s: any) {
+        setModalMode('edit');
+        setCurrentId(s.id);
+
+        // 解析班級
+        const { eng, after } = parseGradeToForm(s.grade);
+
+        setFormData({
+            chinese_name: s.chinese_name,
+            english_name: s.english_name || '',
+            birthday: s.birthday || '',
+            school_grade: s.school_grade || '國小 一年級', // 若舊資料無年級，預設小一
+
+            english_class: eng,
+            is_after_school: after,
+
+            parent_email: s.parent?.email || '',
+            parent_relationship: s.parent_relationship || '',
+            parent_phone: s.parent_phone || '',
+
+            parent_2_email: s.parent2?.email || '',
+            parent_2_relationship: s.parent_2_relationship || '',
+            parent_2_phone: s.parent_2_phone || '',
+
+            pickup_method: s.pickup_method || '家長接送',
+            allergies: s.allergies || '',
+            special_needs: s.special_needs || '',
+            internal_note: s.internal_note || '',
+            photo_url: s.photo_url || ''
+        });
+        setIsModalOpen(true);
     }
 
-    function handleGradeChange(e: React.ChangeEvent<HTMLSelectElement>) {
-        const newClassName = e.target.value;
-        const targetClass = classes.find(c => c.name === newClassName);
-        setFormData(prev => ({
-            ...prev,
-            grade: newClassName,
-            class_id: targetClass ? targetClass.id : ''
-        }));
+    // --- 照片上傳 ---
+    async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        setUploading(true);
+        try {
+            const fileName = `avatars/${Date.now()}_${file.name}`;
+            const { error } = await supabase.storage.from('contact_photos').upload(fileName, file);
+            if (error) throw error;
+            const { data } = supabase.storage.from('contact_photos').getPublicUrl(fileName);
+            setFormData({ ...formData, photo_url: data.publicUrl });
+        } catch (err: any) {
+            alert('上傳失敗: ' + err.message);
+        } finally {
+            setUploading(false);
+        }
     }
 
-    // 🔥 智慧綁定：同時檢查兩個 Email
-    async function handleSave() {
-        if (!formData.chinese_name) { alert('請輸入中文姓名'); return; }
+    // --- 儲存資料 ---
+    async function handleSubmit() {
+        if (!formData.chinese_name) return alert('請輸入中文姓名');
 
         try {
-            let pid1 = formData.parent_id;
-            let pid2 = formData.parent_id_2;
+            // 1. 尋找家長 ID
+            let p1_id = null;
+            if (formData.parent_email) {
+                const { data } = await supabase.from('users').select('id').eq('email', formData.parent_email).single();
+                if (data) p1_id = data.id;
+            }
 
-            // 檢查家長 1 Email
-            if (formData.parent_email && !pid1) {
-                const { data: u1 } = await supabase.from('users').select('id').eq('email', formData.parent_email.trim()).single();
-                if (u1) pid1 = u1.id;
+            let p2_id = null;
+            if (formData.parent_2_email) {
+                const { data } = await supabase.from('users').select('id').eq('email', formData.parent_2_email).single();
+                if (data) p2_id = data.id;
             }
-            // 檢查家長 2 Email
-            if (formData.parent_email_2 && !pid2) {
-                const { data: u2 } = await supabase.from('users').select('id').eq('email', formData.parent_email_2.trim()).single();
-                if (u2) pid2 = u2.id;
-            }
+
+            // 2. 組合班級字串
+            const finalGrade = combineFormToGrade(formData.english_class, formData.is_after_school);
 
             const payload = {
-                ...formData,
-                parent_id: pid1 || null,
-                parent_id_2: pid2 || null,
-                // 確保 email 欄位也被更新 (作為顯示用)
-                parent_email: formData.parent_email,
-                parent_email_2: formData.parent_email_2
+                chinese_name: formData.chinese_name,
+                english_name: formData.english_name,
+                grade: finalGrade, // 寫入組合後的班級
+                school_grade: formData.school_grade, // 寫入學校年級
+                birthday: formData.birthday || null,
+                pickup_method: formData.pickup_method,
+                allergies: formData.allergies,
+                special_needs: formData.special_needs,
+                internal_note: formData.internal_note,
+                photo_url: formData.photo_url,
+
+                parent_id: p1_id,
+                parent_relationship: formData.parent_relationship,
+                parent_phone: formData.parent_phone,
+
+                parent_id_2: p2_id,
+                parent_2_relationship: formData.parent_2_relationship,
+                parent_2_phone: formData.parent_2_phone
             };
 
-            if (editingStudent) {
-                const { error } = await supabase.from('students').update(payload).eq('id', editingStudent.id);
-                if (error) throw error;
-            } else {
+            if (modalMode === 'add') {
                 const { error } = await supabase.from('students').insert(payload);
                 if (error) throw error;
+                alert('✅ 學生新增成功！');
+            } else {
+                const { error } = await supabase.from('students').update(payload).eq('id', currentId);
+                if (error) throw error;
+                alert('✅ 資料更新成功！');
             }
 
-            let msg = '儲存成功！';
-            if (pid1 && pid2) msg += ' (兩位家長皆已連結)';
-            else if (pid1 || pid2) msg += ' (已連結一位家長)';
-            else if (formData.parent_email || formData.parent_email_2) msg += ' (等待家長註冊中)';
-
-            alert(msg);
             setIsModalOpen(false);
             fetchStudents();
 
         } catch (e: any) {
-            alert('儲存失敗: ' + e.message);
+            alert('❌ 失敗: ' + e.message);
         }
     }
 
     async function handleDelete(id: string) {
-        if (!confirm('確定要刪除這位學生嗎？此動作無法復原。')) return;
-        const { error } = await supabase.from('students').delete().eq('id', id);
-        if (!error) { alert('已刪除'); fetchStudents(); }
+        if (!confirm('⚠️ 確定要刪除嗎？')) return;
+        await supabase.from('students').delete().eq('id', id);
+        fetchStudents();
     }
 
-    // 解除綁定 (指定解除哪一個)
-    async function handleUnbind(studentId: string, slot: 1 | 2) {
-        if (!confirm(`確定要解除「家長 ${slot}」的綁定嗎？`)) return;
+    // 篩選邏輯 (支援中英文班級)
+    const filteredStudents = filterClass
+        ? students.filter(s => s.grade?.includes(filterClass))
+        : students;
 
-        const updateData = slot === 1
-            ? { parent_id: null, parent_email: null }
-            : { parent_id_2: null, parent_email_2: null };
+    // 取得所有出現過的班級 (用於篩選選單)
+    const uniqueClasses = Array.from(new Set(students.map(s => s.grade))).filter(Boolean).sort();
 
-        const { error } = await supabase.from('students').update(updateData).eq('id', studentId);
-        if (!error) { alert('已解除綁定'); fetchStudents(); }
-    }
-
-    if (loading) return <div className="p-10 text-center">載入中...</div>;
+    if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
 
     return (
-        <div className="min-h-screen bg-gray-50 p-6">
-            <div className="max-w-6xl mx-auto">
-                <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <h1 className="text-2xl font-black text-gray-800">🎓 學生資料管理</h1>
-                    <div className="flex gap-2">
+        <div className="min-h-screen bg-gray-50 p-6 font-sans">
+            <div className="max-w-7xl mx-auto">
+                <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+                    <h1 className="text-3xl font-black text-gray-800">📂 學生資料庫</h1>
+                    <div className="flex gap-3">
                         <select
-                            value={selectedClass?.name || ''}
-                            onChange={e => {
-                                const cls = classes.find(c => c.name === e.target.value);
-                                setSelectedClass(cls);
-                            }}
-                            className="p-2 border rounded-lg font-bold text-gray-700"
+                            value={filterClass}
+                            onChange={e => setFilterClass(e.target.value)}
+                            className="p-2 border border-gray-300 rounded-lg font-bold text-gray-700 outline-none"
                         >
-                            <option value="" disabled>選擇班級</option>
-                            {classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                            <option value="">🏫 顯示全部</option>
+                            {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
-                        <button onClick={() => openModal(null)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition">+ 新增學生</button>
-                        <button onClick={() => router.push('/')} className="bg-white text-gray-500 px-4 py-2 rounded-lg border hover:bg-gray-50 transition">離開</button>
+                        <button onClick={openAddModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition">
+                            + 新增學生
+                        </button>
+                        <button onClick={() => router.push('/')} className="bg-white border px-4 py-2 rounded-lg font-bold text-gray-600 hover:bg-gray-50">回首頁</button>
                     </div>
                 </div>
 
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <table className="w-full text-left">
+                    <table className="w-full text-left whitespace-nowrap">
                         <thead className="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                <th className="p-4 w-16">照片</th>
-                                <th className="p-4">姓名</th>
-                                <th className="p-4 w-64">家長帳號綁定狀態</th>
-                                <th className="p-4">緊急聯絡人</th>
-                                <th className="p-4 text-center">操作</th>
+                                <th className="p-4 text-xs font-black text-gray-400">學生</th>
+                                <th className="p-4 text-xs font-black text-gray-400">補習班級 / 學校年級</th>
+                                <th className="p-4 text-xs font-black text-gray-400">家長綁定狀態</th>
+                                <th className="p-4 text-right text-xs font-black text-gray-400">操作</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                            {students.map(student => (
-                                <tr key={student.id} className="hover:bg-gray-50 transition">
+                            {filteredStudents.map(s => (
+                                <tr key={s.id} className="hover:bg-gray-50 transition group">
                                     <td className="p-4">
-                                        <div className="w-10 h-10 rounded-full bg-gray-200 overflow-hidden border border-gray-100">
-                                            {student.photo_url ? <img src={student.photo_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No Pic</div>}
-                                        </div>
-                                    </td>
-                                    <td className="p-4 font-bold text-gray-800">
-                                        <div>{student.chinese_name}</div>
-                                        <div className="text-xs text-indigo-500 font-normal">{student.english_name}</div>
-                                    </td>
-
-                                    {/* 🔥 雙家長狀態顯示 */}
-                                    <td className="p-4">
-                                        <div className="flex flex-col gap-2">
-                                            {/* 家長 1 */}
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold text-gray-400 w-4">1</span>
-                                                {student.parent_id ? (
-                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">✅ {student.parent_email || '已綁定'}</span>
-                                                ) : student.parent_email ? (
-                                                    <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-bold">⏳ 等待 {student.parent_email}</span>
-                                                ) : <span className="text-[10px] text-gray-300">-</span>}
-                                            </div>
-                                            {/* 家長 2 */}
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs font-bold text-gray-400 w-4">2</span>
-                                                {student.parent_id_2 ? (
-                                                    <span className="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">✅ {student.parent_email_2 || '已綁定'}</span>
-                                                ) : student.parent_email_2 ? (
-                                                    <span className="text-[10px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full font-bold">⏳ 等待 {student.parent_email_2}</span>
-                                                ) : <span className="text-[10px] text-gray-300">-</span>}
+                                        <div className="flex items-center gap-3">
+                                            {s.photo_url ? (
+                                                <img src={s.photo_url} className="w-10 h-10 rounded-full object-cover border border-gray-200" />
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-black">
+                                                    {s.chinese_name[0]}
+                                                </div>
+                                            )}
+                                            <div>
+                                                <div className="font-bold text-gray-800">{s.chinese_name}</div>
+                                                <div className="text-xs text-gray-400 font-bold">{s.english_name}</div>
                                             </div>
                                         </div>
                                     </td>
-
                                     <td className="p-4">
-                                        <div className="text-sm text-gray-600">{student.parent_name_1} <span className="text-gray-400 text-xs">{student.parent_phone_1}</span></div>
+                                        <div className="flex flex-col gap-1">
+                                            <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold w-fit border border-indigo-100">
+                                                {s.grade}
+                                            </span>
+                                            <span className="text-xs text-gray-400 font-bold ml-1">
+                                                🏫 {s.school_grade || '未設定'}
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td className="p-4 text-center">
-                                        <button onClick={() => openModal(student)} className="text-indigo-600 hover:text-indigo-800 font-bold mr-3">編輯</button>
-                                        <button onClick={() => handleDelete(student.id)} className="text-red-400 hover:text-red-600">刪除</button>
+                                    <td className="p-4">
+                                        <div className="flex flex-col gap-1">
+                                            {s.parent ? (
+                                                <span className="text-green-600 text-xs font-bold flex items-center gap-1">
+                                                    ✅ 父/母 ({s.parent.email})
+                                                </span>
+                                            ) : <span className="text-gray-300 text-xs">❌ 父/母未綁定</span>}
+                                            {s.parent2 && (
+                                                <span className="text-blue-600 text-xs font-bold flex items-center gap-1">
+                                                    ✅ 家長2 ({s.parent2.email})
+                                                </span>
+                                            )}
+                                        </div>
+                                    </td>
+                                    <td className="p-4 text-right">
+                                        <button onClick={() => openEditModal(s)} className="text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded font-bold text-xs transition mr-2">編輯</button>
+                                        <button onClick={() => handleDelete(s.id)} className="text-red-400 hover:bg-red-50 px-3 py-1.5 rounded font-bold text-xs transition">刪除</button>
                                     </td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
                 </div>
+            </div>
 
-                {/* Modal */}
-                {isModalOpen && (
-                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-                        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto p-6 animate-fade-in-up">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-2xl font-black text-gray-800">{editingStudent ? '✏️ 編輯學生資料' : '👶 新增學生'}</h2>
-                                <button onClick={() => setIsModalOpen(false)} className="bg-gray-100 p-2 rounded-full hover:bg-gray-200">✕</button>
-                            </div>
+            {/* ✏️ 全功能編輯視窗 */}
+            {isModalOpen && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-fade-in p-8">
+                        <div className="flex justify-between items-center mb-6 border-b pb-4">
+                            <h2 className="text-2xl font-black text-gray-800">
+                                {modalMode === 'add' ? '➕ 新增學生資料' : '✏️ 編輯學生資料'}
+                            </h2>
+                            <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold">✕</button>
+                        </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                                {/* Basic Info */}
-                                <div className="space-y-4">
-                                    <div className="text-center">
-                                        <label className="block relative w-32 h-32 mx-auto rounded-full bg-gray-100 border-2 border-dashed border-gray-300 hover:border-indigo-500 cursor-pointer overflow-hidden group transition">
-                                            {formData.photo_url ? <img src={formData.photo_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex flex-col items-center justify-center text-gray-400"><span className="text-2xl">📷</span><span className="text-xs">上傳照片</span></div>}
-                                            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
-                                        </label>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+
+                            {/* 左側：基本資料 & 照片 */}
+                            <div className="space-y-6">
+                                <div className="flex flex-col items-center">
+                                    <div className="w-32 h-32 rounded-full bg-gray-100 border-4 border-white shadow-lg overflow-hidden relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                                        {formData.photo_url ? (
+                                            <img src={formData.photo_url} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
+                                                <span className="text-2xl">📷</span>
+                                                <span className="text-xs font-bold mt-1">上傳照片</span>
+                                            </div>
+                                        )}
+                                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition">更換</div>
                                     </div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">中文姓名 *</label><input type="text" value={formData.chinese_name} onChange={e => setFormData({ ...formData, chinese_name: e.target.value })} className="w-full p-2 border rounded-lg font-bold" /></div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">英文姓名</label><input type="text" value={formData.english_name} onChange={e => setFormData({ ...formData, english_name: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">所屬班級</label><select value={formData.grade} onChange={handleGradeChange} className="w-full p-2 border rounded-lg">{classes.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">生日</label><input type="date" value={formData.birthday} onChange={e => setFormData({ ...formData, birthday: e.target.value })} className="w-full p-2 border rounded-lg" /></div>
+                                    <input type="file" ref={fileInputRef} className="hidden" onChange={handlePhotoUpload} accept="image/*" />
+                                    {uploading && <span className="text-xs text-indigo-500 mt-2 font-bold">上傳中...</span>}
                                 </div>
 
-                                {/* Contact & Binding */}
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-indigo-900 border-b pb-2">📞 帳號綁定與聯絡</h3>
-
-                                    {/* 🔥 家長 1 綁定區 */}
-                                    <div className="bg-green-50 p-3 rounded-xl border border-green-100">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <label className="text-xs font-bold text-green-800">主要照顧者 (家長 1)</label>
-                                            {formData.parent_id && <button onClick={() => handleUnbind(editingStudent.id, 1)} className="text-[10px] text-red-400 underline">解除綁定</button>}
-                                        </div>
-                                        <input type="email" value={formData.parent_email} onChange={e => setFormData({ ...formData, parent_email: e.target.value })} className="w-full p-2 border rounded-lg text-sm mb-2" placeholder="輸入 Email 自動連結..." />
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <input type="text" value={formData.parent_name_1} onChange={e => setFormData({ ...formData, parent_name_1: e.target.value })} className="p-2 border rounded-lg text-xs" placeholder="稱謂 (父/母)" />
-                                            <input type="text" value={formData.parent_phone_1} onChange={e => setFormData({ ...formData, parent_phone_1: e.target.value })} className="p-2 border rounded-lg text-xs" placeholder="電話" />
-                                        </div>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 ml-1">中文姓名 *</label>
+                                        <input type="text" value={formData.chinese_name} onChange={e => setFormData({ ...formData, chinese_name: e.target.value })} className="w-full p-3 border rounded-xl font-bold bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-100" />
                                     </div>
-
-                                    {/* 🔥 家長 2 綁定區 */}
-                                    <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
-                                        <div className="flex justify-between items-center mb-1">
-                                            <label className="text-xs font-bold text-blue-800">共同照顧者 (家長 2)</label>
-                                            {formData.parent_id_2 && <button onClick={() => handleUnbind(editingStudent.id, 2)} className="text-[10px] text-red-400 underline">解除綁定</button>}
-                                        </div>
-                                        <input type="email" value={formData.parent_email_2} onChange={e => setFormData({ ...formData, parent_email_2: e.target.value })} className="w-full p-2 border rounded-lg text-sm mb-2" placeholder="輸入第二位家長 Email..." />
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <input type="text" value={formData.parent_name_2} onChange={e => setFormData({ ...formData, parent_name_2: e.target.value })} className="p-2 border rounded-lg text-xs" placeholder="稱謂 (父/母)" />
-                                            <input type="text" value={formData.parent_phone_2} onChange={e => setFormData({ ...formData, parent_phone_2: e.target.value })} className="p-2 border rounded-lg text-xs" placeholder="電話" />
-                                        </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 ml-1">英文姓名</label>
+                                        <input type="text" value={formData.english_name} onChange={e => setFormData({ ...formData, english_name: e.target.value })} className="w-full p-3 border rounded-xl font-bold bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-100" />
                                     </div>
-
-                                    <div className="space-y-1 mt-2">
-                                        <label className="text-xs font-bold text-gray-500">放學接送方式</label>
-                                        <select value={formData.pickup_method} onChange={e => setFormData({ ...formData, pickup_method: e.target.value })} className="w-full p-2 border rounded-lg"><option value="家長接送">家長接送</option><option value="自行回家">自行回家</option><option value="安親班接送">安親班接送</option><option value="校車">校車</option></select>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 ml-1">生日</label>
+                                        <input type="date" value={formData.birthday} onChange={e => setFormData({ ...formData, birthday: e.target.value })} className="w-full p-3 border rounded-xl font-bold bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-100" />
                                     </div>
-                                </div>
-
-                                {/* Health */}
-                                <div className="space-y-4">
-                                    <h3 className="font-bold text-red-900 border-b pb-2">❤️ 健康與備註</h3>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">過敏原註記</label><textarea value={formData.allergies} onChange={e => setFormData({ ...formData, allergies: e.target.value })} className="w-full p-2 border rounded-lg h-20 resize-none border-red-100 bg-red-50 focus:bg-white" placeholder="例如：花生過敏..." /></div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-gray-500">特殊照護需求</label><textarea value={formData.health_notes} onChange={e => setFormData({ ...formData, health_notes: e.target.value })} className="w-full p-2 border rounded-lg h-20 resize-none" placeholder="例如：需協助餵藥..." /></div>
-                                    <div className="space-y-2"><label className="text-xs font-bold text-indigo-600">🔒 老師內部備註</label><textarea value={formData.teacher_note} onChange={e => setFormData({ ...formData, teacher_note: e.target.value })} className="w-full p-2 border rounded-lg h-24 resize-none bg-yellow-50 border-yellow-200" placeholder="例如：性格活潑..." /></div>
                                 </div>
                             </div>
 
-                            <div className="mt-8 pt-4 border-t flex justify-end gap-3">
-                                <button onClick={() => setIsModalOpen(false)} className="px-6 py-2 rounded-lg text-gray-500 font-bold hover:bg-gray-100">取消</button>
-                                <button onClick={handleSave} className="px-6 py-2 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 shadow-lg">{editingStudent ? '💾 儲存修改' : '✅ 建立學生'}</button>
+                            {/* 中間：班級設定 & 家長資料 */}
+                            <div className="space-y-6">
+                                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                                    <h3 className="text-sm font-black text-indigo-800 mb-3">🎓 班級與年級設定</h3>
+
+                                    <div className="mb-3">
+                                        <label className="text-xs font-bold text-indigo-400 ml-1">學校年級 (School Grade)</label>
+                                        <select value={formData.school_grade} onChange={e => setFormData({ ...formData, school_grade: e.target.value })} className="w-full p-2 border rounded-lg font-bold text-sm">
+                                            {SCHOOL_GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="mb-3">
+                                        <label className="text-xs font-bold text-indigo-400 ml-1">英文主修班級</label>
+                                        <select value={formData.english_class} onChange={e => setFormData({ ...formData, english_class: e.target.value })} className="w-full p-2 border rounded-lg font-bold text-sm">
+                                            {ENGLISH_CLASS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-indigo-100">
+                                        <input type="checkbox" checked={formData.is_after_school} onChange={e => setFormData({ ...formData, is_after_school: e.target.checked })} className="w-5 h-5 accent-indigo-600" />
+                                        <span className="text-sm font-bold text-gray-700">✅ 參加課後輔導 (After School)</span>
+                                    </div>
+                                    <p className="text-[10px] text-indigo-400 mt-2">
+                                        💡 若選「無英文主修」且勾選「安親」，將設為純安親生。
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <h3 className="text-xs font-black text-gray-400 mb-2 uppercase">📞 家長聯繫資料</h3>
+                                    <div className="space-y-3">
+                                        <div className="p-3 border rounded-xl bg-gray-50">
+                                            <p className="text-xs font-bold text-gray-500 mb-1">主要照顧者 (Email 綁定)</p>
+                                            <input type="email" placeholder="家長 Email" value={formData.parent_email} onChange={e => setFormData({ ...formData, parent_email: e.target.value })} className="w-full p-2 border rounded-lg text-sm font-bold mb-2" />
+                                            <div className="flex gap-2">
+                                                <input type="text" placeholder="稱謂 (父/母)" value={formData.parent_relationship} onChange={e => setFormData({ ...formData, parent_relationship: e.target.value })} className="w-1/3 p-2 border rounded-lg text-sm" />
+                                                <input type="text" placeholder="電話" value={formData.parent_phone} onChange={e => setFormData({ ...formData, parent_phone: e.target.value })} className="w-2/3 p-2 border rounded-lg text-sm" />
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 border rounded-xl bg-gray-50 border-dashed">
+                                            <p className="text-xs font-bold text-gray-400 mb-1">第二位家長 (選填)</p>
+                                            <input type="email" placeholder="Email" value={formData.parent_2_email} onChange={e => setFormData({ ...formData, parent_2_email: e.target.value })} className="w-full p-2 border rounded-lg text-sm font-bold mb-2" />
+                                            <div className="flex gap-2">
+                                                <input type="text" placeholder="稱謂" value={formData.parent_2_relationship} onChange={e => setFormData({ ...formData, parent_2_relationship: e.target.value })} className="w-1/3 p-2 border rounded-lg text-sm" />
+                                                <input type="text" placeholder="電話" value={formData.parent_2_phone} onChange={e => setFormData({ ...formData, parent_2_phone: e.target.value })} className="w-2/3 p-2 border rounded-lg text-sm" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* 右側：詳細備註 */}
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 ml-1">❤️ 健康與過敏備註</label>
+                                    <textarea rows={3} placeholder="例如: 花生過敏、蠶豆症..." value={formData.allergies} onChange={e => setFormData({ ...formData, allergies: e.target.value })} className="w-full p-3 border rounded-xl bg-red-50 focus:bg-white outline-none text-sm font-bold resize-none" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 ml-1">特殊照護需求</label>
+                                    <textarea rows={3} placeholder="例如: 需協助餵藥..." value={formData.special_needs} onChange={e => setFormData({ ...formData, special_needs: e.target.value })} className="w-full p-3 border rounded-xl bg-gray-50 focus:bg-white outline-none text-sm font-bold resize-none" />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 ml-1">放學接送方式</label>
+                                    <select value={formData.pickup_method} onChange={e => setFormData({ ...formData, pickup_method: e.target.value })} className="w-full p-3 border rounded-xl bg-gray-50 font-bold text-sm">
+                                        <option value="家長接送">🚗 家長接送</option>
+                                        <option value="自行回家">🚶 自行回家</option>
+                                        <option value="安親班接送">🚌 安親班接送</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 ml-1">🔒 老師內部備註 (家長不可見)</label>
+                                    <textarea rows={4} placeholder="例如: 性格活潑、注意與同學互動..." value={formData.internal_note} onChange={e => setFormData({ ...formData, internal_note: e.target.value })} className="w-full p-3 border rounded-xl bg-yellow-50 focus:bg-white outline-none text-sm font-bold resize-none" />
+                                </div>
                             </div>
                         </div>
+
+                        <div className="flex gap-4 mt-8 pt-4 border-t">
+                            <button onClick={() => setIsModalOpen(false)} className="flex-1 py-3 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition">取消</button>
+                            <button onClick={handleSubmit} className="flex-1 py-3 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition">
+                                {modalMode === 'add' ? '確認新增學生' : '儲存修改'}
+                            </button>
+                        </div>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
         </div>
     );
 }
