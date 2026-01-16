@@ -88,26 +88,37 @@ export default function StudentManagementPage() {
         if (data) setStudents(data);
     }
 
-    // 🔥 核心：打開視窗時，自動補全 Email 資料
+    // 🔥 更強壯的 openModal：確保一定抓得到 Email
     async function openModal(student: any = null) {
         setEditingStudent(student);
 
+        // 預設表單值
+        let initialData = {
+            chinese_name: '',
+            english_name: '',
+            student_id_display: '',
+            birthday: '',
+            grade: selectedClass?.name || '',
+            class_id: selectedClass?.id || '',
+            photo_url: '',
+            parent_email: '',
+            parent_id: '',
+            parent_email_2: '',
+            parent_id_2: '',
+            parent_name_1: '',
+            parent_phone_1: '',
+            parent_name_2: '',
+            parent_phone_2: '',
+            pickup_method: '家長接送',
+            allergies: '',
+            health_notes: '',
+            teacher_note: ''
+        };
+
         if (student) {
-            // 1. 先填入學生表裡有的資料
-            let email1 = student.parent_email || '';
-            let email2 = student.parent_email_2 || '';
-
-            // 2. 🔥 自動修復：如果已綁定但 Email 是空的，去 User 表抓回來顯示！
-            if (!email1 && student.parent_id) {
-                const { data: user1 } = await supabase.from('users').select('email').eq('id', student.parent_id).single();
-                if (user1) email1 = user1.email;
-            }
-            if (!email2 && student.parent_id_2) {
-                const { data: user2 } = await supabase.from('users').select('email').eq('id', student.parent_id_2).single();
-                if (user2) email2 = user2.email;
-            }
-
-            setFormData({
+            // 先填入基本資料
+            initialData = {
+                ...initialData,
                 chinese_name: student.chinese_name || '',
                 english_name: student.english_name || '',
                 student_id_display: student.student_id_display || '',
@@ -115,49 +126,59 @@ export default function StudentManagementPage() {
                 grade: student.grade || selectedClass?.name || '',
                 class_id: student.class_id || selectedClass?.id || '',
                 photo_url: student.photo_url || '',
-
-                parent_email: email1,
                 parent_id: student.parent_id || '',
-
-                parent_email_2: email2,
                 parent_id_2: student.parent_id_2 || '',
-
+                parent_email: student.parent_email || '',
+                parent_email_2: student.parent_email_2 || '',
                 parent_name_1: student.parent_name_1 || '',
                 parent_phone_1: student.parent_phone_1 || '',
                 parent_name_2: student.parent_name_2 || '',
                 parent_phone_2: student.parent_phone_2 || '',
-
                 pickup_method: student.pickup_method || '家長接送',
                 allergies: student.allergies || '',
                 health_notes: student.health_notes || '',
                 teacher_note: student.teacher_note || ''
-            });
-        } else {
-            // 新增模式
-            setFormData({
-                chinese_name: '',
-                english_name: '',
-                student_id_display: '',
-                birthday: '',
-                grade: selectedClass?.name || '',
-                class_id: selectedClass?.id || '',
-                photo_url: '',
+            };
 
-                parent_email: '',
-                parent_id: '',
-                parent_email_2: '',
-                parent_id_2: '',
+            // 🔥 自動修復邏輯：如果已綁定但 Email 是空的，嘗試去 User 表抓回來
+            // 這裡我們會顯示 "載入中..." 的感覺，因為這是非同步請求
+            try {
+                if (!initialData.parent_email && student.parent_id) {
+                    console.log("嘗試抓取家長1 Email...");
+                    const { data: user1, error: err1 } = await supabase
+                        .from('users')
+                        .select('email')
+                        .eq('id', student.parent_id)
+                        .single();
 
-                parent_name_1: '',
-                parent_phone_1: '',
-                parent_name_2: '',
-                parent_phone_2: '',
-                pickup_method: '家長接送',
-                allergies: '',
-                health_notes: '',
-                teacher_note: ''
-            });
+                    if (user1) {
+                        console.log("抓到家長1 Email:", user1.email);
+                        initialData.parent_email = user1.email;
+                    } else {
+                        console.warn("抓取家長1失敗:", err1);
+                    }
+                }
+
+                if (!initialData.parent_email_2 && student.parent_id_2) {
+                    console.log("嘗試抓取家長2 Email...");
+                    const { data: user2, error: err2 } = await supabase
+                        .from('users')
+                        .select('email')
+                        .eq('id', student.parent_id_2)
+                        .single();
+
+                    if (user2) {
+                        console.log("抓到家長2 Email:", user2.email);
+                        initialData.parent_email_2 = user2.email;
+                    }
+                }
+            } catch (e) {
+                console.error("自動抓取 Email 發生錯誤:", e);
+            }
         }
+
+        // 最後再一次性更新表單，避免閃爍
+        setFormData(initialData);
         setIsModalOpen(true);
     }
 
