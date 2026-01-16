@@ -9,6 +9,7 @@ export default function ContactBookPage() {
     const [loading, setLoading] = useState(true);
     const [role, setRole] = useState<string>('parent'); // 預設身份
     const [userEmail, setUserEmail] = useState('');
+    const [debugInfo, setDebugInfo] = useState(''); // 診斷訊息
 
     // Data
     const [myStudents, setMyStudents] = useState<any[]>([]); // 學生列表
@@ -29,7 +30,6 @@ export default function ContactBookPage() {
         initPage();
     }, []);
 
-    // 當選擇不同學生時，重新抓取該學生的今日紀錄
     useEffect(() => {
         if (selectedStudentId) {
             fetchTodayLog(selectedStudentId);
@@ -37,49 +37,66 @@ export default function ContactBookPage() {
     }, [selectedStudentId]);
 
     async function initPage() {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { router.push('/'); return; }
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) { router.push('/'); return; }
 
-        // 1. 先確認「我是誰？」(讀取 users 表的 role)
-        const { data: user } = await supabase.from('users').select('role, email').eq('id', session.user.id).single();
-        const currentRole = user?.role || 'parent';
-        setRole(currentRole);
-        setUserEmail(user?.email || '');
+            // 1. 抓取用戶角色
+            const { data: user, error } = await supabase.from('users').select('role, email').eq('id', session.user.id).single();
 
-        // 2. 根據身份，決定要抓哪些學生
-        if (currentRole === 'teacher' || currentRole === 'director') {
-            // 🅰️ 老師模式：
-            // 這裡會自動觸發 RLS 規則：
-            // - 如果是老師，資料庫只會回傳「被指派班級」的學生
-            // - 如果是園長，資料庫會回傳「全校」學生
-            const { data: students } = await supabase
-                .from('students')
-                .select('id, chinese_name, grade')
-                .order('grade')
-                .order('chinese_name');
-
-            if (students && students.length > 0) {
-                setMyStudents(students);
-                setSelectedStudentId(students[0].id); // 預設選第一位
+            if (error) {
+                console.error("抓取使用者錯誤:", error);
+                setDebugInfo(`讀取 User 失敗: ${error.message}`);
+                return;
             }
-        } else {
-            // 🅱️ 家長模式：
-            // 抓取 parent_id 或 parent_id_2 是自己的學生 (雙家長支援)
-            const { data: children } = await supabase
-                .from('students')
-                .select('id, chinese_name')
-                .or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`);
 
-            if (children && children.length > 0) {
-                setMyStudents(children);
-                setSelectedStudentId(children[0].id);
+            const currentRole = user?.role || 'parent';
+            setRole(currentRole);
+            setUserEmail(user?.email || '');
+
+            // 🔥 顯示診斷訊息
+            setDebugInfo(`目前登入: ${user?.email} | 系統判定角色: ${currentRole}`);
+
+            // 2. 根據身份抓學生
+            let studentsData = [];
+
+            if (currentRole === 'teacher' || currentRole === 'director') {
+                // 🅰️ 老師模式：抓負責的班級
+                // 這裡會觸發 RLS，如果沒分班，資料庫會回傳空陣列
+                const { data: students, error: studentError } = await supabase
+                    .from('students')
+                    .select('id, chinese_name, grade')
+                    .order('grade')
+                    .order('chinese_name');
+
+                if (studentError) console.error("老師抓學生錯誤:", studentError);
+                studentsData = students || [];
+            } else {
+                // 🅱️ 家長模式
+                const { data: children } = await supabase
+                    .from('students')
+                    .select('id, chinese_name')
+                    .or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`);
+                studentsData = children || [];
             }
+
+            if (studentsData.length > 0) {
+                setMyStudents(studentsData);
+                setSelectedStudentId(studentsData[0].id);
+            } else {
+                // 如果是老師但沒抓到學生，顯示提示
+                if (currentRole === 'teacher') {
+                    setDebugInfo(prev => prev + " | 警告：此老師帳號尚未被指派任何班級");
+                }
+            }
+        } catch (e: any) {
+            setDebugInfo("發生未預期錯誤: " + e.message);
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     }
 
     async function fetchTodayLog(studentId: string) {
-        // 抓今天的紀錄
         const today = new Date().toISOString().split('T')[0];
         const { data } = await supabase
             .from('contact_books')
@@ -88,9 +105,8 @@ export default function ContactBookPage() {
             .eq('date', today)
             .single();
 
-        setTodayLog(data); // 有資料就顯示，沒資料就是 null
+        setTodayLog(data);
 
-        // 如果是老師，把資料填回表單，方便修改
         if (data) {
             setFormData({
                 mood: data.mood,
@@ -101,12 +117,10 @@ export default function ContactBookPage() {
                 photo_url: data.photo_url || ''
             });
         } else {
-            // 如果今天還沒寫，重置表單
             setFormData({ mood: 3, focus: 3, appetite: 3, homework: '', message: '', photo_url: '' });
         }
     }
 
-    // 🚀 發布功能 (只有老師能按)
     async function handleSubmit() {
         if (!selectedStudentId) return;
         try {
@@ -117,7 +131,6 @@ export default function ContactBookPage() {
                 ...formData
             };
 
-            // 檢查今天是否已經寫過？(決定是用 insert 還是 update)
             const { data: existing } = await supabase
                 .from('contact_books')
                 .select('id')
@@ -126,16 +139,13 @@ export default function ContactBookPage() {
                 .single();
 
             if (existing) {
-                // 如果寫過，就更新 (Update)
                 await supabase.from('contact_books').update(payload).eq('id', existing.id);
-                alert('今日紀錄已更新！');
+                alert('已更新！');
             } else {
-                // 如果沒寫過，就新增 (Insert)
                 await supabase.from('contact_books').insert(payload);
-                alert('聯絡簿發布成功！🚀');
+                alert('發布成功！');
             }
-
-            fetchTodayLog(selectedStudentId); // 重新抓取資料顯示
+            fetchTodayLog(selectedStudentId);
 
         } catch (e: any) {
             alert('發布失敗: ' + e.message);
@@ -144,25 +154,26 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center">載入中...</div>;
 
-    // ==========================================
-    // 🎨 畫面渲染區
-    // ==========================================
-
     return (
         <div className="min-h-screen bg-indigo-50 p-4 md:p-6">
             <div className="max-w-2xl mx-auto">
+                {/* 🔴 診斷訊息區 (只在開發時顯示) */}
+                <div className="bg-black text-green-400 p-2 text-xs font-mono mb-4 rounded">
+                    DEBUG: {debugInfo}
+                </div>
+
                 {/* Header */}
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h1 className="text-2xl font-black text-gray-800">📖 寶寶聯絡簿</h1>
                         <p className="text-xs text-gray-500 font-bold mt-1">
-                            {role === 'teacher' || role === 'director' ? `👨‍🏫 老師模式 (${userEmail})` : '🏠 家長模式'}
+                            {(role === 'teacher' || role === 'director') ? '👨‍🏫 老師模式' : '🏠 家長模式'}
                         </p>
                     </div>
                     <button onClick={() => router.push('/')} className="bg-white px-4 py-2 rounded-xl text-gray-500 font-bold shadow-sm hover:bg-gray-100 text-sm">⬅️ 回首頁</button>
                 </div>
 
-                {/* 學生切換器 (老師切換學生 / 家長切換小孩) */}
+                {/* 學生切換器 */}
                 {myStudents.length > 0 ? (
                     <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
                         {myStudents.map(student => (
@@ -175,7 +186,6 @@ export default function ContactBookPage() {
                                         : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}
                                 `}
                             >
-                                {/* 如果是老師，前面顯示班級名稱 */}
                                 {(role === 'teacher' || role === 'director') && student.grade ? `${student.grade} - ` : ''}
                                 {student.chinese_name}
                             </button>
@@ -184,20 +194,18 @@ export default function ContactBookPage() {
                 ) : (
                     <div className="bg-white p-6 rounded-2xl shadow-sm text-center mb-6">
                         <p className="text-gray-400 font-bold">
-                            {role === 'teacher' ? '目前沒有學生資料 (請確認是否已指派班級)' : '尚未連結學生資料'}
+                            {(role === 'teacher' || role === 'director') ? '⚠️ 您目前沒有負責的班級 (請確認人事指派)' : '尚未連結學生資料'}
                         </p>
                     </div>
                 )}
 
-                {/* ==================== 老師輸入區 (只有老師/園長看得到) ==================== */}
+                {/* 老師輸入區 (只有老師/園長看得到) */}
                 {(role === 'teacher' || role === 'director') && selectedStudentId && (
                     <div className="bg-white rounded-3xl p-6 shadow-lg border border-indigo-100 mb-8 animate-fade-in-up">
                         <h2 className="text-lg font-black text-indigo-900 mb-4 flex items-center gap-2">
-                            ✏️ 撰寫今日紀錄 <span className="text-xs font-normal text-gray-400 bg-gray-100 px-2 py-1 rounded-full">{new Date().toLocaleDateString()}</span>
+                            ✏️ 撰寫今日紀錄
                         </h2>
-
                         <div className="space-y-4">
-                            {/* 星星評分 */}
                             <div className="grid grid-cols-3 gap-4">
                                 <div className="text-center bg-gray-50 p-3 rounded-xl">
                                     <div className="text-xs text-gray-400 font-bold mb-2">心情</div>
@@ -221,74 +229,33 @@ export default function ContactBookPage() {
 
                             <div>
                                 <label className="text-xs font-bold text-gray-500 ml-1">今日作業</label>
-                                <input
-                                    type="text"
-                                    value={formData.homework}
-                                    onChange={e => setFormData({ ...formData, homework: e.target.value })}
-                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700 focus:bg-white focus:border-indigo-500 outline-none transition"
-                                    placeholder="例如：完成第 5 頁..."
-                                />
+                                <input type="text" value={formData.homework} onChange={e => setFormData({ ...formData, homework: e.target.value })} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700" placeholder="作業..." />
                             </div>
-
                             <div>
                                 <label className="text-xs font-bold text-gray-500 ml-1">老師的話</label>
-                                <textarea
-                                    value={formData.message}
-                                    onChange={e => setFormData({ ...formData, message: e.target.value })}
-                                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 focus:bg-white focus:border-indigo-500 outline-none transition h-24 resize-none"
-                                    placeholder="分享孩子今天的表現..."
-                                />
+                                <textarea value={formData.message} onChange={e => setFormData({ ...formData, message: e.target.value })} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 h-24 resize-none" placeholder="備註..." />
                             </div>
 
-                            <button
-                                onClick={handleSubmit}
-                                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition transform active:scale-95"
-                            >
-                                {todayLog ? '🔄 更新今日聯絡簿' : '🚀 發布今日聯絡簿'}
+                            <button onClick={handleSubmit} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition">
+                                {todayLog ? '🔄 更新紀錄' : '🚀 發布紀錄'}
                             </button>
                         </div>
                     </div>
                 )}
 
-                {/* ==================== 顯示區 (家長看結果 / 老師看預覽) ==================== */}
+                {/* 顯示結果 (沒資料就顯示睡覺圖) */}
                 {todayLog ? (
-                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100 relative overflow-hidden animate-fade-in">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-400 to-purple-400"></div>
-
-                        <div className="flex justify-between items-start mb-6">
-                            <div>
-                                <h2 className="text-xl font-black text-gray-800">今日紀錄</h2>
-                                <p className="text-sm text-gray-400 font-bold">{todayLog.date}</p>
-                            </div>
-                            <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-xs font-bold">已發布</div>
-                        </div>
-
-                        <div className="flex justify-around mb-8 bg-gray-50 p-4 rounded-2xl">
-                            <div className="text-center"><div className="text-2xl mb-1">🥰</div><div className="text-xs text-gray-400 font-bold">心情</div><div className="font-black text-indigo-600 text-lg">{todayLog.mood}</div></div>
-                            <div className="text-center"><div className="text-2xl mb-1">🧐</div><div className="text-xs text-gray-400 font-bold">專注</div><div className="font-black text-indigo-600 text-lg">{todayLog.focus}</div></div>
-                            <div className="text-center"><div className="text-2xl mb-1">🍱</div><div className="text-xs text-gray-400 font-bold">食慾</div><div className="font-black text-indigo-600 text-lg">{todayLog.appetite}</div></div>
-                        </div>
-
+                    <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
+                        <h2 className="text-xl font-black text-gray-800 mb-4">今日紀錄 ({todayLog.date})</h2>
                         <div className="space-y-4">
-                            <div className="p-4 bg-orange-50 rounded-2xl border border-orange-100">
-                                <h3 className="text-xs font-black text-orange-400 uppercase tracking-wider mb-2">Homework</h3>
-                                <p className="text-gray-800 font-bold">{todayLog.homework || '今日無作業'}</p>
-                            </div>
-                            <div className="p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                                <h3 className="text-xs font-black text-blue-400 uppercase tracking-wider mb-2">Teacher's Note</h3>
-                                <p className="text-gray-700 leading-relaxed">{todayLog.message || '無特殊備註'}</p>
-                            </div>
+                            <div className="p-4 bg-orange-50 rounded-2xl"><h3 className="text-xs font-bold text-orange-400">Homework</h3><p>{todayLog.homework}</p></div>
+                            <div className="p-4 bg-blue-50 rounded-2xl"><h3 className="text-xs font-bold text-blue-400">Note</h3><p>{todayLog.message}</p></div>
                         </div>
                     </div>
                 ) : (
-                    // 沒資料時顯示睡覺圖
                     <div className="bg-white rounded-3xl p-10 shadow-sm border border-dashed border-gray-200 text-center">
-                        <div className="text-6xl mb-4 animate-bounce-slow">😴</div>
+                        <div className="text-6xl mb-4 animate-bounce">😴</div>
                         <h3 className="text-lg font-black text-gray-400">今日尚未發布聯絡簿</h3>
-                        {/* 只有老師看得到這行提示 */}
-                        {(role === 'teacher' || role === 'director') && (
-                            <p className="text-xs text-indigo-500 mt-2 font-bold animate-pulse">👆 老師請在上方的輸入框填寫並發布</p>
-                        )}
                     </div>
                 )}
             </div>
