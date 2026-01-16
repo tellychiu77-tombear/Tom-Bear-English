@@ -7,7 +7,8 @@ import { useRouter } from 'next/navigation';
 export default function ContactBookPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    const [role, setRole] = useState<string>('parent');
+    // 🚫 給定初始值為 null 或 'unknown'，絕對不要預設 'parent'，避免權限誤判
+    const [role, setRole] = useState<string>('unknown');
     const [userEmail, setUserEmail] = useState('');
 
     // Data
@@ -30,12 +31,10 @@ export default function ContactBookPage() {
 
     // 主管專用：根據班級 ID 抓學生
     const fetchStudentsForDirector = useCallback(async (classId: string) => {
-        // 先找出班級名稱 (因為 students 表是用 grade 存班級名，或者 class_id)
-        // 假設 students 表有 class_id 欄位最好，如果沒有，我們這裡用 class_id 篩選
         const { data: students } = await supabase
             .from('students')
             .select('id, chinese_name, grade')
-            .eq('class_id', classId) // 確保學生表有 class_id
+            .eq('class_id', classId)
             .order('chinese_name');
 
         const list = students || [];
@@ -79,31 +78,38 @@ export default function ContactBookPage() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { router.push('/'); return; }
 
-            // 1. 讀取用戶角色
-            const { data: users } = await supabase
+            // 1. 讀取用戶角色 (🔍 增加錯誤 Log)
+            const { data: users, error } = await supabase
                 .from('users')
                 .select('role, email')
                 .eq('id', session.user.id)
                 .limit(1);
 
+            if (error) {
+                console.error("🔥 Error fetching user role:", error);
+            }
+
             const user = users && users.length > 0 ? users[0] : null;
-            const currentRole = user?.role || 'parent';
+
+            // 🚫 移除預設值：如果是 null，就讓它是 'unknown'
+            const currentRole = user?.role || 'unknown';
+
+            if (currentRole === 'unknown') {
+                console.warn("⚠️ User role is unknown. Data might be missing in 'users' table.");
+            }
 
             setRole(currentRole);
-            setUserEmail(user?.email || '');
+            setUserEmail(user?.email || session.user.email || '');
 
             // 2. 根據身份決定介面流程
             if (currentRole === 'director') {
-                // 👑 主管模式：先抓「班級列表」，不要直接抓學生
                 const { data: cls } = await supabase.from('classes').select('*').order('name');
                 setClasses(cls || []);
-                // 如果有班級，預設選第一個
                 if (cls && cls.length > 0) {
-                    setSelectedClassId(cls[0].id); // 這會觸發 useEffect 去抓學生
+                    setSelectedClassId(cls[0].id);
                 }
 
             } else if (currentRole === 'teacher') {
-                // 👨‍🏫 老師模式：直接抓自己班的學生
                 const { data: students } = await supabase
                     .from('students')
                     .select('id, chinese_name, grade')
@@ -114,8 +120,8 @@ export default function ContactBookPage() {
                 setMyStudents(list);
                 if (list.length > 0) setSelectedStudentId(list[0].id);
 
-            } else {
-                // 🏠 家長模式：抓自己的小孩
+            } else if (currentRole === 'parent') {
+                // 只有明確是 parent 才走這裡
                 const { data: children } = await supabase
                     .from('students')
                     .select('id, chinese_name')
@@ -127,11 +133,35 @@ export default function ContactBookPage() {
             }
 
         } catch (e: any) {
-            console.error("Error:", e);
+            console.error("Critical Error in initPage:", e);
         } finally {
             setLoading(false);
         }
     }, [router]);
+
+    // 🛠️ 新增「帳號修復模式」
+    async function handleRepairAccount() {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        if (!confirm('您確定要初始化此帳號為「系統管理員 (Director)」嗎？\n請確認您有權限執行此操作。')) return;
+
+        setLoading(true);
+        const { error } = await supabase.from('users').upsert({
+            id: session.user.id,
+            email: session.user.email,
+            role: 'director', // 強制設定為 director
+            created_at: new Date().toISOString()
+        });
+
+        if (error) {
+            alert('❌ 修復失敗: ' + error.message);
+            setLoading(false);
+        } else {
+            alert('✅ 帳號已初始化！網頁將自動重新整理。');
+            window.location.reload();
+        }
+    }
 
     useEffect(() => {
         initPage();
@@ -186,6 +216,35 @@ export default function ContactBookPage() {
 
     if (loading) return <div className="p-10 text-center">載入中...</div>;
 
+    // ⚠️ 帳號異常畫面
+    if (role === 'unknown') {
+        return (
+            <div className="min-h-screen bg-red-50 flex flex-col items-center justify-center p-6">
+                <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-red-100 max-w-md w-full text-center">
+                    <div className="text-6xl mb-4">⚠️</div>
+                    <h1 className="text-2xl font-black text-gray-800 mb-2">帳號資料異常</h1>
+                    <p className="text-gray-500 mb-6 leading-relaxed">
+                        系統無法讀取您的身份資料 (Role)。<br />
+                        這可能是因為資料庫中缺少您的使用者紀錄，或是 RLS 權限設定有誤。
+                    </p>
+
+                    <div className="bg-red-50 p-4 rounded-xl mb-6 text-left">
+                        <p className="text-xs font-bold text-red-400 uppercase mb-1">Debug Info:</p>
+                        <p className="text-sm text-gray-700 break-all font-mono">{userEmail || 'No Email Detected'}</p>
+                    </div>
+
+                    <button
+                        onClick={handleRepairAccount}
+                        className="w-full py-4 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition transform active:scale-95"
+                    >
+                        🛠️ 初始化管理員身份
+                    </button>
+                    <p className="text-xs text-gray-400 mt-4">點擊後將強制寫入 Director 權限</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-indigo-50 p-4 md:p-6">
             <div className="max-w-3xl mx-auto">
@@ -202,7 +261,7 @@ export default function ContactBookPage() {
                     <button onClick={() => router.push('/')} className="bg-white px-4 py-2 rounded-xl text-gray-500 font-bold shadow-sm hover:bg-gray-100 text-sm transition">⬅️ 回首頁</button>
                 </div>
 
-                {/* 👑 主管專屬：班級選擇器 (這就是解決畫面混亂的關鍵) */}
+                {/* 👑 主管專屬：班級選擇器 */}
                 {role === 'director' && (
                     <div className="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-purple-100">
                         <label className="text-xs font-bold text-gray-400 block mb-2">請選擇要查看的班級：</label>
@@ -216,10 +275,9 @@ export default function ContactBookPage() {
                     </div>
                 )}
 
-                {/* 學生切換器 (適用於所有人) */}
+                {/* 學生切換器 */}
                 {myStudents.length > 0 ? (
                     <div className="mb-8">
-                        {/* 這裡移除了不相容的 CSS，改用 Tailwind 原生 class */}
                         <div className="flex flex-nowrap md:flex-wrap gap-2 overflow-x-auto pb-2">
                             {myStudents.map(student => (
                                 <button
@@ -231,7 +289,6 @@ export default function ContactBookPage() {
                                             : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}
                                     `}
                                 >
-                                    {/* 只有在老師模式下才需要顯示班級名，主管模式已經選班級了所以不用 */}
                                     {role === 'teacher' && student.grade ? <span className="opacity-70 mr-1 text-xs">{student.grade}</span> : ''}
                                     {student.chinese_name}
                                 </button>
@@ -246,7 +303,7 @@ export default function ContactBookPage() {
                     </div>
                 )}
 
-                {/* 輸入區 (主管 & 老師 可見) */}
+                {/* 輸入區 */}
                 {(role === 'teacher' || role === 'director') && selectedStudentId && (
                     <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-indigo-100 border border-white mb-8 animate-fade-in-up">
                         <div className="flex items-center gap-2 mb-6 border-b pb-4">
@@ -255,7 +312,6 @@ export default function ContactBookPage() {
                         </div>
 
                         <div className="space-y-6">
-                            {/* 星星 Grid */}
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                 <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center hover:border-indigo-200 transition">
                                     <label className="text-xs font-bold text-gray-400 block mb-2">心情 Mood</label>
@@ -271,7 +327,6 @@ export default function ContactBookPage() {
                                 </div>
                             </div>
 
-                            {/* 文字輸入 */}
                             <div>
                                 <label className="text-xs font-bold text-gray-500 ml-1 mb-1 block">今日作業 Homework</label>
                                 <input type="text" value={formData.homework} onChange={e => setFormData({ ...formData, homework: e.target.value })} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-700 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition" placeholder="例如：完成第 5 頁..." />
