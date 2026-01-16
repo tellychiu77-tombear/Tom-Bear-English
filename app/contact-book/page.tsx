@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -28,25 +28,53 @@ export default function ContactBookPage() {
         photo_url: ''
     });
 
-    useEffect(() => {
-        initPage();
+    // 主管專用：根據班級 ID 抓學生
+    const fetchStudentsForDirector = useCallback(async (classId: string) => {
+        // 先找出班級名稱 (因為 students 表是用 grade 存班級名，或者 class_id)
+        // 假設 students 表有 class_id 欄位最好，如果沒有，我們這裡用 class_id 篩選
+        const { data: students } = await supabase
+            .from('students')
+            .select('id, chinese_name, grade')
+            .eq('class_id', classId) // 確保學生表有 class_id
+            .order('chinese_name');
+
+        const list = students || [];
+        setMyStudents(list);
+        if (list.length > 0) {
+            setSelectedStudentId(list[0].id);
+        } else {
+            setSelectedStudentId('');
+            setTodayLog(null);
+        }
     }, []);
 
-    // 當主管切換班級時，重抓該班學生
-    useEffect(() => {
-        if (role === 'director' && selectedClassId) {
-            fetchStudentsForDirector(selectedClassId);
-        }
-    }, [selectedClassId]);
+    const fetchTodayLog = useCallback(async (studentId: string) => {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: logs } = await supabase
+            .from('contact_books')
+            .select('*')
+            .eq('student_id', studentId)
+            .eq('date', today)
+            .limit(1);
 
-    // 當切換學生時，抓取今日紀錄
-    useEffect(() => {
-        if (selectedStudentId) {
-            fetchTodayLog(selectedStudentId);
-        }
-    }, [selectedStudentId]);
+        const data = logs && logs.length > 0 ? logs[0] : null;
+        setTodayLog(data);
 
-    async function initPage() {
+        if (data) {
+            setFormData({
+                mood: data.mood,
+                focus: data.focus,
+                appetite: data.appetite,
+                homework: data.homework || '',
+                message: data.message || '',
+                photo_url: data.photo_url || ''
+            });
+        } else {
+            setFormData({ mood: 3, focus: 3, appetite: 3, homework: '', message: '', photo_url: '' });
+        }
+    }, []);
+
+    const initPage = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { router.push('/'); return; }
@@ -103,53 +131,25 @@ export default function ContactBookPage() {
         } finally {
             setLoading(false);
         }
-    }
+    }, [router]);
 
-    // 主管專用：根據班級 ID 抓學生
-    async function fetchStudentsForDirector(classId: string) {
-        // 先找出班級名稱 (因為 students 表是用 grade 存班級名，或者 class_id)
-        // 假設 students 表有 class_id 欄位最好，如果沒有，我們這裡用 class_id 篩選
-        const { data: students } = await supabase
-            .from('students')
-            .select('id, chinese_name, grade')
-            .eq('class_id', classId) // 確保學生表有 class_id
-            .order('chinese_name');
+    useEffect(() => {
+        initPage();
+    }, [initPage]);
 
-        const list = students || [];
-        setMyStudents(list);
-        if (list.length > 0) {
-            setSelectedStudentId(list[0].id);
-        } else {
-            setSelectedStudentId('');
-            setTodayLog(null);
+    // 當主管切換班級時，重抓該班學生
+    useEffect(() => {
+        if (role === 'director' && selectedClassId) {
+            fetchStudentsForDirector(selectedClassId);
         }
-    }
+    }, [role, selectedClassId, fetchStudentsForDirector]);
 
-    async function fetchTodayLog(studentId: string) {
-        const today = new Date().toISOString().split('T')[0];
-        const { data: logs } = await supabase
-            .from('contact_books')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('date', today)
-            .limit(1);
-
-        const data = logs && logs.length > 0 ? logs[0] : null;
-        setTodayLog(data);
-
-        if (data) {
-            setFormData({
-                mood: data.mood,
-                focus: data.focus,
-                appetite: data.appetite,
-                homework: data.homework || '',
-                message: data.message || '',
-                photo_url: data.photo_url || ''
-            });
-        } else {
-            setFormData({ mood: 3, focus: 3, appetite: 3, homework: '', message: '', photo_url: '' });
+    // 當切換學生時，抓取今日紀錄
+    useEffect(() => {
+        if (selectedStudentId) {
+            fetchTodayLog(selectedStudentId);
         }
-    }
+    }, [selectedStudentId, fetchTodayLog]);
 
     async function handleSubmit() {
         if (!selectedStudentId) return;
@@ -277,7 +277,7 @@ export default function ContactBookPage() {
                                 <input type="text" value={formData.homework} onChange={e => setFormData({ ...formData, homework: e.target.value })} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-700 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition" placeholder="例如：完成第 5 頁..." />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-500 ml-1 mb-1 block">老師的話 Teacher's Note</label>
+                                <label className="text-xs font-bold text-gray-500 ml-1 mb-1 block">老師的話 Teacher&apos;s Note</label>
                                 <textarea value={formData.message} onChange={e => setFormData({ ...formData, message: e.target.value })} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-gray-700 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition h-32 resize-none" placeholder="分享孩子今天的表現..." />
                             </div>
 

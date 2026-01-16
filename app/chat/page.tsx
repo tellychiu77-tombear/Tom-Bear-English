@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -26,6 +26,77 @@ export default function ChatPage() {
     useEffect(() => {
         currentUserRef.current = currentUser;
     }, [currentUser]);
+
+    // Wrap functions in useCallback to satisfy dependency rules
+    const fetchContacts = useCallback(async (user: any) => {
+        const targetUser = user || currentUser;
+        if (!targetUser) return;
+
+        let query = supabase.from('profiles').select('*').order('full_name');
+
+        // 判斷權限：家長看老師，老師看家長
+        if (targetUser.role === 'parent') {
+            query = query.neq('role', 'parent');
+        } else {
+            query = query.eq('role', 'parent');
+        }
+
+        const { data: people } = await query;
+        if (!people) return;
+
+        // 計算未讀
+        const { data: unreadData } = await supabase
+            .from('chat_messages')
+            .select('sender_id')
+            .eq('receiver_id', targetUser.id)
+            .eq('is_read', false);
+
+        const unreadMap: Record<string, number> = {};
+        unreadData?.forEach((msg: any) => {
+            unreadMap[msg.sender_id] = (unreadMap[msg.sender_id] || 0) + 1;
+        });
+
+        const contactsWithCount = people.map(p => ({
+            ...p,
+            unread: unreadMap[p.id] || 0
+        }));
+
+        contactsWithCount.sort((a: any, b: any) => b.unread - a.unread);
+        setContacts(contactsWithCount);
+    }, [currentUser]); // Depend on currentUser for default fallback, though explicit pass is better
+
+    const markAsRead = useCallback(async (targetId: string) => {
+        if (!currentUser) return;
+        await supabase
+            .from('chat_messages')
+            .update({ is_read: true })
+            .eq('sender_id', targetId)
+            .eq('receiver_id', currentUser.id)
+            .eq('is_read', false);
+
+        // 這裡我們不呼叫 fetchContacts，避免畫面閃爍，反正 Realtime 會處理
+    }, [currentUser]); // Depends on currentUser
+
+    const fetchMessages = useCallback(async (targetId: string) => {
+        if (!currentUser) return;
+        const { data } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`)
+            .order('created_at', { ascending: true });
+
+        if (data) setMessages(data);
+    }, [currentUser]); // Depends on currentUser
+
+    const init = useCallback(async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { router.push('/'); return; }
+
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        setCurrentUser(profile);
+        await fetchContacts(profile); // Pass profile explicitly
+        setLoading(false);
+    }, [router, fetchContacts]); // Depends on fetchContacts
 
     useEffect(() => {
         init();
@@ -55,7 +126,7 @@ export default function ChatPage() {
             .subscribe();
 
         return () => { supabase.removeChannel(channel); };
-    }, []);
+    }, [init, fetchContacts, markAsRead]); // Added dependencies
 
     // 當訊息變多時，自動捲到底部
     useEffect(() => {
@@ -68,78 +139,10 @@ export default function ChatPage() {
             fetchMessages(activeContactId);
             markAsRead(activeContactId);
         }
-    }, [activeContactId]);
+    }, [activeContactId, fetchMessages, markAsRead]); // Added dependencies
 
     function scrollToBottom() {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-
-    async function init() {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) { router.push('/'); return; }
-
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        setCurrentUser(profile);
-        await fetchContacts(profile);
-        setLoading(false);
-    }
-
-    async function fetchContacts(user = currentUser) {
-        if (!user) return;
-        let query = supabase.from('profiles').select('*').order('full_name');
-
-        // 判斷權限：家長看老師，老師看家長
-        if (user.role === 'parent') {
-            query = query.neq('role', 'parent');
-        } else {
-            query = query.eq('role', 'parent');
-        }
-
-        const { data: people } = await query;
-        if (!people) return;
-
-        // 計算未讀
-        const { data: unreadData } = await supabase
-            .from('chat_messages')
-            .select('sender_id')
-            .eq('receiver_id', user.id)
-            .eq('is_read', false);
-
-        const unreadMap: Record<string, number> = {};
-        unreadData?.forEach((msg: any) => {
-            unreadMap[msg.sender_id] = (unreadMap[msg.sender_id] || 0) + 1;
-        });
-
-        const contactsWithCount = people.map(p => ({
-            ...p,
-            unread: unreadMap[p.id] || 0
-        }));
-
-        contactsWithCount.sort((a, b) => b.unread - a.unread);
-        setContacts(contactsWithCount);
-    }
-
-    async function fetchMessages(targetId: string) {
-        if (!currentUser) return;
-        const { data } = await supabase
-            .from('chat_messages')
-            .select('*')
-            .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${targetId}),and(sender_id.eq.${targetId},receiver_id.eq.${currentUser.id})`)
-            .order('created_at', { ascending: true });
-
-        if (data) setMessages(data);
-    }
-
-    async function markAsRead(targetId: string) {
-        if (!currentUser) return;
-        await supabase
-            .from('chat_messages')
-            .update({ is_read: true })
-            .eq('sender_id', targetId)
-            .eq('receiver_id', currentUser.id)
-            .eq('is_read', false);
-
-        // 這裡我們不呼叫 fetchContacts，避免畫面閃爍，反正 Realtime 會處理
     }
 
     // 🚀 極速發送函數
