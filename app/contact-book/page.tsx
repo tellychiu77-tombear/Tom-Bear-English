@@ -40,7 +40,7 @@ export default function ContactBookPage() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { router.push('/'); return; }
 
-            // 1. 讀取用戶角色 (使用 limit(1) 防呆)
+            // 1. 讀取用戶角色
             const { data: users } = await supabase
                 .from('users')
                 .select('role, email')
@@ -162,11 +162,11 @@ export default function ContactBookPage() {
                     <button onClick={() => router.push('/')} className="bg-white px-4 py-2 rounded-xl text-gray-500 font-bold shadow-sm hover:bg-gray-100 text-sm transition">⬅️ 回首頁</button>
                 </div>
 
-                {/* 學生切換器 (優化版：電腦版自動換行，手機版隱藏捲軸) */}
+                {/* 學生切換器 */}
                 {myStudents.length > 0 ? (
                     <div className="mb-8">
-                        {/* 手機版：可滑動 / 電腦版：Flex Wrap */}
-                        <div className="flex flex-nowrap md:flex-wrap gap-2 overflow-x-auto pb-2 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+                        {/* 修正：移除不相容的 CSS 屬性，改用標準 overflow */}
+                        <div className="flex flex-nowrap md:flex-wrap gap-2 overflow-x-auto pb-2">
                             {myStudents.map(student => (
                                 <button
                                     key={student.id}
@@ -288,7 +288,6 @@ export default function ContactBookPage() {
                         </div>
                     </div>
                 ) : (
-                    // 睡覺圖 (尚未發布)
                     <div className="bg-white rounded-3xl p-12 shadow-sm border border-dashed border-gray-200 text-center">
                         <div className="text-6xl mb-4 animate-bounce-slow grayscale opacity-50">😴</div>
                         <h3 className="text-lg font-black text-gray-400">今日尚未發布聯絡簿</h3>
