@@ -7,16 +7,16 @@ import { useRouter } from 'next/navigation';
 export default function ContactBookPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    const [role, setRole] = useState<string>('parent'); // 預設身份
+    const [role, setRole] = useState<string>('parent');
     const [userEmail, setUserEmail] = useState('');
-    const [debugInfo, setDebugInfo] = useState(''); // 診斷訊息
+    const [debugInfo, setDebugInfo] = useState('');
 
     // Data
-    const [myStudents, setMyStudents] = useState<any[]>([]); // 學生列表
+    const [myStudents, setMyStudents] = useState<any[]>([]);
     const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-    const [todayLog, setTodayLog] = useState<any>(null); // 今日紀錄
+    const [todayLog, setTodayLog] = useState<any>(null);
 
-    // Form (老師填寫用)
+    // Form 
     const [formData, setFormData] = useState({
         mood: 3,
         focus: 3,
@@ -41,8 +41,12 @@ export default function ContactBookPage() {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) { router.push('/'); return; }
 
-            // 1. 抓取用戶角色
-            const { data: user, error } = await supabase.from('users').select('role, email').eq('id', session.user.id).single();
+            // 🔥 關鍵修正：使用 limit(1) 取代 single()，防止因為重複帳號而報錯
+            const { data: users, error } = await supabase
+                .from('users')
+                .select('role, email')
+                .eq('id', session.user.id)
+                .limit(1); // 強制只抓一筆，不管資料庫有幾筆重複的
 
             if (error) {
                 console.error("抓取使用者錯誤:", error);
@@ -50,19 +54,18 @@ export default function ContactBookPage() {
                 return;
             }
 
+            // 確保有抓到資料
+            const user = users && users.length > 0 ? users[0] : null;
             const currentRole = user?.role || 'parent';
+
             setRole(currentRole);
             setUserEmail(user?.email || '');
-
-            // 🔥 顯示診斷訊息
-            setDebugInfo(`目前登入: ${user?.email} | 系統判定角色: ${currentRole}`);
+            setDebugInfo(`目前登入: ${user?.email || session.user.email} | 系統判定角色: ${currentRole}`);
 
             // 2. 根據身份抓學生
             let studentsData = [];
 
             if (currentRole === 'teacher' || currentRole === 'director') {
-                // 🅰️ 老師模式：抓負責的班級
-                // 這裡會觸發 RLS，如果沒分班，資料庫會回傳空陣列
                 const { data: students, error: studentError } = await supabase
                     .from('students')
                     .select('id, chinese_name, grade')
@@ -72,7 +75,6 @@ export default function ContactBookPage() {
                 if (studentError) console.error("老師抓學生錯誤:", studentError);
                 studentsData = students || [];
             } else {
-                // 🅱️ 家長模式
                 const { data: children } = await supabase
                     .from('students')
                     .select('id, chinese_name')
@@ -83,11 +85,6 @@ export default function ContactBookPage() {
             if (studentsData.length > 0) {
                 setMyStudents(studentsData);
                 setSelectedStudentId(studentsData[0].id);
-            } else {
-                // 如果是老師但沒抓到學生，顯示提示
-                if (currentRole === 'teacher') {
-                    setDebugInfo(prev => prev + " | 警告：此老師帳號尚未被指派任何班級");
-                }
             }
         } catch (e: any) {
             setDebugInfo("發生未預期錯誤: " + e.message);
@@ -98,13 +95,15 @@ export default function ContactBookPage() {
 
     async function fetchTodayLog(studentId: string) {
         const today = new Date().toISOString().split('T')[0];
-        const { data } = await supabase
+        // 這裡也要防呆，如果有兩筆聯絡簿，只抓最新的
+        const { data: logs } = await supabase
             .from('contact_books')
             .select('*')
             .eq('student_id', studentId)
             .eq('date', today)
-            .single();
+            .limit(1);
 
+        const data = logs && logs.length > 0 ? logs[0] : null;
         setTodayLog(data);
 
         if (data) {
@@ -131,16 +130,18 @@ export default function ContactBookPage() {
                 ...formData
             };
 
-            const { data: existing } = await supabase
+            const { data: existingLogs } = await supabase
                 .from('contact_books')
                 .select('id')
                 .eq('student_id', selectedStudentId)
                 .eq('date', today)
-                .single();
+                .limit(1);
+
+            const existing = existingLogs && existingLogs.length > 0 ? existingLogs[0] : null;
 
             if (existing) {
                 await supabase.from('contact_books').update(payload).eq('id', existing.id);
-                alert('已更新！');
+                alert('已更新今日紀錄！');
             } else {
                 await supabase.from('contact_books').insert(payload);
                 alert('發布成功！');
@@ -157,12 +158,11 @@ export default function ContactBookPage() {
     return (
         <div className="min-h-screen bg-indigo-50 p-4 md:p-6">
             <div className="max-w-2xl mx-auto">
-                {/* 🔴 診斷訊息區 (只在開發時顯示) */}
-                <div className="bg-black text-green-400 p-2 text-xs font-mono mb-4 rounded">
+                {/* 🔴 診斷訊息 (開發用) */}
+                <div className="bg-black text-green-400 p-2 text-xs font-mono mb-4 rounded overflow-x-auto">
                     DEBUG: {debugInfo}
                 </div>
 
-                {/* Header */}
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <h1 className="text-2xl font-black text-gray-800">📖 寶寶聯絡簿</h1>
@@ -173,7 +173,6 @@ export default function ContactBookPage() {
                     <button onClick={() => router.push('/')} className="bg-white px-4 py-2 rounded-xl text-gray-500 font-bold shadow-sm hover:bg-gray-100 text-sm">⬅️ 回首頁</button>
                 </div>
 
-                {/* 學生切換器 */}
                 {myStudents.length > 0 ? (
                     <div className="flex gap-2 mb-6 overflow-x-auto pb-2 scrollbar-hide">
                         {myStudents.map(student => (
@@ -199,7 +198,6 @@ export default function ContactBookPage() {
                     </div>
                 )}
 
-                {/* 老師輸入區 (只有老師/園長看得到) */}
                 {(role === 'teacher' || role === 'director') && selectedStudentId && (
                     <div className="bg-white rounded-3xl p-6 shadow-lg border border-indigo-100 mb-8 animate-fade-in-up">
                         <h2 className="text-lg font-black text-indigo-900 mb-4 flex items-center gap-2">
@@ -226,7 +224,6 @@ export default function ContactBookPage() {
                                     </select>
                                 </div>
                             </div>
-
                             <div>
                                 <label className="text-xs font-bold text-gray-500 ml-1">今日作業</label>
                                 <input type="text" value={formData.homework} onChange={e => setFormData({ ...formData, homework: e.target.value })} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-700" placeholder="作業..." />
@@ -235,7 +232,6 @@ export default function ContactBookPage() {
                                 <label className="text-xs font-bold text-gray-500 ml-1">老師的話</label>
                                 <textarea value={formData.message} onChange={e => setFormData({ ...formData, message: e.target.value })} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 h-24 resize-none" placeholder="備註..." />
                             </div>
-
                             <button onClick={handleSubmit} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition">
                                 {todayLog ? '🔄 更新紀錄' : '🚀 發布紀錄'}
                             </button>
@@ -243,7 +239,6 @@ export default function ContactBookPage() {
                     </div>
                 )}
 
-                {/* 顯示結果 (沒資料就顯示睡覺圖) */}
                 {todayLog ? (
                     <div className="bg-white rounded-3xl p-6 shadow-sm border border-gray-100">
                         <h2 className="text-xl font-black text-gray-800 mb-4">今日紀錄 ({todayLog.date})</h2>
