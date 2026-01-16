@@ -31,20 +31,22 @@ export default function ContactBookPage() {
     const [uniqueClasses, setUniqueClasses] = useState<string[]>([]);
     const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
+    // 📅 月曆相關狀態 (Calendar State)
+    const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+    const [calendarMonth, setCalendarMonth] = useState(new Date()); // 記錄目前查看的月份
+    const [monthStats, setMonthStats] = useState<Record<string, any>>({}); // 該月份的統計資料
+
     // Upload
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const bulkFileInputRef = useRef<HTMLInputElement>(null); // 群發照片用的 input
+    const bulkFileInputRef = useRef<HTMLInputElement>(null);
     const [uploadingStudentId, setUploadingStudentId] = useState<string | null>(null);
 
     // Bulk Actions
     const [bulkHomework, setBulkHomework] = useState('');
     const [bulkAnnouncement, setBulkAnnouncement] = useState('');
 
-    // --- 核心邏輯：解析班級標籤 ---
-    // 將 "CEI-A, 課後輔導" 拆解為 ["CEI-A", "課後輔導"]
     const parseClassTags = (gradeString: string): string[] => {
         if (!gradeString) return ['未分類'];
-        // 支援中英文逗號分隔
         return gradeString.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
     };
 
@@ -67,32 +69,25 @@ export default function ContactBookPage() {
         const studentList = data || [];
         setStudents(studentList);
 
-        // --- 智慧分類引擎 ---
-        // 遍歷所有學生，收集所有出現過的「班級標籤」
         const classesSet = new Set<string>();
         studentList.forEach(s => {
             const tags = parseClassTags(s.grade);
             tags.forEach(tag => classesSet.add(tag));
         });
 
-        // 排序：讓英文班排前面，中文班排後面 (可選)
         const sortedClasses = Array.from(classesSet).sort();
         setUniqueClasses(sortedClasses);
 
-        // 家長直接顯示全部
         if (role === 'parent') {
             setSelectedClass('ALL');
         }
-
         setLoading(false);
     }, [router]);
 
+    // 抓取單日詳細內容
     const fetchHistory = useCallback(async () => {
         if (!selectedClass) return;
 
-        // --- 智慧篩選 ---
-        // 找出「班級標籤」包含 selectedClass 的學生
-        // 例如 selectedClass="課後輔導"，那麼 "CEI-A, 課後輔導" 的學生也會被選中
         const targetStudents = (userRole === 'parent' || selectedClass === 'ALL')
             ? students
             : students.filter(s => parseClassTags(s.grade).includes(selectedClass));
@@ -126,8 +121,70 @@ export default function ContactBookPage() {
         setForms(prev => ({ ...prev, ...newForms }));
     }, [selectedClass, selectedDate, students, userRole]);
 
+    // 📅 抓取整個月的統計資料 (用於月曆)
+    const fetchMonthStats = useCallback(async (date: Date) => {
+        if (!selectedClass) return;
+
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1; // JS month is 0-indexed
+
+        // 1. 計算該月的第一天與最後一天
+        const startOfMonth = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endOfMonth = new Date(year, month, 0).toISOString().split('T')[0];
+
+        // 2. 確定要查詢的學生群
+        const targetStudents = (userRole === 'parent' || selectedClass === 'ALL')
+            ? students
+            : students.filter(s => parseClassTags(s.grade).includes(selectedClass));
+        const ids = targetStudents.map(s => s.id);
+
+        if (ids.length === 0) {
+            setMonthStats({});
+            return;
+        }
+
+        // 3. 查詢該月的所有紀錄 (只取必要欄位以優化效能)
+        const { data } = await supabase
+            .from('contact_books')
+            .select('date, student_id, parent_signature')
+            .in('student_id', ids)
+            .gte('date', startOfMonth)
+            .lte('date', endOfMonth);
+
+        if (!data) return;
+
+        // 4. 統計數據
+        const stats: Record<string, any> = {};
+
+        if (userRole === 'parent') {
+            // 家長模式：每天的狀態 (是否未簽名)
+            data.forEach(row => {
+                if (!stats[row.date]) stats[row.date] = { hasData: false, signed: true };
+                stats[row.date].hasData = true;
+                if (!row.parent_signature) stats[row.date].signed = false; // 只要有一個沒簽就算沒簽
+            });
+        } else {
+            // 老師模式：每天的完成數
+            data.forEach(row => {
+                if (!stats[row.date]) stats[row.date] = { count: 0, total: ids.length };
+                stats[row.date].count += 1;
+            });
+        }
+        setMonthStats(stats);
+
+    }, [selectedClass, students, userRole]);
+
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { if (students.length > 0) fetchHistory(); }, [fetchHistory, students.length]);
+
+    // 當月曆打開或切換月份時，重新抓統計
+    useEffect(() => {
+        if (isCalendarOpen) {
+            fetchMonthStats(calendarMonth);
+        }
+    }, [isCalendarOpen, calendarMonth, fetchMonthStats]);
+
+    // --- Actions ---
 
     const handleFormChange = (studentId: string, field: string, value: any) => {
         setForms(prev => ({
@@ -136,23 +193,21 @@ export default function ContactBookPage() {
         }));
     };
 
-    // --- 個別上傳 ---
     const handleUploadClick = (studentId: string) => {
         setUploadingStudentId(studentId);
         fileInputRef.current?.click();
     };
 
-    // --- 📸 群發上傳 (New!) ---
     const handleBulkUploadClick = () => {
         bulkFileInputRef.current?.click();
     }
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>, isBulk: boolean = false) => {
+        // ... (保持原有的上傳邏輯)
         const files = e.target.files;
         if (!files || files.length === 0) return;
         if (!isBulk && !uploadingStudentId) return;
 
-        // 決定要上傳給誰：單一學生 或 目前班級的所有學生
         const targetIds = isBulk
             ? students.filter(s => parseClassTags(s.grade).includes(selectedClass!)).map(s => s.id)
             : [uploadingStudentId!];
@@ -166,38 +221,25 @@ export default function ContactBookPage() {
 
         try {
             const uploadedUrls: string[] = [];
-
-            // 1. 先上傳檔案到 Storage (只傳一次)
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                // 使用 timestamp 避免檔名衝突
                 const filePath = `${selectedDate}/BULK_${Date.now()}_${i}.${file.name.split('.').pop()}`;
-
                 const { error } = await supabase.storage.from('contact_photos').upload(filePath, file);
                 if (error) throw error;
-
                 const { data } = supabase.storage.from('contact_photos').getPublicUrl(filePath);
                 uploadedUrls.push(data.publicUrl);
             }
-
-            // 2. 將 URL 分發給目標學生
             setForms(prev => {
                 const next = { ...prev };
                 targetIds.forEach(id => {
-                    next[id] = {
-                        ...next[id], // 確保初始化
-                        photos: [...(next[id]?.photos || []), ...uploadedUrls]
-                    };
+                    next[id] = { ...next[id], photos: [...(next[id]?.photos || []), ...uploadedUrls] };
                 });
                 return next;
             });
-
-            alert(`✅ 成功上傳並分發給 ${targetIds.length} 位學生`);
-
+            alert(`✅ 上傳成功`);
         } catch (err: any) {
             alert('❌ 上傳失敗: ' + err.message);
         } finally {
-            // Reset inputs
             if (fileInputRef.current) fileInputRef.current.value = '';
             if (bulkFileInputRef.current) bulkFileInputRef.current.value = '';
             setUploadingStudentId(null);
@@ -217,6 +259,7 @@ export default function ContactBookPage() {
     };
 
     const handleSave = async (student: any) => {
+        // ... (保持原有的儲存邏輯)
         const formData = forms[student.id] || DEFAULT_FORM;
         try {
             const { data: existing } = await supabase.from('contact_books').select('id').eq('student_id', student.id).eq('date', selectedDate).single();
@@ -243,32 +286,27 @@ export default function ContactBookPage() {
                 await supabase.from('contact_books').insert(payload);
             }
             alert(`💾 ${student.chinese_name} 儲存成功`);
+            // 儲存後更新一下月曆統計
+            if (isCalendarOpen) fetchMonthStats(calendarMonth);
         } catch (e: any) {
             alert('❌ 儲存失敗: ' + e.message);
         }
     };
 
-    // 📢 群發邏輯
     const handleBulkApply = () => {
+        // ... (保持原有的群發邏輯)
         if (!bulkHomework && !bulkAnnouncement) return alert('請輸入內容');
         if (!confirm(`確定要套用給 ${selectedClass} 全班嗎？`)) return;
 
         setForms(prev => {
             const next = { ...prev };
-            // 篩選：只要標籤包含 current class 的人都算
             const targets = students.filter(s => parseClassTags(s.grade).includes(selectedClass!));
-
             targets.forEach(s => {
                 const currentNote = next[s.id].note || '';
                 const newNote = bulkAnnouncement && !currentNote.includes(bulkAnnouncement)
                     ? (currentNote ? `${currentNote}\n\n【班級叮嚀】${bulkAnnouncement}` : `【班級叮嚀】${bulkAnnouncement}`)
                     : currentNote;
-
-                next[s.id] = {
-                    ...next[s.id],
-                    homework: bulkHomework || next[s.id].homework,
-                    note: newNote
-                };
+                next[s.id] = { ...next[s.id], homework: bulkHomework || next[s.id].homework, note: newNote };
             });
             return next;
         });
@@ -280,35 +318,94 @@ export default function ContactBookPage() {
             <span className="text-[10px] font-bold text-gray-400 uppercase">{label}</span>
             <div className="flex gap-0.5">
                 {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                        key={star}
-                        disabled={disabled}
-                        onClick={() => onChange(star)}
-                        className={`text-lg ${star <= value ? 'text-yellow-400' : 'text-gray-200'} ${!disabled && 'hover:scale-110'}`}
-                    >
-                        ★
-                    </button>
+                    <button key={star} disabled={disabled} onClick={() => onChange(star)} className={`text-lg ${star <= value ? 'text-yellow-400' : 'text-gray-200'} ${!disabled && 'hover:scale-110'}`}>★</button>
                 ))}
             </div>
         </div>
     );
 
+    // --- 月曆輔助元件 ---
+    const renderCalendar = () => {
+        const year = calendarMonth.getFullYear();
+        const month = calendarMonth.getMonth();
+        const firstDay = new Date(year, month, 1);
+        const lastDay = new Date(year, month + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        const startDayOfWeek = firstDay.getDay(); // 0 = Sunday
+
+        const days = [];
+        // 空白格子 (上個月的)
+        for (let i = 0; i < startDayOfWeek; i++) {
+            days.push(<div key={`empty-${i}`} className="h-16 bg-gray-50/50"></div>);
+        }
+        // 日期格子
+        for (let i = 1; i <= daysInMonth; i++) {
+            const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+            const isToday = dateStr === new Date().toISOString().split('T')[0];
+            const isSelected = dateStr === selectedDate;
+            const isWeekend = new Date(dateStr).getDay() === 0 || new Date(dateStr).getDay() === 6;
+
+            const stats = monthStats[dateStr];
+            let content = null;
+
+            if (stats) {
+                if (userRole === 'parent') {
+                    // 家長顯示
+                    if (stats.hasData) {
+                        content = stats.signed
+                            ? <span className="text-xs bg-green-100 text-green-600 px-1 rounded">✅ 已簽</span>
+                            : <span className="text-xs bg-red-100 text-red-500 px-1 rounded animate-pulse">🔴 未簽</span>;
+                    }
+                } else {
+                    // 老師顯示
+                    const ratio = stats.count / stats.total;
+                    let color = 'bg-orange-100 text-orange-600';
+                    if (ratio === 1) color = 'bg-green-100 text-green-600';
+                    if (ratio === 0) color = 'bg-gray-100 text-gray-400';
+
+                    content = (
+                        <div className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full mt-1 ${color}`}>
+                            {stats.count}/{stats.total}
+                        </div>
+                    );
+                }
+            }
+
+            days.push(
+                <button
+                    key={i}
+                    onClick={() => { setSelectedDate(dateStr); setIsCalendarOpen(false); }}
+                    className={`h-16 border border-gray-100 flex flex-col items-center justify-start pt-1 transition hover:bg-indigo-50 ${isWeekend ? 'bg-gray-50' : 'bg-white'} ${isSelected ? 'ring-2 ring-indigo-500 z-10' : ''}`}
+                >
+                    <span className={`text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : 'text-gray-700'}`}>
+                        {i}
+                    </span>
+                    {content}
+                </button>
+            );
+        }
+
+        return (
+            <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+                {['日', '一', '二', '三', '四', '五', '六'].map(d => (
+                    <div key={d} className="bg-gray-100 text-center text-xs font-bold text-gray-500 py-1">{d}</div>
+                ))}
+                {days}
+            </div>
+        );
+    };
+
     if (loading) return <div className="min-h-screen flex justify-center items-center text-gray-400 font-bold">載入中...</div>;
 
     const isDashboard = !selectedClass && userRole !== 'parent';
-
-    // 篩選顯示清單
     const filteredStudents = (userRole === 'parent' || selectedClass === 'ALL')
         ? students
         : students.filter(s => parseClassTags(s.grade).includes(selectedClass!));
-
     const isTeacher = userRole !== 'parent';
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] pb-20 font-sans">
-            {/* 隱藏的 Input: 個別上傳 */}
             <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => handleFileChange(e, false)} />
-            {/* 隱藏的 Input: 群發上傳 */}
             <input type="file" multiple accept="image/*" ref={bulkFileInputRef} className="hidden" onChange={(e) => handleFileChange(e, true)} />
 
             {lightboxPhoto && (
@@ -318,46 +415,79 @@ export default function ContactBookPage() {
                 </div>
             )}
 
-            {/* Header */}
+            {/* 📅 歷史月曆 Modal */}
+            {isCalendarOpen && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fade-in">
+                        <div className="p-4 bg-indigo-600 flex justify-between items-center text-white">
+                            <h2 className="text-lg font-black flex items-center gap-2">📅 歷史紀錄月曆</h2>
+                            <button onClick={() => setIsCalendarOpen(false)} className="w-8 h-8 rounded-full bg-white/20 hover:bg-white/30 flex items-center justify-center">✕</button>
+                        </div>
+                        <div className="p-4">
+                            <div className="flex justify-between items-center mb-4 px-2">
+                                <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="p-2 hover:bg-gray-100 rounded-full">⬅</button>
+                                <span className="font-black text-xl text-gray-700">
+                                    {calendarMonth.getFullYear()}年 {calendarMonth.getMonth() + 1}月
+                                </span>
+                                <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="p-2 hover:bg-gray-100 rounded-full">➡</button>
+                            </div>
+
+                            {/* Render Calendar Grid */}
+                            {renderCalendar()}
+
+                            <div className="mt-4 text-xs text-gray-400 text-center font-bold">
+                                {userRole === 'parent' ? '💡 點擊日期可查看該日作業' : '💡 點擊日期可補發或修改該日紀錄'}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-gray-200 shadow-sm">
                 <div className="max-w-6xl mx-auto px-4 py-3">
                     <div className="flex justify-between items-center">
                         <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => setSelectedClass(null)}
-                                className="bg-indigo-600 text-white p-2 rounded-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 transition"
-                            >
-                                📖
-                            </button>
+                            <button onClick={() => setSelectedClass(null)} className="bg-indigo-600 text-white p-2 rounded-lg shadow-lg hover:bg-indigo-700 transition">📖</button>
                             <div>
                                 <h1 className="text-lg font-black text-gray-800">
                                     {isDashboard ? '班級大廳' : (selectedClass === 'ALL' ? '我的孩子' : `${selectedClass}`)}
                                 </h1>
-                                <p className="text-[10px] text-gray-400 font-bold">{selectedDate}</p>
+                                <p className="text-[10px] text-gray-400 font-bold flex items-center gap-1">
+                                    {selectedDate}
+                                    {selectedDate !== new Date().toISOString().split('T')[0] && <span className="text-orange-500">(歷史紀錄)</span>}
+                                </p>
                             </div>
                         </div>
-                        <div className="flex gap-2">
+
+                        <div className="flex gap-2 items-center">
+                            {/* 📅 月曆開啟按鈕 */}
+                            {!isDashboard && (
+                                <button
+                                    onClick={() => setIsCalendarOpen(true)}
+                                    className="bg-orange-50 text-orange-600 border border-orange-200 px-3 py-1.5 rounded-lg text-sm font-bold hover:bg-orange-100 flex items-center gap-1 shadow-sm"
+                                >
+                                    <span>📅</span> <span className="hidden sm:inline">歷史月曆</span>
+                                </button>
+                            )}
                             <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-gray-100 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-600 outline-none" />
                             <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-600 text-sm font-bold px-2">退出</button>
                         </div>
                     </div>
                     {!isDashboard && isTeacher && (
                         <div className="mt-2 flex">
-                            <button onClick={() => setSelectedClass(null)} className="text-xs text-indigo-500 font-bold hover:underline flex items-center gap-1">
-                                ⬅ 回到班級選單
-                            </button>
+                            <button onClick={() => setSelectedClass(null)} className="text-xs text-indigo-500 font-bold hover:underline flex items-center gap-1">⬅ 回到班級選單</button>
                         </div>
                     )}
                 </div>
 
-                {/* 📢 班級廣播站 (作業 + 照片 + 叮嚀) */}
+                {/* 群發介面 (保持不變) */}
                 {!isDashboard && isTeacher && selectedClass !== 'ALL' && (
                     <div className="bg-indigo-50/80 border-b border-indigo-100 px-4 py-3">
                         <div className="max-w-6xl mx-auto">
                             <details className="group">
                                 <summary className="flex items-center gap-2 font-bold text-indigo-900 cursor-pointer list-none select-none">
                                     <span className="w-6 h-6 bg-indigo-200 text-indigo-700 rounded-full flex items-center justify-center text-xs">📢</span>
-                                    <span>班級廣播站 (作業、叮嚀、照片)</span>
+                                    <span>班級廣播站</span>
                                     <span className="text-[10px] text-indigo-400 ml-2 font-normal">(點擊展開)</span>
                                 </summary>
                                 <div className="mt-4 grid md:grid-cols-2 gap-4 animate-fade-in pl-8">
@@ -369,14 +499,9 @@ export default function ContactBookPage() {
                                         <label className="text-xs font-bold text-indigo-400 ml-1">🔔 全班統一叮嚀</label>
                                         <input type="text" placeholder="附加叮嚀..." value={bulkAnnouncement} onChange={e => setBulkAnnouncement(e.target.value)} className="w-full p-2 bg-white border border-indigo-100 rounded-lg text-sm font-bold mt-1" />
                                     </div>
-
                                     <div className="col-span-full flex gap-3 mt-1">
-                                        <button onClick={handleBulkApply} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-sm">
-                                            ⚡ 套用文字設定
-                                        </button>
-                                        <button onClick={handleBulkUploadClick} className="flex-1 bg-pink-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-pink-600 shadow-sm flex items-center justify-center gap-2">
-                                            <span>📸</span> 上傳全班照片
-                                        </button>
+                                        <button onClick={handleBulkApply} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-sm">⚡ 套用文字設定</button>
+                                        <button onClick={handleBulkUploadClick} className="flex-1 bg-pink-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-pink-600 shadow-sm flex items-center justify-center gap-2"><span>📸</span> 上傳全班照片</button>
                                     </div>
                                 </div>
                             </details>
@@ -385,22 +510,15 @@ export default function ContactBookPage() {
                 )}
             </div>
 
+            {/* 學生卡片列表 (保持不變) */}
             <div className="max-w-6xl mx-auto p-4">
-                {/* 1. 班級儀表板 (Dashboard) */}
                 {isDashboard && (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mt-8">
                         {uniqueClasses.map(cls => {
-                            // 計算人數 (包含多重歸屬)
                             const count = students.filter(s => parseClassTags(s.grade).includes(cls)).length;
                             return (
-                                <button
-                                    key={cls}
-                                    onClick={() => setSelectedClass(cls)}
-                                    className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-indigo-100 hover:-translate-y-1 transition-all text-left group"
-                                >
-                                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                                        🏫
-                                    </div>
+                                <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-indigo-100 hover:-translate-y-1 transition-all text-left group">
+                                    <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-2xl mb-4 group-hover:bg-indigo-600 group-hover:text-white transition-colors">🏫</div>
                                     <h3 className="text-xl font-black text-gray-800 mb-1">{cls}</h3>
                                     <p className="text-sm font-bold text-gray-400">{count} 位學生</p>
                                 </button>
@@ -410,7 +528,6 @@ export default function ContactBookPage() {
                     </div>
                 )}
 
-                {/* 2. 教室視圖 (Classroom) */}
                 {!isDashboard && (
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                         {filteredStudents.length === 0 ? (
@@ -419,47 +536,25 @@ export default function ContactBookPage() {
                             filteredStudents.map(student => {
                                 const form = forms[student.id] || DEFAULT_FORM;
                                 const absent = form.is_absent;
-                                // 判斷是否為跨班學生 (例如在 A 班顯示他是安親班生)
                                 const tags = parseClassTags(student.grade);
-                                const otherTags = tags.filter(t => t !== selectedClass); // 顯示「除了本班以外」的標籤
+                                const otherTags = tags.filter(t => t !== selectedClass);
 
                                 return (
                                     <div key={student.id} className={`bg-white rounded-3xl shadow-sm border transition-all ${absent ? 'border-gray-200 bg-gray-50/50 grayscale' : 'border-gray-100 hover:shadow-xl hover:border-indigo-100'}`}>
-
                                         <div className="p-5 flex justify-between items-start border-b border-gray-50">
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${absent ? 'bg-gray-200 text-gray-400' : 'bg-[#EEF2FF] text-[#4F46E5]'}`}>
-                                                    {student.chinese_name.charAt(0)}
-                                                </div>
+                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${absent ? 'bg-gray-200 text-gray-400' : 'bg-[#EEF2FF] text-[#4F46E5]'}`}>{student.chinese_name.charAt(0)}</div>
                                                 <div>
                                                     <h3 className="font-black text-lg text-gray-800 flex items-center gap-2 flex-wrap">
                                                         {student.chinese_name}
-                                                        {absent
-                                                            ? <span className="bg-gray-500 text-white text-[10px] px-2 py-0.5 rounded-full">請假</span>
-                                                            : otherTags.map(t => (
-                                                                <span key={t} className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-200">
-                                                                    🧸 {t}
-                                                                </span>
-                                                            ))
-                                                        }
+                                                        {absent ? <span className="bg-gray-500 text-white text-[10px] px-2 py-0.5 rounded-full">請假</span> : otherTags.map(t => (<span key={t} className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-200">🧸 {t}</span>))}
                                                     </h3>
-                                                    {/* 顯示該生完整標籤 */}
                                                     <p className="text-[10px] font-bold text-gray-400 uppercase">{student.grade}</p>
                                                 </div>
                                             </div>
-
                                             <div className="flex flex-col items-end gap-2">
-                                                {form.signature ? (
-                                                    <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold">✅ 已簽名</span>
-                                                ) : (
-                                                    <span className="text-[10px] bg-red-50 text-red-400 px-2 py-1 rounded font-bold">尚未簽名</span>
-                                                )}
-                                                {isTeacher && (
-                                                    <label className="text-[10px] font-bold text-gray-400 flex items-center gap-1 cursor-pointer">
-                                                        <input type="checkbox" checked={form.is_absent} onChange={e => handleFormChange(student.id, 'is_absent', e.target.checked)} className="accent-gray-500" />
-                                                        請假
-                                                    </label>
-                                                )}
+                                                {form.signature ? <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold">✅ 已簽名</span> : <span className="text-[10px] bg-red-50 text-red-400 px-2 py-1 rounded font-bold">尚未簽名</span>}
+                                                {isTeacher && <label className="text-[10px] font-bold text-gray-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={form.is_absent} onChange={e => handleFormChange(student.id, 'is_absent', e.target.checked)} className="accent-gray-500" /> 請假</label>}
                                             </div>
                                         </div>
 
@@ -471,46 +566,26 @@ export default function ContactBookPage() {
                                                 <div className="w-px bg-gray-200"></div>
                                                 <StarRating label="食慾" value={form.appetite} onChange={(v: any) => handleFormChange(student.id, 'appetite', v)} disabled={!isTeacher} />
                                             </div>
-
                                             <div>
                                                 <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📚 今日作業</label>
-                                                {isTeacher ? (
-                                                    <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." />
-                                                ) : (
-                                                    <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>
-                                                )}
+                                                {isTeacher ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
                                             </div>
-
                                             <div>
                                                 <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">💬 老師叮嚀</label>
-                                                {isTeacher ? (
-                                                    <textarea rows={3} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="個別評語..." />
-                                                ) : (
-                                                    <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">{form.note || '無'}</div>
-                                                )}
+                                                {isTeacher ? <textarea rows={3} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="個別評語..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">{form.note || '無'}</div>}
                                             </div>
-
                                             <div>
                                                 <div className="flex justify-between items-center mb-1">
                                                     <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📸 照片</label>
                                                     {isTeacher && <button onClick={() => handleUploadClick(student.id)} className="text-[10px] text-indigo-500 font-bold hover:bg-indigo-50 px-2 py-0.5 rounded">➕ 上傳</button>}
                                                 </div>
                                                 <div className="flex gap-2 overflow-x-auto min-h-[60px] pb-1">
-                                                    {form.photos?.map((url: string, i: number) => (
-                                                        <img key={i} src={url} onClick={() => setLightboxPhoto(url)} className="w-16 h-16 rounded-lg object-cover border border-gray-100 cursor-zoom-in" />
-                                                    ))}
+                                                    {form.photos?.map((url: string, i: number) => <img key={i} src={url} onClick={() => setLightboxPhoto(url)} className="w-16 h-16 rounded-lg object-cover border border-gray-100 cursor-zoom-in" />)}
                                                     {!form.photos?.length && <div className="text-xs text-gray-300 italic flex items-center pl-1">無照片</div>}
                                                 </div>
                                             </div>
-
                                             <div className="pt-2">
-                                                {isTeacher ? (
-                                                    <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-md transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                                        {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '📤 發送 / 儲存'}
-                                                    </button>
-                                                ) : (
-                                                    !form.signature && <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>
-                                                )}
+                                                {isTeacher ? <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-md transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '📤 發送 / 儲存'}</button> : !form.signature && <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>}
                                             </div>
                                         </div>
                                     </div>
