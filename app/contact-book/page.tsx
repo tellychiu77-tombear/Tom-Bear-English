@@ -4,369 +4,265 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
+// 預設評分項目
+const DEFAULT_FORM = {
+    mood: 3,
+    focus: 3,
+    appetite: 3,
+    homework: '',
+    note: ''
+};
+
 export default function ContactBookPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
-    // 🚫 給定初始值為 null 或 'unknown'，絕對不要預設 'parent'，避免權限誤判
-    const [role, setRole] = useState<string>('unknown');
-    const [userEmail, setUserEmail] = useState('');
+    const [students, setStudents] = useState<any[]>([]);
 
-    // Data
-    const [classes, setClasses] = useState<any[]>([]); // 主管用的班級列表
-    const [selectedClassId, setSelectedClassId] = useState<string>(''); // 主管選中的班級
+    // UI 狀態
+    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]); // 預設今天
+    const [selectedClass, setSelectedClass] = useState<string>(''); // 目前選中的班級
+    const [uniqueClasses, setUniqueClasses] = useState<string[]>([]); // 該老師所有的班級列表
 
-    const [myStudents, setMyStudents] = useState<any[]>([]);
-    const [selectedStudentId, setSelectedStudentId] = useState<string>('');
-    const [todayLog, setTodayLog] = useState<any>(null);
+    // 編輯狀態 (用 Map 來存每個學生的表單資料，key 是 student_id)
+    // 這樣可以實現「同時編輯多人」
+    const [forms, setForms] = useState<Record<string, typeof DEFAULT_FORM>>({});
 
-    // Form 
-    const [formData, setFormData] = useState({
-        mood: 3,
-        focus: 3,
-        appetite: 3,
-        homework: '',
-        message: '',
-        photo_url: ''
-    });
-
-    // 主管專用：根據班級 ID 抓學生
-    const fetchStudentsForDirector = useCallback(async (classId: string) => {
-        const { data: students } = await supabase
-            .from('students')
-            .select('id, chinese_name, grade')
-            .eq('class_id', classId)
-            .order('chinese_name');
-
-        const list = students || [];
-        setMyStudents(list);
-        if (list.length > 0) {
-            setSelectedStudentId(list[0].id);
-        } else {
-            setSelectedStudentId('');
-            setTodayLog(null);
-        }
-    }, []);
-
-    const fetchTodayLog = useCallback(async (studentId: string) => {
-        const today = new Date().toISOString().split('T')[0];
-        const { data: logs } = await supabase
-            .from('contact_books')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('date', today)
-            .limit(1);
-
-        const data = logs && logs.length > 0 ? logs[0] : null;
-        setTodayLog(data);
-
-        if (data) {
-            setFormData({
-                mood: data.mood,
-                focus: data.focus,
-                appetite: data.appetite,
-                homework: data.homework || '',
-                message: data.message || '',
-                photo_url: data.photo_url || ''
-            });
-        } else {
-            setFormData({ mood: 3, focus: 3, appetite: 3, homework: '', message: '', photo_url: '' });
-        }
-    }, []);
-
-    const initPage = useCallback(async () => {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) { router.push('/'); return; }
-
-            // 1. 讀取用戶角色 (🔍 增加錯誤 Log)
-            const { data: users, error } = await supabase
-                .from('users')
-                .select('role, email')
-                .eq('id', session.user.id)
-                .limit(1);
-
-            if (error) {
-                console.error("🔥 Error fetching user role:", error);
-            }
-
-            const user = users && users.length > 0 ? users[0] : null;
-
-            // 🚫 移除預設值：如果是 null，就讓它是 'unknown'
-            const currentRole = user?.role || 'unknown';
-
-            if (currentRole === 'unknown') {
-                console.warn("⚠️ User role is unknown. Data might be missing in 'users' table.");
-            }
-
-            setRole(currentRole);
-            setUserEmail(user?.email || session.user.email || '');
-
-            // 2. 根據身份決定介面流程
-            if (currentRole === 'director') {
-                const { data: cls } = await supabase.from('classes').select('*').order('name');
-                setClasses(cls || []);
-                if (cls && cls.length > 0) {
-                    setSelectedClassId(cls[0].id);
-                }
-
-            } else if (currentRole === 'teacher') {
-                const { data: students } = await supabase
-                    .from('students')
-                    .select('id, chinese_name, grade')
-                    .order('grade')
-                    .order('chinese_name');
-
-                const list = students || [];
-                setMyStudents(list);
-                if (list.length > 0) setSelectedStudentId(list[0].id);
-
-            } else if (currentRole === 'parent') {
-                // 只有明確是 parent 才走這裡
-                const { data: children } = await supabase
-                    .from('students')
-                    .select('id, chinese_name')
-                    .or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`);
-
-                const list = children || [];
-                setMyStudents(list);
-                if (list.length > 0) setSelectedStudentId(list[0].id);
-            }
-
-        } catch (e: any) {
-            console.error("Critical Error in initPage:", e);
-        } finally {
-            setLoading(false);
-        }
-    }, [router]);
-
-    // 🛠️ 新增「帳號修復模式」
-    async function handleRepairAccount() {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        if (!confirm('您確定要初始化此帳號為「系統管理員 (Director)」嗎？\n請確認您有權限執行此操作。')) return;
-
+    // 1. 初始化：抓取老師負責的學生
+    const fetchData = useCallback(async () => {
         setLoading(true);
-        const { error } = await supabase.from('users').upsert({
-            id: session.user.id,
-            email: session.user.email,
-            role: 'director', // 強制設定為 director
-            created_at: new Date().toISOString()
-        });
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) { router.push('/'); return; }
 
-        if (error) {
-            alert('❌ 修復失敗: ' + error.message);
-            setLoading(false);
-        } else {
-            alert('✅ 帳號已初始化！網頁將自動重新整理。');
-            window.location.reload();
+        // 判斷身份
+        const { data: userRole } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+
+        let query = supabase.from('students').select('*').order('grade').order('chinese_name');
+
+        // 如果是家長，只抓自己的小孩 (這裡保留邏輯以免家長登入壞掉)
+        if (userRole?.role === 'parent') {
+            query = query.or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`);
         }
-    }
+        // 如果是老師/主任，抓全部 (或未來可擴充為只抓負責班級)
+        // 目前邏輯：老師可以看到全校，但透過 UI 篩選班級
+
+        const { data, error } = await query;
+        if (error) console.error(error);
+
+        const studentList = data || [];
+        setStudents(studentList);
+
+        // 2. 提取出所有不重複的班級 (用於頂部 Tabs)
+        const classes = Array.from(new Set(studentList.map(s => s.grade || '未分類')));
+        setUniqueClasses(classes);
+
+        // 預設選取第一個班級
+        if (classes.length > 0 && !selectedClass) {
+            setSelectedClass(classes[0]);
+        }
+
+        setLoading(false);
+    }, [router, selectedClass]);
 
     useEffect(() => {
-        initPage();
-    }, [initPage]);
+        fetchData();
+    }, [fetchData]);
 
-    // 當主管切換班級時，重抓該班學生
-    useEffect(() => {
-        if (role === 'director' && selectedClassId) {
-            fetchStudentsForDirector(selectedClassId);
-        }
-    }, [role, selectedClassId, fetchStudentsForDirector]);
+    // 切換班級時的處理
+    const filteredStudents = students.filter(s => (s.grade || '未分類') === selectedClass);
 
-    // 當切換學生時，抓取今日紀錄
-    useEffect(() => {
-        if (selectedStudentId) {
-            fetchTodayLog(selectedStudentId);
-        }
-    }, [selectedStudentId, fetchTodayLog]);
-
-    async function handleSubmit() {
-        if (!selectedStudentId) return;
-        try {
-            const today = new Date().toISOString().split('T')[0];
-            const payload = {
-                student_id: selectedStudentId,
-                date: today,
-                ...formData
-            };
-
-            const { data: existingLogs } = await supabase
-                .from('contact_books')
-                .select('id')
-                .eq('student_id', selectedStudentId)
-                .eq('date', today)
-                .limit(1);
-
-            const existing = existingLogs && existingLogs.length > 0 ? existingLogs[0] : null;
-
-            if (existing) {
-                await supabase.from('contact_books').update(payload).eq('id', existing.id);
-                alert('已更新今日紀錄！');
-            } else {
-                await supabase.from('contact_books').insert(payload);
-                alert('發布成功！');
+    // 處理表單變更 (只更新特定學生的資料)
+    const handleFormChange = (studentId: string, field: string, value: any) => {
+        setForms(prev => ({
+            ...prev,
+            [studentId]: {
+                ...(prev[studentId] || DEFAULT_FORM), // 如果還沒動過，就用預設值
+                [field]: value
             }
-            fetchTodayLog(selectedStudentId);
+        }));
+    };
+
+    // 儲存單一學生的紀錄
+    const handleSave = async (student: any) => {
+        const formData = forms[student.id] || DEFAULT_FORM;
+
+        // 簡單驗證
+        if (!formData.homework && !formData.note) {
+            if (!confirm(`確定要儲存 ${student.chinese_name} 的空白紀錄嗎？`)) return;
+        }
+
+        try {
+            // 寫入資料庫
+            const { error } = await supabase.from('contact_books').insert({
+                student_id: student.id,
+                date: selectedDate,
+                mood: formData.mood,
+                focus: formData.focus,
+                appetite: formData.appetite,
+                homework: formData.homework,
+                teacher_note: formData.note,
+                // created_by: 這裡可以自動抓，或後端處理
+            });
+
+            if (error) throw error;
+
+            alert(`✅ ${student.chinese_name} 的聯絡簿已發送！`);
+
+            // 清空該學生的表單 (或是保留讓老師知道已存？這裡選擇清空並標示)
+            // 實務上建議保留畫面但變灰，這裡先簡單重置
+            // setForms(prev => { ... }); 
 
         } catch (e: any) {
-            alert('發布失敗: ' + e.message);
+            alert('❌ 儲存失敗: ' + e.message);
         }
-    }
+    };
 
-    if (loading) return <div className="p-10 text-center">載入中...</div>;
-
-    // ⚠️ 帳號異常畫面
-    if (role === 'unknown') {
-        return (
-            <div className="min-h-screen bg-red-50 flex flex-col items-center justify-center p-6">
-                <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-red-100 max-w-md w-full text-center">
-                    <div className="text-6xl mb-4">⚠️</div>
-                    <h1 className="text-2xl font-black text-gray-800 mb-2">帳號資料異常</h1>
-                    <p className="text-gray-500 mb-6 leading-relaxed">
-                        系統無法讀取您的身份資料 (Role)。<br />
-                        這可能是因為資料庫中缺少您的使用者紀錄，或是 RLS 權限設定有誤。
-                    </p>
-
-                    <div className="bg-red-50 p-4 rounded-xl mb-6 text-left">
-                        <p className="text-xs font-bold text-red-400 uppercase mb-1">Debug Info:</p>
-                        <p className="text-sm text-gray-700 break-all font-mono">{userEmail || 'No Email Detected'}</p>
-                    </div>
-
+    // 星星元件 (提取出來重用)
+    const StarRating = ({ value, onChange, label }: { value: number, onChange: (v: number) => void, label: string }) => (
+        <div className="flex flex-col items-center gap-1">
+            <span className="text-xs font-bold text-gray-400">{label}</span>
+            <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((star) => (
                     <button
-                        onClick={handleRepairAccount}
-                        className="w-full py-4 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 shadow-lg shadow-red-200 transition transform active:scale-95"
+                        key={star}
+                        onClick={() => onChange(star)}
+                        className={`text-xl transition hover:scale-110 ${star <= value ? 'text-yellow-400' : 'text-gray-200'}`}
                     >
-                        🛠️ 初始化管理員身份
+                        ★
                     </button>
-                    <p className="text-xs text-gray-400 mt-4">點擊後將強制寫入 Director 權限</p>
-                </div>
+                ))}
             </div>
-        );
-    }
+        </div>
+    );
+
+    if (loading) return <div className="p-10 text-center font-bold text-gray-400">正在準備教室...</div>;
 
     return (
-        <div className="min-h-screen bg-indigo-50 p-4 md:p-6">
-            <div className="max-w-3xl mx-auto">
-                {/* 頂部標題區 */}
-                <div className="flex justify-between items-center mb-6">
-                    <div>
-                        <h1 className="text-2xl font-black text-gray-800 tracking-tight">📖 寶寶聯絡簿</h1>
-                        <div className="flex items-center gap-2 mt-1">
-                            {role === 'director' && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">👑 主管模式</span>}
-                            {role === 'teacher' && <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-bold">👨‍🏫 老師模式</span>}
-                            {role === 'parent' && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">🏠 家長模式</span>}
-                        </div>
+        <div className="min-h-screen bg-gray-50 pb-20">
+            {/* 1. 頂部控制列 (Sticky) */}
+            <div className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm px-4 py-3">
+                <div className="max-w-4xl mx-auto flex justify-between items-center mb-3">
+                    <h1 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                        📖 寶寶聯絡簿
+                    </h1>
+                    <div className="flex gap-2">
+                        {/* 日期選擇器 */}
+                        <input
+                            type="date"
+                            value={selectedDate}
+                            onChange={(e) => setSelectedDate(e.target.value)}
+                            className="bg-gray-100 border-0 rounded-lg px-3 py-2 font-bold text-gray-600 text-sm outline-none focus:ring-2 focus:ring-indigo-200"
+                        />
+                        <button onClick={() => router.push('/')} className="bg-gray-100 px-3 py-2 rounded-lg font-bold text-sm text-gray-500">
+                            回首頁
+                        </button>
                     </div>
-                    <button onClick={() => router.push('/')} className="bg-white px-4 py-2 rounded-xl text-gray-500 font-bold shadow-sm hover:bg-gray-100 text-sm transition">⬅️ 回首頁</button>
                 </div>
 
-                {/* 👑 主管專屬：班級選擇器 */}
-                {role === 'director' && (
-                    <div className="mb-6 bg-white p-4 rounded-2xl shadow-sm border border-purple-100">
-                        <label className="text-xs font-bold text-gray-400 block mb-2">請選擇要查看的班級：</label>
-                        <select
-                            value={selectedClassId}
-                            onChange={e => setSelectedClassId(e.target.value)}
-                            className="w-full p-2 border rounded-lg font-bold text-gray-700 outline-none focus:ring-2 focus:ring-purple-200"
+                {/* 班級選擇 Tabs (可橫向捲動) */}
+                <div className="max-w-4xl mx-auto flex gap-2 overflow-x-auto no-scrollbar pb-1">
+                    {uniqueClasses.map(cls => (
+                        <button
+                            key={cls}
+                            onClick={() => setSelectedClass(cls)}
+                            className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-bold transition border ${selectedClass === cls
+                                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md transform scale-105'
+                                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                                }`}
                         >
-                            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                    </div>
-                )}
+                            {cls}
+                        </button>
+                    ))}
+                    {uniqueClasses.length === 0 && <span className="text-sm text-gray-400">目前無班級資料</span>}
+                </div>
+            </div>
 
-                {/* 學生切換器 */}
-                {myStudents.length > 0 ? (
-                    <div className="mb-8">
-                        <div className="flex flex-nowrap md:flex-wrap gap-2 overflow-x-auto pb-2">
-                            {myStudents.map(student => (
-                                <button
-                                    key={student.id}
-                                    onClick={() => setSelectedStudentId(student.id)}
-                                    className={`px-4 py-2 rounded-full whitespace-nowrap font-bold transition shadow-sm border text-sm flex-shrink-0
-                                        ${selectedStudentId === student.id
-                                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-indigo-200 transform scale-105'
-                                            : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'}
-                                    `}
-                                >
-                                    {role === 'teacher' && student.grade ? <span className="opacity-70 mr-1 text-xs">{student.grade}</span> : ''}
-                                    {student.chinese_name}
-                                </button>
-                            ))}
-                        </div>
+            {/* 2. 學生卡片列表區 */}
+            <div className="max-w-4xl mx-auto p-4 space-y-6">
+
+                {filteredStudents.length === 0 ? (
+                    <div className="text-center py-20 text-gray-400">
+                        <p className="text-6xl mb-4">😴</p>
+                        <p className="font-bold">這個班級目前沒有學生喔</p>
                     </div>
                 ) : (
-                    <div className="bg-white p-8 rounded-2xl shadow-sm text-center mb-6 border border-dashed border-gray-200">
-                        <p className="text-gray-400 font-bold">
-                            {role === 'director' ? '此班級尚無學生資料' : (role === 'teacher' ? '⚠️ 您目前沒有負責的班級' : '尚未連結學生資料')}
-                        </p>
-                    </div>
-                )}
+                    filteredStudents.map(student => {
+                        // 取得該學生目前的編輯狀態 (若無則使用預設)
+                        const form = forms[student.id] || DEFAULT_FORM;
 
-                {/* 輸入區 */}
-                {(role === 'teacher' || role === 'director') && selectedStudentId && (
-                    <div className="bg-white rounded-3xl p-6 md:p-8 shadow-xl shadow-indigo-100 border border-white mb-8 animate-fade-in-up">
-                        <div className="flex items-center gap-2 mb-6 border-b pb-4">
-                            <span className="bg-indigo-100 p-2 rounded-lg text-xl">✏️</span>
-                            <h2 className="text-lg font-black text-gray-800">撰寫今日紀錄</h2>
-                        </div>
+                        return (
+                            <div key={student.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden transition hover:shadow-md">
+                                {/* 卡片頭部：學生資訊 */}
+                                <div className="bg-indigo-50/50 px-4 py-3 flex justify-between items-center border-b border-indigo-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full bg-indigo-200 flex items-center justify-center text-indigo-700 font-black text-lg">
+                                            {student.chinese_name.charAt(0)}
+                                        </div>
+                                        <div>
+                                            <h3 className="font-bold text-gray-800 text-lg">{student.chinese_name}</h3>
+                                            <p className="text-xs text-gray-400 font-bold">{student.grade}</p>
+                                        </div>
+                                    </div>
+                                    {/* 這裡可以放一個「查看歷史紀錄」的按鈕 */}
+                                </div>
 
-                        <div className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center hover:border-indigo-200 transition">
-                                    <label className="text-xs font-bold text-gray-400 block mb-2">心情 Mood</label>
-                                    <select value={formData.mood} onChange={e => setFormData({ ...formData, mood: Number(e.target.value) })} className="w-full text-center bg-white border-none shadow-sm rounded-xl py-2 font-bold text-indigo-600 text-lg cursor-pointer focus:ring-2 focus:ring-indigo-200 outline-none">{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} ⭐</option>)}</select>
-                                </div>
-                                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center hover:border-indigo-200 transition">
-                                    <label className="text-xs font-bold text-gray-400 block mb-2">專注 Focus</label>
-                                    <select value={formData.focus} onChange={e => setFormData({ ...formData, focus: Number(e.target.value) })} className="w-full text-center bg-white border-none shadow-sm rounded-xl py-2 font-bold text-indigo-600 text-lg cursor-pointer focus:ring-2 focus:ring-indigo-200 outline-none">{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} ⭐</option>)}</select>
-                                </div>
-                                <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100 text-center hover:border-indigo-200 transition">
-                                    <label className="text-xs font-bold text-gray-400 block mb-2">食慾 Appetite</label>
-                                    <select value={formData.appetite} onChange={e => setFormData({ ...formData, appetite: Number(e.target.value) })} className="w-full text-center bg-white border-none shadow-sm rounded-xl py-2 font-bold text-indigo-600 text-lg cursor-pointer focus:ring-2 focus:ring-indigo-200 outline-none">{[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n} ⭐</option>)}</select>
+                                {/* 卡片內容：編輯表單 */}
+                                <div className="p-5">
+                                    {/* 星星評分區 (Grid 排版) */}
+                                    <div className="grid grid-cols-3 gap-4 mb-6 bg-gray-50 p-4 rounded-xl">
+                                        <StarRating
+                                            label="心情 Mood"
+                                            value={form.mood}
+                                            onChange={(v) => handleFormChange(student.id, 'mood', v)}
+                                        />
+                                        <StarRating
+                                            label="專注 Focus"
+                                            value={form.focus}
+                                            onChange={(v) => handleFormChange(student.id, 'focus', v)}
+                                        />
+                                        <StarRating
+                                            label="食慾 Appetite"
+                                            value={form.appetite}
+                                            onChange={(v) => handleFormChange(student.id, 'appetite', v)}
+                                        />
+                                    </div>
+
+                                    {/* 文字輸入區 */}
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 mb-1 ml-1">今日作業 Homework</label>
+                                            <input
+                                                type="text"
+                                                placeholder="例如：完成第 5 頁..."
+                                                value={form.homework}
+                                                onChange={(e) => handleFormChange(student.id, 'homework', e.target.value)}
+                                                className="w-full p-3 bg-gray-50 border-0 rounded-xl font-bold text-gray-700 placeholder-gray-300 focus:ring-2 focus:ring-indigo-100 outline-none transition"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-400 mb-1 ml-1">老師的話 Teacher's Note</label>
+                                            <textarea
+                                                placeholder="分享孩子今天的表現..."
+                                                rows={2}
+                                                value={form.note}
+                                                onChange={(e) => handleFormChange(student.id, 'note', e.target.value)}
+                                                className="w-full p-3 bg-gray-50 border-0 rounded-xl font-bold text-gray-700 placeholder-gray-300 focus:ring-2 focus:ring-indigo-100 outline-none transition resize-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* 底部按鈕 */}
+                                    <div className="mt-6 flex justify-end">
+                                        <button
+                                            onClick={() => handleSave(student)}
+                                            className="bg-indigo-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition flex items-center gap-2"
+                                        >
+                                            <span>📤 發送紀錄</span>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 ml-1 mb-1 block">今日作業 Homework</label>
-                                <input type="text" value={formData.homework} onChange={e => setFormData({ ...formData, homework: e.target.value })} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl font-bold text-gray-700 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition" placeholder="例如：完成第 5 頁..." />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 ml-1 mb-1 block">老師的話 Teacher&apos;s Note</label>
-                                <textarea value={formData.message} onChange={e => setFormData({ ...formData, message: e.target.value })} className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl text-gray-700 focus:bg-white focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition h-32 resize-none" placeholder="分享孩子今天的表現..." />
-                            </div>
-
-                            <button onClick={handleSubmit} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-lg shadow-lg shadow-indigo-200 hover:bg-indigo-700 hover:shadow-xl hover:-translate-y-1 transition-all active:scale-95 flex justify-center items-center gap-2">
-                                {todayLog ? '🔄 更新今日紀錄' : '🚀 發布今日聯絡簿'}
-                            </button>
-                        </div>
-                    </div>
-                )}
-
-                {/* 結果顯示區 */}
-                {todayLog ? (
-                    <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-gray-100 relative overflow-hidden animate-fade-in">
-                        <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-400 to-purple-400"></div>
-                        <div className="flex justify-between items-start mb-8">
-                            <div><h2 className="text-2xl font-black text-gray-800">今日紀錄</h2><p className="text-sm text-gray-400 font-bold mt-1">{todayLog.date}</p></div>
-                            <div className="bg-green-50 text-green-700 px-4 py-1.5 rounded-full text-xs font-bold border border-green-100">✅ 已發布</div>
-                        </div>
-                        <div className="flex justify-around mb-8 bg-gray-50 p-6 rounded-3xl border border-gray-50">
-                            <div className="text-center"><div className="text-3xl mb-2">🥰</div><div className="text-xs text-gray-400 font-bold uppercase">Mood</div><div className="font-black text-indigo-600 text-xl mt-1">{todayLog.mood}</div></div>
-                            <div className="text-center"><div className="text-3xl mb-2">🧐</div><div className="text-xs text-gray-400 font-bold uppercase">Focus</div><div className="font-black text-indigo-600 text-xl mt-1">{todayLog.focus}</div></div>
-                            <div className="text-center"><div className="text-3xl mb-2">🍱</div><div className="text-xs text-gray-400 font-bold uppercase">Appetite</div><div className="font-black text-indigo-600 text-xl mt-1">{todayLog.appetite}</div></div>
-                        </div>
-                        <div className="space-y-4">
-                            <div className="p-5 bg-orange-50 rounded-2xl border border-orange-100"><h3 className="text-xs font-black text-orange-400 uppercase mb-2">Homework</h3><p className="text-gray-800 font-bold text-lg">{todayLog.homework || '今日無作業'}</p></div>
-                            <div className="p-5 bg-blue-50 rounded-2xl border border-blue-100"><h3 className="text-xs font-black text-blue-400 uppercase mb-2">Note</h3><p className="text-gray-700 leading-relaxed">{todayLog.message || '無特殊備註'}</p></div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="bg-white rounded-3xl p-12 shadow-sm border border-dashed border-gray-200 text-center">
-                        <div className="text-6xl mb-4 animate-bounce-slow grayscale opacity-50">😴</div>
-                        <h3 className="text-lg font-black text-gray-400">今日尚未發布聯絡簿</h3>
-                        {(role === 'teacher' || role === 'director') && <p className="text-xs text-indigo-400 mt-2 font-bold animate-pulse">👆 請在上方的輸入框填寫並發布</p>}
-                    </div>
+                        );
+                    })
                 )}
             </div>
         </div>
