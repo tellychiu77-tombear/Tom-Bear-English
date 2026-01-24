@@ -16,6 +16,7 @@ const ENGLISH_CLASS_OPTIONS = [
 export default function AdminPage() {
     const router = useRouter();
     const [users, setUsers] = useState<any[]>([]);
+    const [allStudents, setAllStudents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -26,21 +27,14 @@ export default function AdminPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<any>(null);
     const [selectedRole, setSelectedRole] = useState('parent');
+    const [isApproved, setIsApproved] = useState(false);
 
     // --- 各身分專屬狀態 ---
-
-    // 家長用：子女列表 & 新增表單
     const [userChildren, setUserChildren] = useState<any[]>([]);
     const [newChildData, setNewChildData] = useState({ chinese_name: '', english_name: '', english_class: 'CEI-A', is_after_school: false });
-
-    // 家長用：編輯子女小視窗 (Nested Modal)
     const [isEditChildOpen, setIsEditChildOpen] = useState(false);
     const [editingChild, setEditingChild] = useState<any>(null);
-
-    // 老師用：負責班級 (陣列)
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
-
-    // 主任用：是否為最高權限 (Super Admin)
     const [targetIsSuperAdmin, setTargetIsSuperAdmin] = useState(false);
 
     useEffect(() => {
@@ -51,10 +45,9 @@ export default function AdminPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        // 獲取當前用戶詳細資料 (含 is_super_admin)
         const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
 
-        // 權限檢查：必須是管理層才能進來
+        // 權限檢查：開放給所有主任與行政
         if (!userData || !['director', 'english_director', 'care_director', 'admin'].includes(userData.role)) {
             alert('⛔ 您沒有權限進入此頁面');
             router.push('/');
@@ -66,13 +59,18 @@ export default function AdminPage() {
 
     async function fetchUsers() {
         setLoading(true);
-        const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-        if (error) alert('讀取失敗');
-        else setUsers(data || []);
+        // 主任可以看到所有資料
+        const { data: usersData, error: usersError } = await supabase.from('users').select('*').order('created_at', { ascending: false });
+        const { data: studentsData } = await supabase.from('students').select('id, parent_id, parent_id_2, chinese_name, grade');
+
+        if (usersError) alert('讀取失敗');
+        else {
+            setUsers(usersData || []);
+            setAllStudents(studentsData || []);
+        }
         setLoading(false);
     }
 
-    // 寫入日誌 Helper
     async function logAction(action: string, details: string) {
         await supabase.from('system_logs').insert({
             operator_email: currentUser.email,
@@ -81,22 +79,20 @@ export default function AdminPage() {
         });
     }
 
-    // --- 開啟編輯視窗 (主視窗) ---
+    // --- 開啟編輯視窗 ---
     async function openEditModal(user: any) {
         setEditingUser(user);
         setSelectedRole(user.role);
         setTargetIsSuperAdmin(user.is_super_admin || false);
+        setIsApproved(user.is_approved || false);
 
-        // 解析老師負責班級 (從資料庫讀出來是 JSON)
         try {
             const classes = user.responsible_classes ? JSON.parse(user.responsible_classes) : [];
             setTeacherClasses(classes);
         } catch { setTeacherClasses([]); }
 
-        // 重置新增表單
         setNewChildData({ chinese_name: '', english_name: '', english_class: 'CEI-A', is_after_school: false });
 
-        // 抓取該家長的所有子女
         const { data: children } = await supabase
             .from('students')
             .select('*')
@@ -106,106 +102,78 @@ export default function AdminPage() {
         setIsModalOpen(true);
     }
 
-    // --- 儲存使用者設定 (權限、負責班級) ---
+    // --- 儲存使用者設定 ---
     async function handleSaveUserConfig() {
         if (!editingUser) return;
         try {
-            const updates: any = { role: selectedRole };
+            const updates: any = { role: selectedRole, is_approved: isApproved };
 
-            // 老師：儲存負責班級
-            if (selectedRole === 'teacher') {
+            // 修改：讓老師、英文主任、安親主任都可以存班級資料
+            if (['teacher', 'english_director', 'care_director'].includes(selectedRole)) {
                 updates.responsible_classes = JSON.stringify(teacherClasses);
             }
-
-            // 主任/行政：儲存最高權限 (只有自己是 Super Admin 才能改別人)
-            if (['director', 'english_director', 'care_director', 'admin'].includes(selectedRole)) {
-                if (currentUser.is_super_admin) {
+            // 只有 Super Admin 可以賦予別人 Super 權限
+            if (currentUser.is_super_admin) {
+                if (['director', 'english_director', 'care_director', 'admin'].includes(selectedRole)) {
                     updates.is_super_admin = targetIsSuperAdmin;
                 }
             }
-            // 如果改為家長，要清空 super admin
-            if (selectedRole === 'parent') {
-                updates.is_super_admin = false;
-            }
+            if (selectedRole === 'parent') updates.is_super_admin = false;
 
             const { error } = await supabase.from('users').update(updates).eq('id', editingUser.id);
             if (error) throw error;
 
-            await logAction('更新用戶設定', `更新 ${editingUser.email}：角色=${selectedRole}, 最高權限=${targetIsSuperAdmin}, 班級=${JSON.stringify(teacherClasses)}`);
+            await logAction('更新用戶設定', `更新 ${editingUser.email} 為 ${selectedRole}`);
             alert('✅ 設定已更新');
             fetchUsers();
-            setIsModalOpen(false); // 關閉視窗
-        } catch (e: any) {
-            alert('❌ 失敗: ' + e.message);
-        }
+            setIsModalOpen(false);
+        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
     }
 
-    // --- 家長功能：新增子女 ---
     async function handleAddChild() {
         if (!newChildData.chinese_name) return alert('請輸入姓名');
         try {
-            // 邏輯處理：純安親 vs 混搭
             let finalGrade = newChildData.english_class;
-            if (finalGrade === 'NONE') {
-                finalGrade = newChildData.is_after_school ? '課後輔導' : '未分類';
-            } else {
-                if (newChildData.is_after_school) finalGrade += ', 課後輔導';
-            }
+            if (finalGrade === 'NONE') finalGrade = newChildData.is_after_school ? '課後輔導' : '未分類';
+            else if (newChildData.is_after_school) finalGrade += ', 課後輔導';
 
             const payload = {
                 chinese_name: newChildData.chinese_name,
                 english_name: newChildData.english_name,
                 grade: finalGrade,
                 parent_id: editingUser.id,
-                school_grade: '國小 一年級' // 預設值
+                school_grade: '國小 一年級'
             };
             const { data, error } = await supabase.from('students').insert(payload).select();
             if (error) throw error;
 
-            await logAction('新增子女', `為 ${editingUser.email} 新增學生：${newChildData.chinese_name}`);
+            await logAction('新增子女', `新增學生：${newChildData.chinese_name}`);
             setUserChildren([...userChildren, data[0]]);
             setNewChildData({ chinese_name: '', english_name: '', english_class: 'CEI-A', is_after_school: false });
+            fetchUsers();
         } catch (e: any) { alert('❌ ' + e.message); }
     }
 
-    // --- 家長功能：開啟編輯子女小視窗 ---
     function openEditChild(child: any) {
-        // 解析目前班級字串，還原到 UI 狀態
         let eng = 'CEI-A';
         let after = false;
-
         if (child.grade) {
             if (child.grade.includes('課後輔導')) after = true;
-
-            // 移除 "課後輔導" 字眼，剩下的就是英文班
             let temp = child.grade.replace(', 課後輔導', '').replace('課後輔導', '').trim();
-            if (temp.endsWith(',')) temp = temp.slice(0, -1); // 去掉逗號
-
+            if (temp.endsWith(',')) temp = temp.slice(0, -1);
             if (temp !== '' && temp !== '未分類') eng = temp;
             else eng = 'NONE';
         }
-
-        setEditingChild({
-            id: child.id,
-            chinese_name: child.chinese_name,
-            english_name: child.english_name || '',
-            english_class: eng,
-            is_after_school: after
-        });
+        setEditingChild({ id: child.id, chinese_name: child.chinese_name, english_name: child.english_name || '', english_class: eng, is_after_school: after });
         setIsEditChildOpen(true);
     }
 
-    // --- 家長功能：儲存子女修改 ---
     async function handleSaveChild() {
         if (!editingChild) return;
         try {
-            // 重新組合班級字串
             let finalGrade = editingChild.english_class;
-            if (finalGrade === 'NONE') {
-                finalGrade = editingChild.is_after_school ? '課後輔導' : '未分類';
-            } else {
-                if (editingChild.is_after_school) finalGrade += ', 課後輔導';
-            }
+            if (finalGrade === 'NONE') finalGrade = editingChild.is_after_school ? '課後輔導' : '未分類';
+            else if (editingChild.is_after_school) finalGrade += ', 課後輔導';
 
             const { error } = await supabase.from('students').update({
                 chinese_name: editingChild.chinese_name,
@@ -214,18 +182,17 @@ export default function AdminPage() {
             }).eq('id', editingChild.id);
 
             if (error) throw error;
-            await logAction('修改學生資料', `修改學生 ID ${editingChild.id} 資料為 ${finalGrade}`);
+            await logAction('修改學生資料', `修改 ID ${editingChild.id}`);
 
-            // 更新畫面上的列表
             const updatedList = userChildren.map(c => c.id === editingChild.id ? { ...c, ...editingChild, grade: finalGrade } : c);
             setUserChildren(updatedList);
             setIsEditChildOpen(false);
+            fetchUsers();
         } catch (e: any) { alert('❌ ' + e.message); }
     }
 
-    // --- 家長功能：解除綁定 ---
     async function handleUnbindChild(id: string, name: string) {
-        if (!confirm(`確定要解除與 ${name} 的綁定嗎？(資料不會刪除)`)) return;
+        if (!confirm(`確定要解除與 ${name} 的綁定嗎？`)) return;
         try {
             const child = userChildren.find(c => c.id === id);
             const updates: any = {};
@@ -233,20 +200,21 @@ export default function AdminPage() {
             if (child.parent_id_2 === editingUser.id) updates.parent_id_2 = null;
 
             await supabase.from('students').update(updates).eq('id', id);
-            await logAction('解除綁定', `解除 ${editingUser.email} 與 ${name} 的連結`);
+            await logAction('解除綁定', `解除 ${editingUser.email} 與 ${name}`);
             setUserChildren(userChildren.filter(c => c.id !== id));
+            fetchUsers();
         } catch (e: any) { alert('❌ ' + e.message); }
     }
 
-    // 老師功能：切換班級勾選
     function toggleClass(cls: string) {
         if (teacherClasses.includes(cls)) setTeacherClasses(teacherClasses.filter(c => c !== cls));
         else setTeacherClasses([...teacherClasses, cls]);
     }
 
-    // 刪除使用者
     async function handleDeleteUser(id: string, email: string) {
         if (!confirm(`⚠️ 確定要刪除 ${email} 嗎？此動作無法復原。`)) return;
+        if (currentUser.id === id) return alert('❌ 您不能刪除自己的帳號');
+
         const { error } = await supabase.from('users').delete().eq('id', id);
         if (error) alert('刪除失敗');
         else {
@@ -254,6 +222,28 @@ export default function AdminPage() {
             fetchUsers();
         }
     }
+
+    const getTeacherClasses = (jsonString: string) => {
+        try {
+            const classes = JSON.parse(jsonString || '[]');
+            if (classes.length === 0) return <span className="text-gray-400 text-xs">尚無班級</span>;
+            return classes.map((c: string) => (
+                <span key={c} className="mr-1 inline-block bg-orange-100 text-orange-700 text-[10px] px-1.5 py-0.5 rounded border border-orange-200">
+                    {c.replace('CEI-', '')}
+                </span>
+            ));
+        } catch { return null; }
+    };
+
+    const getParentChildren = (userId: string) => {
+        const children = allStudents.filter(s => s.parent_id === userId || s.parent_id_2 === userId);
+        if (children.length === 0) return <span className="text-gray-400 text-xs">尚無綁定</span>;
+        return children.map(c => (
+            <span key={c.id} className="mr-1 inline-block bg-blue-50 text-blue-600 text-[10px] px-1.5 py-0.5 rounded border border-blue-100 font-bold">
+                {c.chinese_name}
+            </span>
+        ));
+    };
 
     const filteredUsers = users.filter(u => u.email.toLowerCase().includes(searchTerm.toLowerCase()) || u.role.includes(searchTerm));
 
@@ -265,7 +255,13 @@ export default function AdminPage() {
                 <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                     <h1 className="text-3xl font-black text-gray-800">👥 人事管理系統</h1>
                     <div className="flex gap-3 w-full md:w-auto">
-                        {/* 🔥 日誌按鈕 (只有最高權限看得到) */}
+
+                        {/* 🔥 新增：回首頁按鈕 */}
+                        <button onClick={() => router.push('/')} className="bg-white text-gray-600 px-4 py-2 rounded-xl font-bold border border-gray-200 hover:bg-gray-50 transition whitespace-nowrap shadow-sm">
+                            🏠 回首頁
+                        </button>
+
+                        {/* 只有 Super Admin 看得到日誌 */}
                         {currentUser?.is_super_admin && (
                             <button onClick={() => router.push('/admin/logs')} className="bg-gray-800 text-white px-4 py-2 rounded-xl font-bold hover:bg-black transition whitespace-nowrap shadow-lg">
                                 📜 監控日誌
@@ -279,22 +275,63 @@ export default function AdminPage() {
                     <table className="w-full text-left">
                         <thead className="bg-gray-100">
                             <tr>
-                                <th className="p-4 text-xs font-black text-gray-500">EMAIL</th>
-                                <th className="p-4 text-xs font-black text-gray-500">身份</th>
+                                <th className="p-4 text-xs font-black text-gray-500 w-1/3">EMAIL / 帳號</th>
+                                <th className="p-4 text-xs font-black text-gray-500 w-1/3">身份與詳細資訊 (Info)</th>
                                 <th className="p-4 text-xs font-black text-gray-500 text-right">操作</th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredUsers.map(u => (
                                 <tr key={u.id} className="border-t hover:bg-gray-50">
-                                    <td className="p-4 font-bold text-sm">
-                                        {u.email}
-                                        {u.is_super_admin && <span className="ml-2 text-[10px] bg-red-100 text-red-600 px-1 rounded font-bold">SUPER</span>}
+                                    <td className="p-4">
+                                        <div className="font-bold text-sm text-gray-800">{u.email}</div>
+                                        {/* 只有 Super Admin 會顯示標籤 */}
+                                        {u.is_super_admin && <span className="inline-block mt-1 text-[10px] bg-red-100 text-red-600 px-1.5 rounded font-bold border border-red-200">SUPER</span>}
                                     </td>
-                                    <td className="p-4"><span className="bg-gray-100 px-2 py-1 rounded text-xs font-bold">{u.role}</span></td>
-                                    <td className="p-4 text-right flex justify-end gap-2">
-                                        <button onClick={() => openEditModal(u)} className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1 rounded border border-indigo-200">⚙️ 設定/綁定</button>
-                                        <button onClick={() => handleDeleteUser(u.id, u.email)} className="text-red-500 font-bold text-xs hover:bg-red-50 px-3 py-1 rounded border border-red-200">刪除</button>
+
+                                    <td className="p-4 align-middle">
+                                        <div className="flex flex-col gap-1.5">
+                                            <div>
+                                                {/* 主任顏色標籤 */}
+                                                <span className={`px-2 py-0.5 rounded text-xs font-black border inline-block ${u.role === 'parent' ? 'bg-green-100 text-green-700 border-green-200' :
+                                                    u.role === 'teacher' ? 'bg-indigo-100 text-indigo-700 border-indigo-200' :
+                                                        u.role === 'director' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                                            u.role === 'english_director' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                                u.role === 'care_director' ? 'bg-pink-100 text-pink-700 border-pink-200' :
+                                                                    'bg-gray-100 text-gray-700 border-gray-200'
+                                                    }`}>
+                                                    {u.role === 'parent' ? '🏠 家長' :
+                                                        u.role === 'teacher' ? '👩‍🏫 老師' :
+                                                            u.role === 'director' ? '👑 總園長' :
+                                                                u.role === 'english_director' ? '🇬🇧 英文部主任' :
+                                                                    u.role === 'care_director' ? '🧸 安親部主任' :
+                                                                        u.role === 'admin' ? '💼 行政人員' : u.role}
+                                                </span>
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center">
+                                                {u.role === 'parent' && (
+                                                    <>
+                                                        <span className="text-[10px] text-gray-400 font-bold mr-1">子女:</span>
+                                                        {getParentChildren(u.id)}
+                                                    </>
+                                                )}
+                                                {/* 修改：只要是老師或主任，都顯示負責班級 */}
+                                                {['teacher', 'english_director', 'care_director'].includes(u.role) && (
+                                                    <>
+                                                        <span className="text-[10px] text-gray-400 font-bold mr-1">班級:</span>
+                                                        {getTeacherClasses(u.responsible_classes)}
+                                                    </>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <td className="p-4 text-right">
+                                        <div className="flex justify-end gap-2">
+                                            <button onClick={() => openEditModal(u)} className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 transition">⚙️ 設定</button>
+                                            <button onClick={() => handleDeleteUser(u.id, u.email)} className="text-red-500 font-bold text-xs hover:bg-red-50 px-3 py-1.5 rounded border border-red-200 transition">刪除</button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -303,7 +340,7 @@ export default function AdminPage() {
                 </div>
             </div>
 
-            {/* ⚙️ 主編輯視窗 (Modal) */}
+            {/* Modal */}
             {isModalOpen && editingUser && (
                 <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 animate-fade-in">
@@ -315,27 +352,49 @@ export default function AdminPage() {
                             <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 font-bold">✕</button>
                         </div>
 
-                        {/* 1. 身份選擇 */}
                         <div className="mb-6">
                             <label className="block text-xs font-black text-gray-400 mb-2 uppercase">1. 身份權限 (Role)</label>
                             <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="w-full p-3 border rounded-xl font-bold bg-gray-50">
                                 <option value="parent">🏠 家長 (Parent)</option>
                                 <option value="teacher">👩‍🏫 老師 (Teacher)</option>
-                                <option value="director">👑 園長 (Director)</option>
+                                <option disabled>──────────</option>
+                                <option value="director">👑 總園長 (Director)</option>
+                                <option value="english_director">🇬🇧 英文部主任 (English Director)</option>
+                                <option value="care_director">🧸 安親部主任 (Care Director)</option>
                                 <option value="admin">💼 行政人員 (Admin)</option>
                             </select>
 
-                            {/* 最高權限開關 (僅 Super Admin 可見) */}
-                            {currentUser.is_super_admin && ['director', 'admin'].includes(selectedRole) && (
+                            <div className={`mt-4 p-4 rounded-xl border flex items-center justify-between transition-colors ${isApproved ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                <div>
+                                    <h4 className={`font-black text-sm ${isApproved ? 'text-green-800' : 'text-gray-500'}`}>
+                                        {isApproved ? '✅ 帳號已啟用 (Active)' : '⛔ 帳號停用/審核中 (Inactive)'}
+                                    </h4>
+                                    <p className="text-xs text-gray-400 font-bold mt-1">
+                                        {isApproved ? '使用者可正常登入' : '使用者將看到審核中畫面'}
+                                    </p>
+                                </div>
+                                <label className="relative inline-flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={isApproved}
+                                        onChange={e => setIsApproved(e.target.checked)}
+                                        className="sr-only peer"
+                                    />
+                                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-500"></div>
+                                </label>
+                            </div>
+
+                            {/* 只有 Super Admin 看得到授予 Super 權限的開關 */}
+                            {currentUser.is_super_admin && ['director', 'english_director', 'care_director', 'admin'].includes(selectedRole) && (
                                 <div className="mt-3 flex items-center gap-2 bg-red-50 p-3 rounded-xl border border-red-100">
                                     <input type="checkbox" checked={targetIsSuperAdmin} onChange={e => setTargetIsSuperAdmin(e.target.checked)} className="accent-red-600 w-5 h-5" />
-                                    <span className="font-bold text-red-700 text-sm">👑 授予最高權限 (能看日誌/管理管理員)</span>
+                                    <span className="font-bold text-red-700 text-sm">👑 授予最高權限 (能看日誌/管理 Super Admin)</span>
                                 </div>
                             )}
                         </div>
 
-                        {/* 2. 老師專用：負責班級 */}
-                        {selectedRole === 'teacher' && (
+                        {/* 修改：讓老師、英文主任、安親主任都能看到班級勾選框 */}
+                        {['teacher', 'english_director', 'care_director'].includes(selectedRole) && (
                             <div className="mb-6 bg-indigo-50 p-4 rounded-xl border border-indigo-100">
                                 <h4 className="font-black text-indigo-700 text-sm mb-3">📋 負責班級 (Responsible Classes)</h4>
                                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
@@ -353,7 +412,6 @@ export default function AdminPage() {
                             </div>
                         )}
 
-                        {/* 3. 家長專用：子女管理 */}
                         {selectedRole === 'parent' && (
                             <div className="mb-6">
                                 <h4 className="font-black text-gray-400 text-xs mb-3 uppercase">2. 子女管理 (Children)</h4>
@@ -404,7 +462,7 @@ export default function AdminPage() {
                 </div>
             )}
 
-            {/* ✏️ 子女編輯小視窗 (Nested Modal) */}
+            {/* 子女編輯視窗 (不變) */}
             {isEditChildOpen && editingChild && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 animate-fade-in border border-gray-200">

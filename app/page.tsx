@@ -5,6 +5,17 @@ import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+// ✅ 新增：角色名稱對照表 (讓介面顯示正確的中文職稱)
+const ROLE_MAP: Record<string, string> = {
+    director: '總園長',
+    english_director: '英文部主任',
+    care_director: '安親部主任',
+    admin: '行政人員', // 👈 這裡就是 yaya 的身份！
+    teacher: '老師',
+    parent: '家長',
+    manager: '管理員'
+};
+
 export default function DashboardPage() {
     const [role, setRole] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
@@ -27,11 +38,24 @@ export default function DashboardPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { setLoading(false); return; }
 
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
-        if (profile) {
-            setRole(profile.role);
-            setUserName(profile.full_name || profile.email);
-            fetchCounts(session.user.id, profile.role);
+        // 🔴【關鍵修正】這裡原本是 'profiles'，改成讀取 'users' 表！
+        // 這樣才能讀到您在人事系統 (AdminPage) 設定的最新權限
+        const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+
+        if (userData) {
+            // 雙重確認：如果 is_approved 是 false，強制視為 pending (審核中)
+            if (userData.is_approved === false) {
+                setRole('pending');
+            } else {
+                setRole(userData.role);
+            }
+            // 這裡抓取暱稱，如果沒有就顯示 Email 前綴
+            setUserName(userData.email?.split('@')[0] || 'User');
+            fetchCounts(session.user.id, userData.role);
+        } else {
+            // 如果 users 表找不到人，可能是剛註冊還沒寫入，或是資料庫異常
+            // 這裡可以視情況處理，暫時先設為 pending
+            setRole('pending');
         }
         setLoading(false);
     }
@@ -66,22 +90,16 @@ export default function DashboardPage() {
         else window.location.reload();
     };
 
-    // 🔴【修正重點】強力登出，解決卡住問題
     const handleLogout = async () => {
-        // 1. 先清空本地狀態
         setRole(null);
         setUserName('');
-
-        // 2. 執行登出
         await supabase.auth.signOut();
-
-        // 3. 強制跳轉回根目錄 (解決無限迴圈)
         window.location.href = '/';
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gray-50">載入中...</div>;
 
-    // 1. 未登入狀態：顯示登入框 + 註冊連結
+    // 1. 未登入狀態
     if (!role) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-blue-500 p-4">
@@ -95,7 +113,6 @@ export default function DashboardPage() {
                         <div><label className="block text-sm font-bold text-gray-700 mb-1">密碼</label><input name="password" type="password" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" /></div>
                         <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition">登入系統</button>
                     </form>
-                    {/* 註冊連結 */}
                     <div className="mt-4 text-center">
                         <p className="text-gray-500 text-sm">還沒有帳號？ <button type="button" onClick={() => router.push('/register')} className="text-indigo-600 font-bold hover:underline">立即註冊</button></p>
                     </div>
@@ -104,7 +121,7 @@ export default function DashboardPage() {
         );
     }
 
-    // 2. 審核中狀態
+    // 2. 審核中狀態 (pending)
     if (role === 'pending') {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -118,7 +135,7 @@ export default function DashboardPage() {
         );
     }
 
-    // 3. 已登入狀態 (根據身分顯示不同按鈕)
+    // 3. 已登入狀態
     return (
         <div className="min-h-screen bg-gray-50 pb-10">
             <div className="bg-white border-b sticky top-0 z-20 shadow-sm">
@@ -127,7 +144,16 @@ export default function DashboardPage() {
                         <span className="text-2xl">🐻</span>
                         <div>
                             <h1 className="font-bold text-gray-800">Tom Bear</h1>
-                            <div className="text-xs text-gray-500">Hi, {userName} <span className="bg-gray-100 px-1 rounded">{role === 'parent' ? '家長' : role === 'teacher' ? '老師' : '管理員'}</span></div>
+                            {/* ✅ 修正重點：使用 ROLE_MAP 來顯示正確的職稱 (如：行政人員) */}
+                            <div className="text-xs text-gray-500">
+                                Hi, {userName}
+                                <span className={`ml-2 px-1.5 py-0.5 rounded text-white text-[10px] font-bold 
+                                    ${role === 'parent' ? 'bg-green-500' :
+                                        role === 'teacher' ? 'bg-indigo-500' :
+                                            role === 'admin' ? 'bg-gray-700' : 'bg-amber-500'}`}>
+                                    {ROLE_MAP[role] || '使用者'}
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-red-500 font-bold px-2 py-1">登出</button>
@@ -135,7 +161,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="max-w-6xl mx-auto p-4 space-y-6">
-                {/* 通知列 (只給老師看接送通知) */}
                 {counts.pickup > 0 && role !== 'parent' && (
                     <div onClick={() => router.push('/pickup')} className="bg-red-500 text-white p-4 rounded-xl shadow-lg flex justify-between items-center cursor-pointer animate-pulse">
                         <div className="font-bold">🚌 目前有 {counts.pickup} 位學生等待接送！</div>
@@ -144,7 +169,6 @@ export default function DashboardPage() {
                 )}
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {/* 🔴【修正重點】依照角色顯示不同接送按鈕 */}
                     <DashboardCard
                         title={role === 'parent' ? '呼叫接送' : '接送戰情室'}
                         icon="🚌"
@@ -160,27 +184,18 @@ export default function DashboardPage() {
                     >
                         <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                         <div className="relative">
-                            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-md shadow-rose-100">
-                                📢
-                            </div>
+                            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-md shadow-rose-100">📢</div>
                             <h2 className="text-2xl font-bold text-slate-800 mb-2 group-hover:text-rose-600 transition-colors">公告欄</h2>
                             <p className="text-slate-500 font-medium">查看最新校園公告</p>
                         </div>
                     </div>
 
-                    <Link
-                        href="/contact-book"
-                        className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200"
-                    >
+                    <Link href="/contact-book" className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200">
                         <div className="flex items-center gap-4 mb-3">
-                            <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">
-                                �
-                            </div>
+                            <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">📒</div>
                             <h3 className="text-lg font-bold text-gray-800">數位聯絡簿</h3>
                         </div>
-                        <p className="text-sm text-gray-500">
-                            每日課堂紀錄與家長回報
-                        </p>
+                        <p className="text-sm text-gray-500">每日課堂紀錄與家長回報</p>
                     </Link>
 
                     <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
@@ -194,14 +209,17 @@ export default function DashboardPage() {
                     />
 
                     <DashboardCard title="請假中心" icon="📅" color="bg-teal-500" onClick={() => router.push('/leave')} badge={role !== 'parent' ? counts.leaves : 0} desc="線上請假/審核" />
-                    <DashboardCard title="成績管理" icon="📊" color="bg-purple-500" onClick={() => router.push('/grades')} desc="查看/登錄成績" />
 
-                    {/* 🟢 主管專屬入口 */}
-                    {['director', 'manager'].includes(role || '') && (
+                    {role !== 'parent' && (
+                        <DashboardCard title="成績管理" icon="📊" color="bg-purple-500" onClick={() => router.push('/grades')} desc="查看/登錄成績" />
+                    )}
+
+                    {/* 部門戰情室：只有主任和經理看得到 (Admin 不需要看這個) */}
+                    {['director', 'manager', 'english_director', 'care_director'].includes(role || '') && (
                         <DashboardCard title="部門戰情室" icon="💼" color="bg-cyan-600" onClick={() => router.push('/manager')} desc="查看績效與部門數據" />
                     )}
 
-                    {/* 只有非家長、非老師 (即管理員) 才看得到人事權限 */}
+                    {/* 人事權限：管理員 (Admin)、主任都可以看 */}
                     {role !== 'parent' && role !== 'teacher' && (
                         <DashboardCard title="人事權限" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
                     )}

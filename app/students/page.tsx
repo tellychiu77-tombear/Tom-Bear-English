@@ -13,7 +13,7 @@ const ENGLISH_CLASS_OPTIONS = [
     }))
 ];
 
-// 🏫 2. 學校年級選項 (依照您的要求：國小~國中)
+// 🏫 2. 學校年級選項
 const SCHOOL_GRADE_OPTIONS = [
     '國小 一年級', '國小 二年級', '國小 三年級', '國小 四年級', '國小 五年級', '國小 六年級',
     '國中 七年級', '國中 八年級', '國中 九年級'
@@ -35,22 +35,15 @@ export default function StudentsPage() {
         chinese_name: '',
         english_name: '',
         birthday: '',
-        school_grade: '國小 一年級', // 預設
-
-        // 核心分班邏輯
-        english_class: 'CEI-A',    // 下拉選單值
-        is_after_school: false,    // 是否安親
-
-        // 家長 1
+        school_grade: '國小 一年級',
+        english_class: 'CEI-A',
+        is_after_school: false,
         parent_email: '',
         parent_relationship: '',
         parent_phone: '',
-        // 家長 2
         parent_2_email: '',
         parent_2_relationship: '',
         parent_2_phone: '',
-
-        // 詳細備註
         pickup_method: '家長接送',
         allergies: '',
         special_needs: '',
@@ -69,11 +62,21 @@ export default function StudentsPage() {
     async function checkPermissionAndFetch() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
+
+        // 🔥 更新 1：權限檢查加入主任與老師
+        const { data: userData } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+        if (!userData || !['director', 'english_director', 'care_director', 'admin', 'teacher'].includes(userData.role)) {
+            alert('⛔ 您沒有權限進入此頁面');
+            router.push('/');
+            return;
+        }
+
         fetchStudents();
     }
 
     async function fetchStudents() {
         setLoading(true);
+        // 保留您原本強大的關聯查詢 (Join)
         const { data, error } = await supabase
             .from('students')
             .select(`
@@ -90,33 +93,23 @@ export default function StudentsPage() {
     }
 
     // --- 邏輯核心：解析與組合班級字串 ---
-
-    // 1. 把資料庫的 "CEI-A, 課後輔導" 拆解回 表單狀態
     function parseGradeToForm(fullGrade: string) {
         if (!fullGrade) return { eng: 'CEI-A', after: false };
-
         const hasAfterSchool = fullGrade.includes('課後輔導');
-        // 移除 "課後輔導" 和逗號，剩下的就是英文班
         let engClass = fullGrade.replace(', 課後輔導', '').replace('課後輔導', '').trim();
-        // 移除尾隨逗號
         if (engClass.endsWith(',') || engClass.endsWith('，')) engClass = engClass.slice(0, -1).trim();
-
-        // 如果剩下的為空，代表原本是純安親
-        if (!engClass) engClass = 'NONE';
-
+        if (!engClass || engClass === '未分類') engClass = 'NONE';
         return { eng: engClass || 'CEI-A', after: hasAfterSchool };
     }
 
-    // 2. 把表單狀態 組合回 資料庫字串
     function combineFormToGrade(eng: string, after: boolean) {
-        if (eng === 'NONE' && after) return '課後輔導'; // 純安親
-        if (eng === 'NONE' && !after) return '未分類';   // 什麼都沒選
-        if (after) return `${eng}, 課後輔導`;           // 雙修
-        return eng;                                     // 純英文
+        if (eng === 'NONE' && after) return '課後輔導';
+        if (eng === 'NONE' && !after) return '未分類';
+        if (after) return `${eng}, 課後輔導`;
+        return eng;
     }
 
     // --- Modal 操作 ---
-
     function openAddModal() {
         setModalMode('add');
         setCurrentId(null);
@@ -133,27 +126,21 @@ export default function StudentsPage() {
     function openEditModal(s: any) {
         setModalMode('edit');
         setCurrentId(s.id);
-
-        // 解析班級
         const { eng, after } = parseGradeToForm(s.grade);
 
         setFormData({
             chinese_name: s.chinese_name,
             english_name: s.english_name || '',
             birthday: s.birthday || '',
-            school_grade: s.school_grade || '國小 一年級', // 若舊資料無年級，預設小一
-
+            school_grade: s.school_grade || '國小 一年級',
             english_class: eng,
             is_after_school: after,
-
             parent_email: s.parent?.email || '',
             parent_relationship: s.parent_relationship || '',
             parent_phone: s.parent_phone || '',
-
             parent_2_email: s.parent2?.email || '',
             parent_2_relationship: s.parent_2_relationship || '',
             parent_2_phone: s.parent_2_phone || '',
-
             pickup_method: s.pickup_method || '家長接送',
             allergies: s.allergies || '',
             special_needs: s.special_needs || '',
@@ -186,7 +173,7 @@ export default function StudentsPage() {
         if (!formData.chinese_name) return alert('請輸入中文姓名');
 
         try {
-            // 1. 尋找家長 ID
+            // 尋找家長 ID
             let p1_id = null;
             if (formData.parent_email) {
                 const { data } = await supabase.from('users').select('id').eq('email', formData.parent_email).single();
@@ -199,25 +186,22 @@ export default function StudentsPage() {
                 if (data) p2_id = data.id;
             }
 
-            // 2. 組合班級字串
             const finalGrade = combineFormToGrade(formData.english_class, formData.is_after_school);
 
             const payload = {
                 chinese_name: formData.chinese_name,
                 english_name: formData.english_name,
-                grade: finalGrade, // 寫入組合後的班級
-                school_grade: formData.school_grade, // 寫入學校年級
+                grade: finalGrade,
+                school_grade: formData.school_grade,
                 birthday: formData.birthday || null,
                 pickup_method: formData.pickup_method,
                 allergies: formData.allergies,
                 special_needs: formData.special_needs,
                 internal_note: formData.internal_note,
                 photo_url: formData.photo_url,
-
                 parent_id: p1_id,
                 parent_relationship: formData.parent_relationship,
                 parent_phone: formData.parent_phone,
-
                 parent_id_2: p2_id,
                 parent_2_relationship: formData.parent_2_relationship,
                 parent_2_phone: formData.parent_2_phone
@@ -235,7 +219,6 @@ export default function StudentsPage() {
 
             setIsModalOpen(false);
             fetchStudents();
-
         } catch (e: any) {
             alert('❌ 失敗: ' + e.message);
         }
@@ -247,12 +230,10 @@ export default function StudentsPage() {
         fetchStudents();
     }
 
-    // 篩選邏輯 (支援中英文班級)
     const filteredStudents = filterClass
         ? students.filter(s => s.grade?.includes(filterClass))
         : students;
 
-    // 取得所有出現過的班級 (用於篩選選單)
     const uniqueClasses = Array.from(new Set(students.map(s => s.grade))).filter(Boolean).sort();
 
     if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
@@ -263,6 +244,11 @@ export default function StudentsPage() {
                 <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
                     <h1 className="text-3xl font-black text-gray-800">📂 學生資料庫</h1>
                     <div className="flex gap-3">
+                        {/* 🔥 更新 2：回首頁按鈕 */}
+                        <button onClick={() => router.push('/')} className="bg-white border px-4 py-2 rounded-lg font-bold text-gray-600 hover:bg-gray-50 transition shadow-sm">
+                            🏠 回首頁
+                        </button>
+
                         <select
                             value={filterClass}
                             onChange={e => setFilterClass(e.target.value)}
@@ -274,7 +260,6 @@ export default function StudentsPage() {
                         <button onClick={openAddModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition">
                             + 新增學生
                         </button>
-                        <button onClick={() => router.push('/')} className="bg-white border px-4 py-2 rounded-lg font-bold text-gray-600 hover:bg-gray-50">回首頁</button>
                     </div>
                 </div>
 
@@ -307,10 +292,16 @@ export default function StudentsPage() {
                                         </div>
                                     </td>
                                     <td className="p-4">
-                                        <div className="flex flex-col gap-1">
-                                            <span className="bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded text-xs font-bold w-fit border border-indigo-100">
-                                                {s.grade}
-                                            </span>
+                                        <div className="flex flex-col gap-1 items-start">
+                                            {/* 🔥 更新 3：漂亮的彩色班級標籤 */}
+                                            {s.grade && s.grade.split(',').map((g: string, i: number) => (
+                                                <span key={i} className={`px-2 py-0.5 rounded text-[10px] font-black border inline-block ${g.includes('課後輔導') ? 'bg-orange-50 text-orange-600 border-orange-100' :
+                                                        g.includes('CEI') ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
+                                                            'bg-gray-100 text-gray-600 border-gray-200'
+                                                    }`}>
+                                                    {g.trim()}
+                                                </span>
+                                            ))}
                                             <span className="text-xs text-gray-400 font-bold ml-1">
                                                 🏫 {s.school_grade || '未設定'}
                                             </span>
@@ -341,7 +332,7 @@ export default function StudentsPage() {
                 </div>
             </div>
 
-            {/* ✏️ 全功能編輯視窗 */}
+            {/* ✏️ 全功能編輯視窗 (完全保留您原本的設計) */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto animate-fade-in p-8">
@@ -353,7 +344,6 @@ export default function StudentsPage() {
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-
                             {/* 左側：基本資料 & 照片 */}
                             <div className="space-y-6">
                                 <div className="flex flex-col items-center">
@@ -392,28 +382,22 @@ export default function StudentsPage() {
                             <div className="space-y-6">
                                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
                                     <h3 className="text-sm font-black text-indigo-800 mb-3">🎓 班級與年級設定</h3>
-
                                     <div className="mb-3">
                                         <label className="text-xs font-bold text-indigo-400 ml-1">學校年級 (School Grade)</label>
                                         <select value={formData.school_grade} onChange={e => setFormData({ ...formData, school_grade: e.target.value })} className="w-full p-2 border rounded-lg font-bold text-sm">
                                             {SCHOOL_GRADE_OPTIONS.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                         </select>
                                     </div>
-
                                     <div className="mb-3">
                                         <label className="text-xs font-bold text-indigo-400 ml-1">英文主修班級</label>
                                         <select value={formData.english_class} onChange={e => setFormData({ ...formData, english_class: e.target.value })} className="w-full p-2 border rounded-lg font-bold text-sm">
                                             {ENGLISH_CLASS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                                         </select>
                                     </div>
-
                                     <div className="flex items-center gap-2 bg-white p-2 rounded-lg border border-indigo-100">
                                         <input type="checkbox" checked={formData.is_after_school} onChange={e => setFormData({ ...formData, is_after_school: e.target.checked })} className="w-5 h-5 accent-indigo-600" />
-                                        <span className="text-sm font-bold text-gray-700">✅ 參加課後輔導 (After School)</span>
+                                        <span className="text-sm font-bold text-gray-700">✅ 參加課後輔導</span>
                                     </div>
-                                    <p className="text-[10px] text-indigo-400 mt-2">
-                                        💡 若選「無英文主修」且勾選「安親」，將設為純安親生。
-                                    </p>
                                 </div>
 
                                 <div>
@@ -423,11 +407,10 @@ export default function StudentsPage() {
                                             <p className="text-xs font-bold text-gray-500 mb-1">主要照顧者 (Email 綁定)</p>
                                             <input type="email" placeholder="家長 Email" value={formData.parent_email} onChange={e => setFormData({ ...formData, parent_email: e.target.value })} className="w-full p-2 border rounded-lg text-sm font-bold mb-2" />
                                             <div className="flex gap-2">
-                                                <input type="text" placeholder="稱謂 (父/母)" value={formData.parent_relationship} onChange={e => setFormData({ ...formData, parent_relationship: e.target.value })} className="w-1/3 p-2 border rounded-lg text-sm" />
+                                                <input type="text" placeholder="稱謂" value={formData.parent_relationship} onChange={e => setFormData({ ...formData, parent_relationship: e.target.value })} className="w-1/3 p-2 border rounded-lg text-sm" />
                                                 <input type="text" placeholder="電話" value={formData.parent_phone} onChange={e => setFormData({ ...formData, parent_phone: e.target.value })} className="w-2/3 p-2 border rounded-lg text-sm" />
                                             </div>
                                         </div>
-
                                         <div className="p-3 border rounded-xl bg-gray-50 border-dashed">
                                             <p className="text-xs font-bold text-gray-400 mb-1">第二位家長 (選填)</p>
                                             <input type="email" placeholder="Email" value={formData.parent_2_email} onChange={e => setFormData({ ...formData, parent_2_email: e.target.value })} className="w-full p-2 border rounded-lg text-sm font-bold mb-2" />
