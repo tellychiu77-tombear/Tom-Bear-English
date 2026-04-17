@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { getEffectivePermissions } from '../../lib/permissions';
 
 export default function AnnouncementsPage() {
     const router = useRouter();
@@ -10,6 +11,7 @@ export default function AnnouncementsPage() {
     const [loading, setLoading] = useState(true);
     const [role, setRole] = useState<string>('parent'); // 預設安全權限
     const [userId, setUserId] = useState('');
+    const [canManageAnnouncements, setCanManageAnnouncements] = useState(false);
 
     // Modal & Form states
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,15 +61,29 @@ export default function AnnouncementsPage() {
 
             setUserId(session.user.id);
 
-            // 抓取使用者角色
+            // 抓取使用者角色 + 個人覆蓋權限
             const { data: user } = await supabase
                 .from('users')
-                .select('role')
+                .select('role, extra_permissions')
                 .eq('id', session.user.id)
                 .single();
 
             const currentRole = user?.role || 'parent';
             setRole(currentRole);
+
+            // 讀取職位預設，計算有效權限
+            const { data: roleConfigRow } = await supabase
+                .from('role_configs')
+                .select('permissions')
+                .eq('role', currentRole)
+                .single();
+
+            const perms = getEffectivePermissions(
+                currentRole,
+                roleConfigRow?.permissions ?? null,
+                user?.extra_permissions ?? null
+            );
+            setCanManageAnnouncements(perms.manageAnnouncements);
 
             // 🔥 修正：確認角色後，才去抓取對應的公告
             fetchAnnouncements(currentRole);
@@ -115,8 +131,8 @@ export default function AnnouncementsPage() {
         setIsModalOpen(true);
     }
 
-    // 判斷是否為管理人員 (🔥 安全修正：改用 role 判斷，不再寫死 email)
-    const canManage = role === 'teacher' || role === 'director';
+    // 使用有效權限判斷（已考慮總園長設定的職位覆蓋 + 個人覆蓋）
+    const canManage = canManageAnnouncements;
 
     if (loading) return <div className="p-10 text-center">載入公告中...</div>;
 

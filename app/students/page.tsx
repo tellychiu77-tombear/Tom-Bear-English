@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { getEffectivePermissions } from '../../lib/permissions';
 
 // 🎓 1. 英文班級選項 (含 "無")
 const ENGLISH_CLASS_OPTIONS = [
@@ -54,6 +55,7 @@ export default function StudentsPage() {
     // 照片上傳 Ref
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
+    const [canEditStudents, setCanEditStudents] = useState(false);
 
     useEffect(() => {
         checkPermissionAndFetch();
@@ -63,14 +65,24 @@ export default function StudentsPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        // 🔥 更新 1：權限檢查加入主任與老師
-        const { data: userData } = await supabase.from('users').select('role').eq('id', session.user.id).single();
-        if (!userData || !['director', 'english_director', 'care_director', 'admin', 'teacher'].includes(userData.role)) {
-            alert('⛔ 您沒有權限進入此頁面');
+        const { data: userData } = await supabase.from('users').select('role, extra_permissions').eq('id', session.user.id).single();
+        if (!userData) { router.push('/'); return; }
+
+        // 計算有效權限
+        const { data: roleConfigRow } = await supabase
+            .from('role_configs')
+            .select('permissions')
+            .eq('role', userData.role)
+            .single();
+        const perms = getEffectivePermissions(userData.role, roleConfigRow?.permissions ?? null, userData.extra_permissions ?? null);
+
+        if (!perms.viewAllStudents) {
+            alert('⛔ 您沒有查看學生資料的權限');
             router.push('/');
             return;
         }
 
+        setCanEditStudents(perms.editStudents);
         fetchStudents();
     }
 
@@ -257,9 +269,11 @@ export default function StudentsPage() {
                             <option value="">🏫 顯示全部</option>
                             {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
-                        <button onClick={openAddModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition">
-                            + 新增學生
-                        </button>
+                        {canEditStudents && (
+                            <button onClick={openAddModal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold shadow-lg hover:bg-indigo-700 transition">
+                                + 新增學生
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -322,8 +336,14 @@ export default function StudentsPage() {
                                         </div>
                                     </td>
                                     <td className="p-4 text-right">
-                                        <button onClick={() => openEditModal(s)} className="text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded font-bold text-xs transition mr-2">編輯</button>
-                                        <button onClick={() => handleDelete(s.id)} className="text-red-400 hover:bg-red-50 px-3 py-1.5 rounded font-bold text-xs transition">刪除</button>
+                                        {canEditStudents ? (
+                                            <>
+                                                <button onClick={() => openEditModal(s)} className="text-indigo-600 hover:bg-indigo-50 px-3 py-1.5 rounded font-bold text-xs transition mr-2">編輯</button>
+                                                <button onClick={() => handleDelete(s.id)} className="text-red-400 hover:bg-red-50 px-3 py-1.5 rounded font-bold text-xs transition">刪除</button>
+                                            </>
+                                        ) : (
+                                            <button onClick={() => openEditModal(s)} className="text-gray-400 hover:bg-gray-50 px-3 py-1.5 rounded font-bold text-xs transition">查看</button>
+                                        )}
                                     </td>
                                 </tr>
                             ))}

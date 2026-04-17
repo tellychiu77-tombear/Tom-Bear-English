@@ -32,11 +32,11 @@ export default function ChatPage() {
         const targetUser = user || currentUser;
         if (!targetUser) return;
 
-        let query = supabase.from('profiles').select('*').order('full_name');
+        let query = supabase.from('users').select('*').order('name');
 
-        // 判斷權限：家長看老師，老師看家長
+        // 家長只看老師/主任（不顯示行政人員）；員工只看家長
         if (targetUser.role === 'parent') {
-            query = query.neq('role', 'parent');
+            query = query.in('role', ['teacher', 'director', 'english_director', 'care_director']);
         } else {
             query = query.eq('role', 'parent');
         }
@@ -92,7 +92,7 @@ export default function ChatPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        const { data: profile } = await supabase.from('users').select('*').eq('id', session.user.id).single();
         setCurrentUser(profile);
         await fetchContacts(profile); // Pass profile explicitly
         setLoading(false);
@@ -208,11 +208,11 @@ export default function ChatPage() {
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-600">
-                                        {contact.full_name?.[0] || 'U'}
+                                        {(contact.name || contact.email)?.[0]?.toUpperCase() || 'U'}
                                     </div>
                                     <div>
-                                        <div className="font-bold text-gray-800">{contact.full_name}</div>
-                                        <div className="text-xs text-gray-500">{contact.role === 'parent' ? '家長' : '老師/主任'}</div>
+                                        <div className="font-bold text-gray-800">{contact.name || contact.email}</div>
+                                        <div className="text-xs text-gray-500">{contact.job_title || (contact.role === 'parent' ? '家長' : '老師/主任')}</div>
                                     </div>
                                 </div>
                                 {contact.unread > 0 && (
@@ -232,7 +232,7 @@ export default function ChatPage() {
                             <div className="p-3 border-b bg-white flex items-center gap-2 shadow-sm">
                                 <button onClick={() => setActiveContactId(null)} className="md:hidden text-gray-500 px-2 font-bold text-xl">←</button>
                                 <div className="font-bold text-gray-800">
-                                    與 <span className="text-blue-600">{contacts.find(c => c.id === activeContactId)?.full_name}</span> 的對話
+                                    與 <span className="text-blue-600">{contacts.find(c => c.id === activeContactId)?.name || contacts.find(c => c.id === activeContactId)?.email}</span> 的對話
                                 </div>
                             </div>
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { getEffectivePermissions } from '@/lib/permissions';
 
 export default function ManagerDashboard() {
     const [loading, setLoading] = useState(true);
@@ -32,10 +33,19 @@ export default function ManagerDashboard() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        const { data: profile } = await supabase.from('users').select('*').eq('id', session.user.id).single();
+        if (!profile) { router.push('/'); return; }
 
-        if (!profile || !['director', 'manager'].includes(profile.role)) {
-            alert('權限不足：僅限主管存取');
+        // 使用新的有效權限系統
+        const { data: roleConfigRow } = await supabase
+            .from('role_configs')
+            .select('permissions')
+            .eq('role', profile.role)
+            .single();
+        const perms = getEffectivePermissions(profile.role, roleConfigRow?.permissions ?? null, profile.extra_permissions ?? null);
+
+        if (!perms.viewManagerDashboard) {
+            alert('權限不足：您沒有查看部門戰情室的權限');
             router.push('/');
             return;
         }
@@ -53,7 +63,8 @@ export default function ManagerDashboard() {
         // 如果是 Director，他可以看到「全校」數據，或是我們可以讓他「切換」。
         // 為了符合 "Director 顯示所有部門資料" 的需求，我們視為 null = all。
 
-        if (user.role === 'director') targetDept = null;
+        // 總園長或 manager 看全校；各部門主任只看自己部門
+        if (user.role === 'director' || user.role === 'manager') targetDept = null;
 
         setDeptName(
             targetDept === 'english' ? '英文部' :
@@ -62,7 +73,7 @@ export default function ManagerDashboard() {
         );
 
         // 1. Fetch Teachers
-        let teacherQuery = supabase.from('profiles').select('*').eq('role', 'teacher');
+        let teacherQuery = supabase.from('users').select('*').eq('role', 'teacher');
         if (targetDept) {
             teacherQuery = teacherQuery.eq('department', targetDept);
         }

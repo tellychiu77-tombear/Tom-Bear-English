@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { getEffectivePermissions } from '@/lib/permissions';
+import type { PermissionsMap } from '@/lib/usePermissions';
 
 // ✅ 新增：角色名稱對照表 (讓介面顯示正確的中文職稱)
 const ROLE_MAP: Record<string, string> = {
@@ -20,9 +22,11 @@ export default function DashboardPage() {
     const [role, setRole] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [userName, setUserName] = useState('');
+    const [jobTitle, setJobTitle] = useState('');
 
     // 計數器狀態
     const [counts, setCounts] = useState({ pickup: 0, leaves: 0, unreadChats: 0 });
+    const [permissions, setPermissions] = useState<PermissionsMap | null>(null);
     const router = useRouter();
 
     useEffect(() => {
@@ -50,7 +54,22 @@ export default function DashboardPage() {
                 setRole(userData.role);
             }
             // 這裡抓取暱稱，如果沒有就顯示 Email 前綴
-            setUserName(userData.email?.split('@')[0] || 'User');
+            setUserName(userData.name || userData.email?.split('@')[0] || 'User');
+            setJobTitle(userData.job_title || '');
+
+            // 計算有效權限（三層：硬編碼 → role_configs → 個人覆蓋）
+            const { data: roleConfigRow } = await supabase
+                .from('role_configs')
+                .select('permissions')
+                .eq('role', userData.role)
+                .single();
+            const effectivePerms = getEffectivePermissions(
+                userData.role,
+                roleConfigRow?.permissions ?? null,
+                userData.extra_permissions ?? null
+            );
+            setPermissions(effectivePerms);
+
             fetchCounts(session.user.id, userData.role);
         } else {
             // 如果 users 表找不到人，可能是剛註冊還沒寫入，或是資料庫異常
@@ -145,14 +164,19 @@ export default function DashboardPage() {
                         <div>
                             <h1 className="font-bold text-gray-800">Tom Bear</h1>
                             {/* ✅ 修正重點：使用 ROLE_MAP 來顯示正確的職稱 (如：行政人員) */}
-                            <div className="text-xs text-gray-500">
+                            <div className="text-xs text-gray-500 flex items-center flex-wrap gap-1">
                                 Hi, {userName}
-                                <span className={`ml-2 px-1.5 py-0.5 rounded text-white text-[10px] font-bold 
+                                <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold
                                     ${role === 'parent' ? 'bg-green-500' :
                                         role === 'teacher' ? 'bg-indigo-500' :
                                             role === 'admin' ? 'bg-gray-700' : 'bg-amber-500'}`}>
                                     {ROLE_MAP[role] || '使用者'}
                                 </span>
+                                {jobTitle && (
+                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
+                                        {jobTitle}
+                                    </span>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -169,15 +193,19 @@ export default function DashboardPage() {
                 )}
 
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <DashboardCard
-                        title={role === 'parent' ? '呼叫接送' : '接送戰情室'}
-                        icon="🚌"
-                        color="bg-yellow-400"
-                        onClick={() => router.push('/pickup')}
-                        badge={role !== 'parent' ? counts.pickup : 0}
-                        desc={role === 'parent' ? '抵達補習班時點擊' : '管理放學接送隊列'}
-                    />
+                    {/* 接送：家長或有 viewPickupQueue 權限者 */}
+                    {(role === 'parent' || permissions?.viewPickupQueue) && (
+                        <DashboardCard
+                            title={role === 'parent' ? '呼叫接送' : '接送戰情室'}
+                            icon="🚌"
+                            color="bg-yellow-400"
+                            onClick={() => router.push('/pickup')}
+                            badge={role !== 'parent' ? counts.pickup : 0}
+                            desc={role === 'parent' ? '抵達補習班時點擊' : '管理放學接送隊列'}
+                        />
+                    )}
 
+                    {/* 公告欄：所有人可看 */}
                     <div
                         onClick={() => router.push('/announcements')}
                         className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-indigo-100 transition-all cursor-pointer relative overflow-hidden"
@@ -190,38 +218,49 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    <Link href="/contact-book" className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200">
-                        <div className="flex items-center gap-4 mb-3">
-                            <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">📒</div>
-                            <h3 className="text-lg font-bold text-gray-800">數位聯絡簿</h3>
-                        </div>
-                        <p className="text-sm text-gray-500">每日課堂紀錄與家長回報</p>
-                    </Link>
+                    {/* 聯絡簿：家長或有 fillContactBook 權限者 */}
+                    {(role === 'parent' || permissions?.fillContactBook) && (
+                        <Link href="/contact-book" className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200">
+                            <div className="flex items-center gap-4 mb-3">
+                                <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">📒</div>
+                                <h3 className="text-lg font-bold text-gray-800">數位聯絡簿</h3>
+                            </div>
+                            <p className="text-sm text-gray-500">每日課堂紀錄與家長回報</p>
+                        </Link>
+                    )}
 
-                    <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
+                    {/* 親師對話：有 chatWithParents 權限者（含家長） */}
+                    {permissions?.chatWithParents && (
+                        <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
+                    )}
 
-                    <DashboardCard
-                        title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
-                        icon="📂"
-                        color="bg-indigo-600"
-                        onClick={() => router.push(role === 'parent' ? '/my-child' : '/students')}
-                        desc="查看詳細檔案"
-                    />
+                    {/* 學生資料：家長看自己的孩子；有 viewAllStudents 者看全部 */}
+                    {(role === 'parent' || permissions?.viewAllStudents) && (
+                        <DashboardCard
+                            title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
+                            icon="📂"
+                            color="bg-indigo-600"
+                            onClick={() => router.push(role === 'parent' ? '/my-child' : '/students')}
+                            desc="查看詳細檔案"
+                        />
+                    )}
 
+                    {/* 請假中心：所有人 */}
                     <DashboardCard title="請假中心" icon="📅" color="bg-teal-500" onClick={() => router.push('/leave')} badge={role !== 'parent' ? counts.leaves : 0} desc="線上請假/審核" />
 
-                    {role !== 'parent' && (
+                    {/* 成績管理：有 viewGrades 者 */}
+                    {permissions?.viewGrades && (
                         <DashboardCard title="成績管理" icon="📊" color="bg-purple-500" onClick={() => router.push('/grades')} desc="查看/登錄成績" />
                     )}
 
-                    {/* 部門戰情室：只有主任和經理看得到 (Admin 不需要看這個) */}
-                    {['director', 'manager', 'english_director', 'care_director'].includes(role || '') && (
+                    {/* 部門戰情室：有 viewManagerDashboard 者 */}
+                    {permissions?.viewManagerDashboard && (
                         <DashboardCard title="部門戰情室" icon="💼" color="bg-cyan-600" onClick={() => router.push('/manager')} desc="查看績效與部門數據" />
                     )}
 
-                    {/* 人事權限：管理員 (Admin)、主任都可以看 */}
-                    {role !== 'parent' && role !== 'teacher' && (
-                        <DashboardCard title="人事權限" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
+                    {/* 人事管理：有 manageUsers 者 */}
+                    {permissions?.manageUsers && (
+                        <DashboardCard title="人事管理" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
                     )}
                 </div>
             </div>

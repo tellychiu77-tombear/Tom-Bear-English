@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { logAction } from '@/lib/logService';
+import { getEffectivePermissions } from '@/lib/permissions';
 
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
 const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
@@ -12,6 +13,8 @@ export default function GradesPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [role, setRole] = useState<string | null>(null);
+    const [canViewGrades, setCanViewGrades] = useState(false);
+    const [canEditGrades, setCanEditGrades] = useState(false);
 
     // 分頁
     const [activeTab, setActiveTab] = useState<'entry' | 'history'>('entry');
@@ -45,15 +48,22 @@ export default function GradesPage() {
     const checkUser = async () => {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
-        const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+        const { data: profile } = await supabase.from('users').select('role, extra_permissions').eq('id', session.user.id).single();
         const r = profile?.role || 'parent';
-        if (r === 'parent') {
-            setRole('parent');
-        } else {
-            setRole(r);
-            setLoading(false);
-            fetchHistory();
-        }
+
+        // 計算有效權限
+        const { data: roleConfigRow } = await supabase
+            .from('role_configs')
+            .select('permissions')
+            .eq('role', r)
+            .single();
+        const perms = getEffectivePermissions(r, roleConfigRow?.permissions ?? null, profile?.extra_permissions ?? null);
+
+        setCanViewGrades(perms.viewGrades);
+        setCanEditGrades(perms.editGrades);
+        setRole(r);
+        setLoading(false);
+        if (perms.viewGrades) fetchHistory();
     };
 
     // --- 邏輯 A: 成績登錄 ---
@@ -244,7 +254,7 @@ export default function GradesPage() {
     };
 
     if (loading) return <div className="p-10 text-center animate-pulse text-gray-400">系統載入中...</div>;
-    if (role === 'parent') return <div className="p-10 text-center text-gray-500">家長請由首頁查看子女成績</div>;
+    if (!canViewGrades) return <div className="p-10 text-center text-gray-500">您沒有查看成績的權限，請聯絡管理人員。</div>;
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans text-gray-800">
@@ -360,15 +370,19 @@ export default function GradesPage() {
                                         </div>
                                     )}
 
-                                    <button
-                                        ref={saveButtonRef}
-                                        onClick={handleSave}
-                                        className={`px-8 py-3 rounded-2xl font-black text-white shadow-lg active:scale-95 transition flex items-center gap-2
-                                            ${isUpdateMode ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}
-                                        `}
-                                    >
-                                        <span>{isUpdateMode ? '💾 儲存變更' : '💾 確認儲存'}</span>
-                                    </button>
+                                    {canEditGrades ? (
+                                        <button
+                                            ref={saveButtonRef}
+                                            onClick={handleSave}
+                                            className={`px-8 py-3 rounded-2xl font-black text-white shadow-lg active:scale-95 transition flex items-center gap-2
+                                                ${isUpdateMode ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-200' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}
+                                            `}
+                                        >
+                                            <span>{isUpdateMode ? '💾 儲存變更' : '💾 確認儲存'}</span>
+                                        </button>
+                                    ) : (
+                                        <div className="px-4 py-2 bg-gray-100 text-gray-500 rounded-xl text-sm font-bold">👀 僅供查看</div>
+                                    )}
                                 </div>
                             </div>
                         )}
