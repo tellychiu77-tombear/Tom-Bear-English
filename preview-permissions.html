@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>權限系統預覽</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+<style>
+  body { font-family: 'Microsoft JhengHei', sans-serif; background: #f1f5f9; }
+  .toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 24px; transition: .3s; }
+  .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  input:checked + .slider { background-color: #6366f1; }
+  input:checked + .slider:before { transform: translateX(20px); }
+  .tab-active { border-bottom: 3px solid #6366f1; color: #6366f1; font-weight: 700; }
+  .fade-in { animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+</head>
+<body class="p-6">
+
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <!-- 說明卡 -->
+  <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+    <h2 class="text-lg font-black text-indigo-800 mb-2">📋 這次要新增的功能說明</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">① 修正親師對話</div>
+        <div class="text-gray-600">家長只看到老師/主任，行政人員從聯絡人列表移除</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">② 職位預設權限</div>
+        <div class="text-gray-600">總園長可調整每個「職位」的預設功能開關，影響該職位所有人</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">③ 個人額外授權</div>
+        <div class="text-gray-600">針對特定某個人微調權限，例如某位行政人員額外開放登錄成績</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主畫面：人事管理頁 -->
+  <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+    <div class="p-5 border-b flex justify-between items-center">
+      <h1 class="text-xl font-black text-gray-800">👥 人事管理</h1>
+      <span class="text-xs bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-bold">👑 總園長 專屬</span>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex border-b px-5 gap-6 text-sm text-gray-500">
+      <button onclick="showTab('users')" id="tab-users" class="py-3 tab-active">帳號管理</button>
+      <button onclick="showTab('roleperms')" id="tab-roleperms" class="py-3 hover:text-indigo-600 transition">🔐 職位權限設定</button>
+    </div>
+
+    <!-- Tab 1: 帳號管理 (原本的) -->
+    <div id="panel-users" class="p-5 fade-in">
+      <p class="text-xs text-gray-400 mb-4">點擊任一使用者可編輯，包含個人額外授權</p>
+      <div class="space-y-2">
+        <!-- 使用者列表 -->
+        <div onclick="openUserModal()" class="flex justify-between items-center p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 cursor-pointer transition group">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-lg">🏠</div>
+            <div>
+              <div class="font-bold text-gray-800">parent001@gmail.com</div>
+              <span class="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">🏠 家長</span>
+            </div>
+          </div>
+          <div class="text-xs text-gray-400 group-hover:text-indigo-500">編輯 →</div>
+        </div>
+        <div onclick="openUserModal2()" class="flex justify-between items-center p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 cursor-pointer transition group">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">💼</div>
+            <div>
+              <div class="font-bold text-gray-800">yaya@tombear.com</div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs bg-gray-700 text-white px-2 py-0.5 rounded font-bold">💼 行政人員</span>
+                <span class="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded font-bold">✨ 有額外授權</span>
+              </div>
+            </div>
+          </div>
+          <div class="text-xs text-gray-400 group-hover:text-indigo-500">編輯 →</div>
+        </div>
+        <div class="flex justify-between items-center p-4 rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 cursor-pointer transition group">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-lg">👩‍🏫</div>
+            <div>
+              <div class="font-bold text-gray-800">teacher_amy@tombear.com</div>
+              <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded font-bold">👩‍🏫 老師</span>
+            </div>
+          </div>
+          <div class="text-xs text-gray-400 group-hover:text-indigo-500">編輯 →</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: 職位權限設定 -->
+    <div id="panel-roleperms" class="p-5 fade-in hidden">
+      <p class="text-xs text-gray-400 mb-4">調整每個職位的「預設」功能開關，會套用到該職位所有人（個人額外授權優先）</p>
+
+      <!-- 職位選擇 -->
+      <div class="flex gap-2 flex-wrap mb-5">
+        <button onclick="selectRole('admin')" id="role-admin" class="px-4 py-2 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-sm font-bold">💼 行政人員</button>
+        <button onclick="selectRole('teacher')" id="role-teacher" class="px-4 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm font-bold hover:border-indigo-300">👩‍🏫 老師</button>
+        <button onclick="selectRole('english_director')" id="role-english_director" class="px-4 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm font-bold hover:border-indigo-300">🇬🇧 英文主任</button>
+        <button onclick="selectRole('care_director')" id="role-care_director" class="px-4 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm font-bold hover:border-indigo-300">🧸 安親主任</button>
+      </div>
+
+      <!-- 權限開關列表 -->
+      <div id="role-perms-list" class="space-y-2">
+        <!-- 動態產生 -->
+      </div>
+
+      <button class="mt-5 w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition">💾 儲存職位預設權限</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: 家長編輯 (原本的，簡單版) -->
+<div id="modal-user" class="fixed inset-0 bg-black/50 items-center justify-center z-50 p-4 hidden" onclick="closeModal('modal-user')">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl" onclick="event.stopPropagation()">
+    <h2 class="text-lg font-black mb-1">編輯帳號</h2>
+    <p class="text-xs text-gray-400 mb-4">parent001@gmail.com</p>
+    <div class="space-y-3">
+      <div>
+        <label class="text-sm font-bold text-gray-600">角色</label>
+        <select class="w-full mt-1 p-2 border rounded-lg text-sm">
+          <option selected>🏠 家長</option>
+          <option>👩‍🏫 老師</option>
+          <option>💼 行政人員</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-sm font-bold text-gray-600">審核狀態</label>
+        <div class="flex items-center gap-2 mt-1">
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+          <span class="text-sm text-gray-700">已審核通過</span>
+        </div>
+      </div>
+      <div class="bg-gray-50 rounded-xl p-3 border border-dashed border-gray-200">
+        <p class="text-xs text-gray-400 text-center">家長帳號無個人額外授權設定</p>
+      </div>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal('modal-user')" class="flex-1 py-2 border rounded-lg text-gray-500 text-sm">取消</button>
+      <button class="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">儲存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: 行政人員編輯 (有額外授權) -->
+<div id="modal-user2" class="fixed inset-0 bg-black/50 items-center justify-center z-50 p-4 hidden" onclick="closeModal('modal-user2')">
+  <div class="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <h2 class="text-lg font-black mb-1">編輯帳號</h2>
+    <p class="text-xs text-gray-400 mb-4">yaya@tombear.com</p>
+
+    <div class="space-y-4">
+      <div>
+        <label class="text-sm font-bold text-gray-600">角色</label>
+        <select class="w-full mt-1 p-2 border rounded-lg text-sm">
+          <option>🏠 家長</option>
+          <option>👩‍🏫 老師</option>
+          <option selected>💼 行政人員</option>
+          <option>🇬🇧 英文主任</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-sm font-bold text-gray-600">審核狀態</label>
+        <div class="flex items-center gap-2 mt-1">
+          <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+          <span class="text-sm text-gray-700">已審核通過</span>
+        </div>
+      </div>
+
+      <!-- 個人額外授權區塊 -->
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <h3 class="text-sm font-black text-gray-700">✨ 個人額外授權</h3>
+          <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">蓋過職位預設</span>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-3 space-y-3 border">
+
+          <div class="flex justify-between items-center">
+            <div>
+              <div class="text-sm font-bold text-gray-700">登錄成績</div>
+              <div class="text-xs text-gray-400">職位預設：❌ 關閉</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+          </div>
+          <div class="border-t"></div>
+          <div class="flex justify-between items-center">
+            <div>
+              <div class="text-sm font-bold text-gray-700">填寫聯絡簿</div>
+              <div class="text-xs text-gray-400">職位預設：❌ 關閉</div>
+            </div>
+            <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+          </div>
+          <div class="border-t"></div>
+          <div class="flex justify-between items-center">
+            <div>
+              <div class="text-sm font-bold text-gray-700">部門戰情室</div>
+              <div class="text-xs text-gray-400">職位預設：❌ 關閉</div>
+            </div>
+            <label class="toggle"><input type="checkbox"><span class="slider"></span></label>
+          </div>
+          <div class="border-t"></div>
+          <div class="flex justify-between items-center">
+            <div>
+              <div class="text-sm font-bold text-gray-700">發布公告</div>
+              <div class="text-xs text-gray-400">職位預設：✅ 開啟 (無法關閉)</div>
+            </div>
+            <label class="toggle"><input type="checkbox" checked disabled><span class="slider" style="opacity:.5;cursor:default"></span></label>
+          </div>
+        </div>
+        <p class="text-xs text-gray-400 mt-2">* 已有的職位預設權限不需額外設定，僅顯示預設關閉但可額外開放的項目</p>
+      </div>
+    </div>
+
+    <div class="flex gap-2 mt-5">
+      <button onclick="closeModal('modal-user2')" class="flex-1 py-2 border rounded-lg text-gray-500 text-sm">取消</button>
+      <button class="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold">儲存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const PERMISSIONS = [
+  { key: 'manageAnnouncements', label: '發布/編輯公告', icon: '📢' },
+  { key: 'viewAllStudents',     label: '查看全部學生',   icon: '👥' },
+  { key: 'editStudents',        label: '編輯學生資料',   icon: '✏️' },
+  { key: 'approveLeave',        label: '審核請假',       icon: '📅' },
+  { key: 'viewGrades',          label: '查看成績',       icon: '📊' },
+  { key: 'editGrades',          label: '登錄成績',       icon: '📝' },
+  { key: 'fillContactBook',     label: '填寫聯絡簿',     icon: '📒' },
+  { key: 'viewPickupQueue',     label: '接送戰情室',     icon: '🚌' },
+  { key: 'viewManagerDashboard',label: '部門戰情室',     icon: '💼' },
+  { key: 'manageUsers',         label: '人事管理',       icon: '👤' },
+  { key: 'chatWithParents',     label: '親師對話',       icon: '💬' },
+];
+
+const ROLE_DEFAULTS = {
+  admin:            { manageAnnouncements:true, viewAllStudents:true,  editStudents:false, approveLeave:true,  viewGrades:true,  editGrades:false, fillContactBook:false, viewPickupQueue:true,  viewManagerDashboard:false, manageUsers:true,  chatWithParents:true  },
+  teacher:          { manageAnnouncements:true, viewAllStudents:false, editStudents:false, approveLeave:true,  viewGrades:true,  editGrades:true,  fillContactBook:true,  viewPickupQueue:true,  viewManagerDashboard:false, manageUsers:false, chatWithParents:true  },
+  english_director: { manageAnnouncements:true, viewAllStudents:true,  editStudents:true,  approveLeave:true,  viewGrades:true,  editGrades:true,  fillContactBook:true,  viewPickupQueue:true,  viewManagerDashboard:true,  manageUsers:true,  chatWithParents:true  },
+  care_director:    { manageAnnouncements:true, viewAllStudents:true,  editStudents:true,  approveLeave:true,  viewGrades:true,  editGrades:true,  fillContactBook:true,  viewPickupQueue:true,  viewManagerDashboard:true,  manageUsers:true,  chatWithParents:true  },
+};
+
+let currentRole = 'admin';
+
+function showTab(tab) {
+  ['users','roleperms'].forEach(t => {
+    document.getElementById('panel-'+t).classList.add('hidden');
+    document.getElementById('tab-'+t).classList.remove('tab-active');
+  });
+  document.getElementById('panel-'+tab).classList.remove('hidden');
+  document.getElementById('tab-'+tab).classList.add('tab-active');
+}
+
+function selectRole(role) {
+  currentRole = role;
+  document.querySelectorAll('[id^="role-"]').forEach(btn => {
+    btn.className = 'px-4 py-2 rounded-xl border border-gray-200 text-gray-500 text-sm font-bold hover:border-indigo-300';
+  });
+  document.getElementById('role-'+role).className = 'px-4 py-2 rounded-xl border-2 border-indigo-500 bg-indigo-50 text-indigo-700 text-sm font-bold';
+  renderRolePerms(role);
+}
+
+function renderRolePerms(role) {
+  const defaults = ROLE_DEFAULTS[role] || {};
+  const list = document.getElementById('role-perms-list');
+  list.innerHTML = PERMISSIONS.map(p => `
+    <div class="flex justify-between items-center p-3 rounded-xl border border-gray-100 hover:bg-gray-50">
+      <div class="flex items-center gap-2">
+        <span class="text-lg">${p.icon}</span>
+        <span class="text-sm font-bold text-gray-700">${p.label}</span>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" ${defaults[p.key] ? 'checked' : ''}>
+        <span class="slider"></span>
+      </label>
+    </div>
+  `).join('');
+}
+
+function openUserModal() {
+  document.getElementById('modal-user').classList.remove('hidden');
+  document.getElementById('modal-user').classList.add('flex');
+}
+function openUserModal2() {
+  document.getElementById('modal-user2').classList.remove('hidden');
+  document.getElementById('modal-user2').classList.add('flex');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+  document.getElementById(id).classList.remove('flex');
+}
+
+// 初始化
+renderRolePerms('admin');
+</script>
+</body>
+</html>

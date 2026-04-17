@@ -111,7 +111,7 @@ export default function PickupPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
 
-        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
         const userRole = profile?.role || 'parent';
         setRole(userRole);
 
@@ -158,7 +158,7 @@ export default function PickupPage() {
             .select(`
                 *,
                 student:students (chinese_name, grade),
-                parent:profiles (full_name)
+                parent:users (name, email)
             `)
             .neq('status', 'completed')
             .order('created_at', { ascending: true });
@@ -300,7 +300,7 @@ export default function PickupPage() {
                                         <div className="text-sm text-gray-600 font-bold mt-1">
                                             班級: {req.student?.grade}
                                             <span className="mx-2 text-gray-300">|</span>
-                                            家長: {req.parent?.full_name || '家長'}
+                                            家長: {req.parent?.name || req.parent?.email || '家長'}
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2">

@@ -221,3 +221,76 @@ where parent_id is not null;
 -- However, editing line 20 (students) is better. 
 -- But since I am using replace_file_content on the end, I will use an ALTER statement here to be safe for existing deployments.
 alter table students add column if not exists class_name text;
+
+-- ======================================================
+-- 權限系統 Migration
+-- ======================================================
+
+-- 24. 個人權限覆蓋：在 users 表加 extra_permissions 欄位
+-- null = 沿用職位預設, true = 強制開啟, false = 強制關閉
+alter table users add column if not exists extra_permissions jsonb default '{}';
+
+-- 25. email 欄位 (確保存在，方便查詢)
+alter table users add column if not exists email text;
+alter table users add column if not exists is_approved boolean default false;
+
+-- 26. 職位預設權限表
+create table if not exists role_configs (
+  role text primary key,
+  permissions jsonb default '{}',
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+alter table role_configs enable row level security;
+create policy "Enable all access for now" on role_configs for all using (true) with check (true);
+
+-- 插入各職位預設值 (衝突時不覆蓋，保留管理員已改過的設定)
+insert into role_configs (role, permissions) values
+  ('director',         '{"manageAnnouncements":true,"viewAllStudents":true,"editStudents":true,"approveLeave":true,"viewGrades":true,"editGrades":true,"fillContactBook":true,"viewPickupQueue":true,"viewManagerDashboard":true,"manageUsers":true,"chatWithParents":true}'),
+  ('english_director', '{"manageAnnouncements":true,"viewAllStudents":true,"editStudents":true,"approveLeave":true,"viewGrades":true,"editGrades":true,"fillContactBook":true,"viewPickupQueue":true,"viewManagerDashboard":true,"manageUsers":true,"chatWithParents":true}'),
+  ('care_director',    '{"manageAnnouncements":true,"viewAllStudents":true,"editStudents":true,"approveLeave":true,"viewGrades":true,"editGrades":true,"fillContactBook":true,"viewPickupQueue":true,"viewManagerDashboard":true,"manageUsers":true,"chatWithParents":true}'),
+  ('admin',            '{"manageAnnouncements":true,"viewAllStudents":true,"editStudents":false,"approveLeave":true,"viewGrades":true,"editGrades":false,"fillContactBook":false,"viewPickupQueue":true,"viewManagerDashboard":false,"manageUsers":true,"chatWithParents":true}'),
+  ('teacher',          '{"manageAnnouncements":true,"viewAllStudents":false,"editStudents":false,"approveLeave":true,"viewGrades":true,"editGrades":true,"fillContactBook":true,"viewPickupQueue":true,"viewManagerDashboard":false,"manageUsers":false,"chatWithParents":true}'),
+  ('manager',          '{"manageAnnouncements":true,"viewAllStudents":true,"editStudents":true,"approveLeave":true,"viewGrades":true,"editGrades":true,"fillContactBook":true,"viewPickupQueue":true,"viewManagerDashboard":true,"manageUsers":true,"chatWithParents":true}')
+on conflict (role) do nothing;
+
+-- ============================================================
+-- 排課系統 (Schedule System)
+-- ============================================================
+
+-- 27. 老師類型與可來天數 (加到 users 表)
+alter table users add column if not exists teacher_type text check (teacher_type in ('foreign', 'external', 'staff'));
+-- available_days: 陣列，1=週一 ~ 5=週五 (外師/外聘固定天數；正職員工通常不用設，預設全天)
+alter table users add column if not exists available_days int[] default '{}';
+
+-- 28. 老師負責設定表 (teacher × class × slot_type × role)
+create table if not exists teacher_assignments (
+  id uuid default uuid_generate_v4() primary key,
+  teacher_id uuid references users(id) on delete cascade not null,
+  class_group text not null,           -- e.g. 'CEI-A', 'CEI-B', '安親班'
+  slot_type text not null check (slot_type in ('聽說', '文法', '閱讀', '英文綜合', '課後輔導')),
+  role text not null check (role in ('lead', 'assistant')) default 'lead',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique(teacher_id, class_group, slot_type, role)
+);
+
+alter table teacher_assignments enable row level security;
+create policy "Enable all access for teacher_assignments" on teacher_assignments for all using (true) with check (true);
+
+-- 29. 排課表 (實際課程時間表)
+create table if not exists schedule_slots (
+  id uuid default uuid_generate_v4() primary key,
+  semester text not null default '2025下',  -- e.g. '2025下', '2026上'
+  class_group text not null,               -- e.g. 'CEI-A'
+  slot_type text not null check (slot_type in ('聽說', '文法', '閱讀', '英文綜合', '課後輔導')),
+  lead_teacher_id uuid references users(id) on delete set null,
+  assistant_teacher_id uuid references users(id) on delete set null,
+  day_of_week int not null check (day_of_week between 1 and 5),  -- 1=週一, 5=週五
+  start_time time not null,                -- e.g. '15:00'
+  end_time time,                           -- e.g. '16:00' (可空)
+  note text,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+alter table schedule_slots enable row level security;
+create policy "Enable all access for schedule_slots" on schedule_slots for all using (true) with check (true);

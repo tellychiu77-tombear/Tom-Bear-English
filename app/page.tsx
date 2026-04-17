@@ -258,6 +258,11 @@ export default function DashboardPage() {
                         <DashboardCard title="部門戰情室" icon="💼" color="bg-cyan-600" onClick={() => router.push('/manager')} desc="查看績效與部門數據" />
                     )}
 
+                    {/* 排課系統：有 viewManagerDashboard 者（主任/主管可排課） */}
+                    {permissions?.viewManagerDashboard && (
+                        <DashboardCard title="排課系統" icon="📅" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
+                    )}
+
                     {/* 人事管理：有 manageUsers 者 */}
                     {permissions?.manageUsers && (
                         <DashboardCard title="人事管理" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />

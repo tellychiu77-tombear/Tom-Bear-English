@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>排課系統 V2 完整預覽</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f1f5f9; }
+  .phone-frame { background: #1a1a2e; border-radius: 40px; padding: 12px; box-shadow: 0 40px 80px rgba(0,0,0,0.4); }
+  .phone-screen { background: #f8fafc; border-radius: 30px; overflow: hidden; height: 820px; width: 370px; overflow-y: auto; scrollbar-width: none; }
+  .phone-screen::-webkit-scrollbar { display: none; }
+  .slot-card { transition: all 0.15s ease; cursor: pointer; }
+  .slot-card:hover { transform: scale(1.02); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .tab-btn { transition: all 0.2s; }
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+  .modal.open { display: flex; }
+  @keyframes slideUp { from { transform: translateY(30px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+  .modal-box { animation: slideUp 0.25s ease; }
+</style>
+</head>
+<body class="p-6">
+
+<div class="text-center mb-8">
+  <h1 class="text-3xl font-black text-gray-800">📅 湯貝爾排課系統 V2</h1>
+  <p class="text-gray-400 text-sm mt-1">含：課程範本 ／ 外師可用日 ／ 主教助教 ／ 一鍵預排</p>
+</div>
+
+<!-- Tab 切換 -->
+<div class="flex justify-center gap-3 mb-8 flex-wrap">
+  <button onclick="showTab('grid')" id="tab-grid" class="tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-indigo-600 text-white shadow-lg">📅 週課表（主任）</button>
+  <button onclick="showTab('template')" id="tab-template" class="tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-white text-gray-500 border-2 border-gray-200">📋 課程範本設定</button>
+  <button onclick="showTab('teacher')" id="tab-teacher" class="tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-white text-gray-500 border-2 border-gray-200">👩‍🏫 老師可用日</button>
+  <button onclick="showTab('parent')" id="tab-parent" class="tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-white text-gray-500 border-2 border-gray-200">👨‍👩‍👧 家長視角</button>
+  <button onclick="showTab('arch')" id="tab-arch" class="tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-white text-gray-500 border-2 border-gray-200">🗂️ 資料架構</button>
+</div>
+
+<!-- ===================== 週課表 ===================== -->
+<div id="view-grid" class="max-w-5xl mx-auto">
+
+  <!-- 工具列 -->
+  <div class="bg-white rounded-2xl shadow-sm border p-4 mb-4 flex flex-wrap gap-3 items-center justify-between">
+    <div class="flex items-center gap-3">
+      <select class="border rounded-xl px-3 py-2 font-bold text-gray-700 text-sm bg-gray-50">
+        <option>2025 下學期（2025/02–06）</option>
+      </select>
+      <span class="bg-green-100 text-green-700 text-xs font-black px-2 py-1 rounded-full">目前學期</span>
+    </div>
+    <div class="flex gap-2">
+      <!-- 一鍵預排 -->
+      <button onclick="showPreSchedule()" class="px-4 py-2 bg-amber-500 text-white rounded-xl font-black text-sm hover:bg-amber-600 transition shadow flex items-center gap-2">
+        ✨ 一鍵預排建議
+      </button>
+      <button onclick="openAddSlot()" class="px-4 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm hover:bg-indigo-700 transition shadow">＋ 新增課程</button>
+      <button class="px-4 py-2 bg-white border rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-50">📋 複製上學期</button>
+    </div>
+  </div>
+
+  <!-- 圖例 -->
+  <div class="flex gap-3 mb-4 flex-wrap items-center">
+    <span class="text-xs font-black text-gray-400">課程類型：</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-blue-700"><span class="w-3 h-3 rounded bg-blue-400 inline-block"></span>聽說課</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-purple-700"><span class="w-3 h-3 rounded bg-purple-400 inline-block"></span>文法課</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-rose-700"><span class="w-3 h-3 rounded bg-rose-400 inline-block"></span>閱讀課</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-green-700"><span class="w-3 h-3 rounded bg-green-400 inline-block"></span>英文綜合（低年級）</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-teal-700"><span class="w-3 h-3 rounded bg-teal-400 inline-block"></span>課後輔導</span>
+    <span class="ml-2 flex items-center gap-1 text-xs font-bold text-gray-500">🌍 = 外師主講</span>
+    <span class="flex items-center gap-1 text-xs font-bold text-gray-500">⚠️ = 合班</span>
+  </div>
+
+  <!-- 週課表 Grid -->
+  <div class="bg-white rounded-2xl shadow-sm border overflow-x-auto">
+    <table class="w-full min-w-[700px]">
+      <thead>
+        <tr class="bg-gray-50 border-b">
+          <th class="p-3 text-xs font-black text-gray-400 text-left w-20">時間</th>
+          <th class="p-3 text-xs font-black text-gray-500 text-center">週一</th>
+          <th class="p-3 text-xs font-black text-gray-500 text-center">週二</th>
+          <th class="p-3 text-xs font-black text-gray-500 text-center">週三</th>
+          <th class="p-3 text-xs font-black text-gray-500 text-center">週四</th>
+          <th class="p-3 text-xs font-black text-gray-500 text-center">週五</th>
+        </tr>
+      </thead>
+      <tbody>
+        <!-- 13:30 低年級 -->
+        <tr class="border-b">
+          <td class="p-2 text-xs font-black text-gray-400 bg-gray-50 border-r">13:30</td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-green-100 border border-green-200 rounded-xl p-2" onclick="openDetail('低年級英文綜合','CEI-A (低年級)','週一 13:30–15:00','🌍 Tom 老師 + 助教：小王老師','low')">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[10px]">🌍</span><span class="text-[11px] font-black text-green-700">英文綜合</span></div>
+              <div class="text-[10px] text-green-600 font-bold">CEI-A（低）</div>
+              <div class="text-[10px] text-green-500">Tom ＋ 小王(助)</div>
+              <div class="text-[10px] text-green-400">13:30–15:00</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-green-100 border border-green-200 rounded-xl p-2">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[10px]">🌍</span><span class="text-[11px] font-black text-green-700">英文綜合</span></div>
+              <div class="text-[10px] text-green-600 font-bold">CEI-A（低）</div>
+              <div class="text-[10px] text-green-500">Tom ＋ 小王(助)</div>
+              <div class="text-[10px] text-green-400">13:30–15:00</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <button onclick="openAddSlot()" class="w-full h-16 border-2 border-dashed border-gray-200 rounded-xl text-gray-300 hover:border-indigo-300 hover:text-indigo-300 transition text-xl">＋</button>
+          </td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-green-100 border border-green-200 rounded-xl p-2">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[10px]">🌍</span><span class="text-[11px] font-black text-green-700">英文綜合</span></div>
+              <div class="text-[10px] text-green-600 font-bold">CEI-A（低）</div>
+              <div class="text-[10px] text-green-500">Tom ＋ 小王(助)</div>
+              <div class="text-[10px] text-green-400">13:30–15:00</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-green-100 border border-green-200 rounded-xl p-2">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[10px]">🌍</span><span class="text-[11px] font-black text-green-700">英文綜合</span></div>
+              <div class="text-[10px] text-green-600 font-bold">CEI-A（低）</div>
+              <div class="text-[10px] text-green-500">Tom ＋ 小王(助)</div>
+              <div class="text-[10px] text-green-400">13:30–15:00</div>
+            </div>
+          </td>
+        </tr>
+
+        <!-- 15:00 高年級 -->
+        <tr class="border-b">
+          <td class="p-2 text-xs font-black text-gray-400 bg-gray-50 border-r">15:00</td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-blue-100 border border-blue-200 rounded-xl p-2" onclick="openDetail('聽說課','CEI-B (高年級)','週一 15:00–16:30','🌍 Tom 老師（外師主講）','high-ls')">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[10px]">🌍</span><span class="text-[11px] font-black text-blue-700">聽說課</span></div>
+              <div class="text-[10px] text-blue-600 font-bold">CEI-B（高）</div>
+              <div class="text-[10px] text-blue-500">Tom 老師</div>
+              <div class="text-[10px] text-blue-400">15:00–16:30</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-purple-100 border border-purple-200 rounded-xl p-2">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[11px] font-black text-purple-700">文法課</span></div>
+              <div class="text-[10px] text-purple-600 font-bold">CEI-B（高）</div>
+              <div class="text-[10px] text-purple-500">小李老師</div>
+              <div class="text-[10px] text-purple-400">15:00–16:30</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <!-- 警告：放學時間 -->
+            <div class="slot-card bg-orange-100 border-2 border-orange-300 rounded-xl p-2 relative">
+              <div class="absolute -top-1.5 -right-1 bg-orange-400 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">⚠️ 時間</div>
+              <div class="text-[11px] font-black text-orange-700">閱讀課</div>
+              <div class="text-[10px] text-orange-600 font-bold">CEI-C（高）</div>
+              <div class="text-[10px] text-orange-500">小王老師</div>
+              <div class="text-[10px] text-orange-400">15:00–16:30</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <div class="slot-card bg-rose-100 border border-rose-200 rounded-xl p-2">
+              <div class="flex items-center gap-1 mb-1"><span class="text-[11px] font-black text-rose-700">閱讀課</span></div>
+              <div class="text-[10px] text-rose-600 font-bold">CEI-B（高）</div>
+              <div class="text-[10px] text-rose-500">小李老師</div>
+              <div class="text-[10px] text-rose-400">15:00–16:30</div>
+            </div>
+          </td>
+          <td class="p-1.5 align-top">
+            <button onclick="openAddSlot()" class="w-full h-16 border-2 border-dashed border-gray-200 rounded-xl text-gray-300 hover:border-indigo-300 hover:text-indigo-300 transition text-xl">＋</button>
+          </td>
+        </tr>
+
+        <!-- 16:30 安親 -->
+        <tr class="border-b">
+          <td class="p-2 text-xs font-black text-gray-400 bg-gray-50 border-r">16:30</td>
+          <td class="p-1.5"><div class="slot-card bg-teal-100 border border-teal-200 rounded-xl p-2"><div class="text-[11px] font-black text-teal-700">課後輔導</div><div class="text-[10px] text-teal-500">張老師</div><div class="text-[10px] text-teal-400">16:30–18:30</div></div></td>
+          <td class="p-1.5"><div class="slot-card bg-teal-100 border border-teal-200 rounded-xl p-2"><div class="text-[11px] font-black text-teal-700">課後輔導</div><div class="text-[10px] text-teal-500">張老師</div><div class="text-[10px] text-teal-400">16:30–18:30</div></div></td>
+          <td class="p-1.5"><div class="slot-card bg-teal-100 border border-teal-200 rounded-xl p-2"><div class="text-[11px] font-black text-teal-700">課後輔導</div><div class="text-[10px] text-teal-500">張老師</div><div class="text-[10px] text-teal-400">16:30–18:30</div></div></td>
+          <td class="p-1.5"><div class="slot-card bg-teal-100 border border-teal-200 rounded-xl p-2"><div class="text-[11px] font-black text-teal-700">課後輔導</div><div class="text-[10px] text-teal-500">張老師</div><div class="text-[10px] text-teal-400">16:30–18:30</div></div></td>
+          <td class="p-1.5"><div class="slot-card bg-teal-100 border border-teal-200 rounded-xl p-2"><div class="text-[11px] font-black text-teal-700">課後輔導</div><div class="text-[10px] text-teal-500">張老師</div><div class="text-[10px] text-teal-400">16:30–18:30</div></div></td>
+        </tr>
+
+        <!-- 進度追蹤 -->
+        <tr class="bg-indigo-50">
+          <td class="p-3 text-xs font-black text-indigo-400 border-r">課程進度</td>
+          <td colspan="5" class="p-3">
+            <div class="flex gap-4 flex-wrap">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black text-gray-600">CEI-A（低）</span>
+                <div class="flex gap-1">
+                  <span class="w-5 h-5 bg-green-500 rounded text-white text-[9px] flex items-center justify-center font-black">✓</span>
+                  <span class="w-5 h-5 bg-green-500 rounded text-white text-[9px] flex items-center justify-center font-black">✓</span>
+                  <span class="w-5 h-5 bg-green-500 rounded text-white text-[9px] flex items-center justify-center font-black">✓</span>
+                  <span class="w-5 h-5 bg-green-500 rounded text-white text-[9px] flex items-center justify-center font-black">✓</span>
+                </div>
+                <span class="text-[10px] text-green-600 font-bold">4/4 完成</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black text-gray-600">CEI-B（高）</span>
+                <div class="flex gap-1">
+                  <span class="w-5 h-5 bg-blue-500 rounded text-white text-[9px] flex items-center justify-center font-black" title="聽說">聽</span>
+                  <span class="w-5 h-5 bg-purple-500 rounded text-white text-[9px] flex items-center justify-center font-black" title="文法">文</span>
+                  <span class="w-5 h-5 bg-rose-500 rounded text-white text-[9px] flex items-center justify-center font-black" title="閱讀">閱</span>
+                </div>
+                <span class="text-[10px] text-green-600 font-bold">3/3 完成</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black text-gray-600">CEI-C（高）</span>
+                <div class="flex gap-1">
+                  <span class="w-5 h-5 bg-blue-500 rounded text-white text-[9px] flex items-center justify-center font-black">聽</span>
+                  <span class="w-5 h-5 bg-gray-200 rounded text-gray-400 text-[9px] flex items-center justify-center font-black">文</span>
+                  <span class="w-5 h-5 bg-rose-500 rounded text-white text-[9px] flex items-center justify-center font-black">閱</span>
+                </div>
+                <span class="text-[10px] text-orange-500 font-bold">2/3 ⚠️ 缺文法</span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===================== 課程範本 ===================== -->
+<div id="view-template" class="max-w-4xl mx-auto hidden">
+  <div class="grid md:grid-cols-2 gap-6">
+
+    <!-- 低年級範本 -->
+    <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <div class="bg-green-500 p-4">
+        <h3 class="font-black text-white text-lg">🌱 低年級英文班範本</h3>
+        <p class="text-green-100 text-xs mt-1">適用：CEI 一、二年級程度</p>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="flex justify-between items-center p-3 bg-green-50 rounded-xl border border-green-100">
+          <div>
+            <div class="font-black text-green-800 text-sm">每週堂數</div>
+            <div class="text-xs text-green-600">固定4堂</div>
+          </div>
+          <span class="text-2xl font-black text-green-700">4</span>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-xl border">
+          <div class="font-black text-gray-700 text-sm mb-2">課程類型</div>
+          <div class="flex items-center gap-2 p-2 bg-green-100 rounded-lg">
+            <span class="text-xs font-black text-green-700">英文綜合 ×4</span>
+          </div>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-xl border">
+          <div class="font-black text-gray-700 text-sm mb-2">老師配置</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-2">
+              <span class="bg-orange-100 text-orange-700 text-[10px] font-black px-2 py-0.5 rounded-full">🌍 主教</span>
+              <span class="text-xs text-gray-600">外師（必填）</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="bg-blue-100 text-blue-700 text-[10px] font-black px-2 py-0.5 rounded-full">助教</span>
+              <span class="text-xs text-gray-600">英文老師（必填）</span>
+            </div>
+          </div>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-xl border">
+          <div class="font-black text-gray-700 text-sm mb-2">可排天數</div>
+          <div class="flex gap-2">
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">週一</span>
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">週二</span>
+            <span class="px-2 py-1 bg-gray-100 text-gray-400 text-xs font-bold rounded line-through">週三</span>
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">週四</span>
+            <span class="px-2 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded">週五</span>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-1">* 依外師可來天數自動計算</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 高年級範本 -->
+    <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <div class="bg-indigo-600 p-4">
+        <h3 class="font-black text-white text-lg">📚 高年級英文班範本</h3>
+        <p class="text-indigo-200 text-xs mt-1">適用：CEI 三年級以上程度</p>
+      </div>
+      <div class="p-5 space-y-4">
+        <div class="flex justify-between items-center p-3 bg-indigo-50 rounded-xl border border-indigo-100">
+          <div>
+            <div class="font-black text-indigo-800 text-sm">每週堂數</div>
+            <div class="text-xs text-indigo-600">固定3堂</div>
+          </div>
+          <span class="text-2xl font-black text-indigo-700">3</span>
+        </div>
+        <div class="p-3 bg-gray-50 rounded-xl border">
+          <div class="font-black text-gray-700 text-sm mb-2">課程類型（每週各1堂）</div>
+          <div class="space-y-2">
+            <div class="flex items-center justify-between p-2 bg-blue-100 rounded-lg">
+              <span class="text-xs font-black text-blue-700">🌍 聽說課</span>
+              <span class="text-[10px] text-blue-500">外師主講（必須）</span>
+            </div>
+            <div class="flex items-center justify-between p-2 bg-purple-100 rounded-lg">
+              <span class="text-xs font-black text-purple-700">文法課</span>
+              <span class="text-[10px] text-purple-500">外師 或 英文老師</span>
+            </div>
+            <div class="flex items-center justify-between p-2 bg-rose-100 rounded-lg">
+              <span class="text-xs font-black text-rose-700">閱讀課</span>
+              <span class="text-[10px] text-rose-500">外師 或 英文老師</span>
+            </div>
+          </div>
+        </div>
+        <div class="p-3 bg-amber-50 rounded-xl border border-amber-100">
+          <div class="font-black text-amber-800 text-sm mb-1">⚠️ 聽說課限制</div>
+          <div class="text-xs text-amber-600">聽說課只能排在外師有來的日子（週一、二、四、五）</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 新班級設定流程 -->
+  <div class="bg-white rounded-2xl shadow-sm border mt-6 p-5">
+    <h3 class="font-black text-gray-800 mb-4">✨ 新班級快速設定流程</h3>
+    <div class="flex gap-4 flex-wrap">
+      <div class="flex items-center gap-3 bg-gray-50 rounded-xl p-3 border flex-1 min-w-40">
+        <span class="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black flex-shrink-0">1</span>
+        <div><div class="font-bold text-sm text-gray-700">選擇範本</div><div class="text-xs text-gray-400">低年級 或 高年級</div></div>
+      </div>
+      <div class="text-gray-300 self-center font-black">→</div>
+      <div class="flex items-center gap-3 bg-gray-50 rounded-xl p-3 border flex-1 min-w-40">
+        <span class="w-8 h-8 bg-indigo-600 text-white rounded-full flex items-center justify-center font-black flex-shrink-0">2</span>
+        <div><div class="font-bold text-sm text-gray-700">設定班級資訊</div><div class="text-xs text-gray-400">班名、最早上課時間</div></div>
+      </div>
+      <div class="text-gray-300 self-center font-black">→</div>
+      <div class="flex items-center gap-3 bg-gray-50 rounded-xl p-3 border flex-1 min-w-40">
+        <span class="w-8 h-8 bg-amber-500 text-white rounded-full flex items-center justify-center font-black flex-shrink-0">3</span>
+        <div><div class="font-bold text-sm text-gray-700">一鍵預排</div><div class="text-xs text-gray-400">系統自動建議時間</div></div>
+      </div>
+      <div class="text-gray-300 self-center font-black">→</div>
+      <div class="flex items-center gap-3 bg-gray-50 rounded-xl p-3 border flex-1 min-w-40">
+        <span class="w-8 h-8 bg-green-500 text-white rounded-full flex items-center justify-center font-black flex-shrink-0">4</span>
+        <div><div class="font-bold text-sm text-gray-700">手動微調</div><div class="text-xs text-gray-400">拖拉或點擊修改</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== 老師可用日 ===================== -->
+<div id="view-teacher" class="max-w-4xl mx-auto hidden">
+  <div class="grid md:grid-cols-2 gap-4">
+
+    <!-- 外師 -->
+    <div class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-2xl">🌍</div>
+        <div>
+          <div class="font-black text-gray-800">Tom（外師）</div>
+          <div class="flex gap-1 mt-1">
+            <span class="text-[10px] bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-black">外聘老師</span>
+          </div>
+        </div>
+      </div>
+      <div class="mb-4">
+        <div class="text-xs font-black text-gray-500 mb-2">固定可來天數</div>
+        <div class="grid grid-cols-5 gap-2">
+          <label class="flex flex-col items-center gap-1 cursor-pointer">
+            <div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">一</div>
+            <input type="checkbox" checked class="accent-indigo-500">
+          </label>
+          <label class="flex flex-col items-center gap-1 cursor-pointer">
+            <div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">二</div>
+            <input type="checkbox" checked class="accent-indigo-500">
+          </label>
+          <label class="flex flex-col items-center gap-1 cursor-pointer">
+            <div class="w-10 h-10 bg-gray-200 rounded-xl flex items-center justify-center text-gray-400 font-black text-sm">三</div>
+            <input type="checkbox" class="accent-indigo-500">
+          </label>
+          <label class="flex flex-col items-center gap-1 cursor-pointer">
+            <div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">四</div>
+            <input type="checkbox" checked class="accent-indigo-500">
+          </label>
+          <label class="flex flex-col items-center gap-1 cursor-pointer">
+            <div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">五</div>
+            <input type="checkbox" checked class="accent-indigo-500">
+          </label>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-2">可來：週一、二、四、五（共4天）</p>
+      </div>
+      <div>
+        <div class="text-xs font-black text-gray-500 mb-2">本學期負責課程</div>
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs p-2 bg-green-50 rounded-lg"><span class="font-bold text-gray-700">英文綜合（低年級）</span><span class="text-green-600 font-bold">CEI-A ×4堂</span></div>
+          <div class="flex justify-between text-xs p-2 bg-blue-50 rounded-lg"><span class="font-bold text-gray-700">聽說課</span><span class="text-blue-600 font-bold">CEI-B, C ×2堂</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 英文老師 -->
+    <div class="bg-white rounded-2xl shadow-sm border p-5">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-2xl">👩‍🏫</div>
+        <div>
+          <div class="font-black text-gray-800">小李老師（英文老師）</div>
+          <div class="flex gap-1 mt-1">
+            <span class="text-[10px] bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-black">正職老師</span>
+          </div>
+        </div>
+      </div>
+      <div class="mb-4">
+        <div class="text-xs font-black text-gray-500 mb-2">上班天數（全天可排）</div>
+        <div class="grid grid-cols-5 gap-2">
+          <div class="flex flex-col items-center gap-1"><div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">一</div><span class="text-[9px] text-green-600 font-bold">✓</span></div>
+          <div class="flex flex-col items-center gap-1"><div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">二</div><span class="text-[9px] text-green-600 font-bold">✓</span></div>
+          <div class="flex flex-col items-center gap-1"><div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">三</div><span class="text-[9px] text-green-600 font-bold">✓</span></div>
+          <div class="flex flex-col items-center gap-1"><div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">四</div><span class="text-[9px] text-green-600 font-bold">✓</span></div>
+          <div class="flex flex-col items-center gap-1"><div class="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center text-white font-black text-sm">五</div><span class="text-[9px] text-green-600 font-bold">✓</span></div>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-2">正職老師週一到五全天可排</p>
+      </div>
+      <div>
+        <div class="text-xs font-black text-gray-500 mb-2">本學期課程</div>
+        <div class="space-y-1">
+          <div class="flex justify-between text-xs p-2 bg-green-50 rounded-lg"><span class="font-bold text-gray-700">英文綜合 助教</span><span class="text-green-600 font-bold">CEI-A ×4堂</span></div>
+          <div class="flex justify-between text-xs p-2 bg-purple-50 rounded-lg"><span class="font-bold text-gray-700">文法課 主教</span><span class="text-purple-600 font-bold">CEI-B, C ×2堂</span></div>
+          <div class="flex justify-between text-xs p-2 bg-rose-50 rounded-lg"><span class="font-bold text-gray-700">閱讀課 主教</span><span class="text-rose-600 font-bold">CEI-B ×1堂</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ===================== 家長視角 ===================== -->
+<div id="view-parent" class="flex justify-center hidden">
+  <div class="phone-frame">
+    <div class="phone-screen">
+      <div class="bg-gradient-to-br from-green-500 to-teal-600 px-4 pt-10 pb-4">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center text-xl">👧</div>
+            <div>
+              <div class="text-white font-black">小明的課表</div>
+              <div class="text-green-100 text-[11px]">CEI-B（高年級）・2025 下學期</div>
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between bg-white/20 rounded-xl px-3 py-2">
+          <button class="text-white font-black text-lg">‹</button>
+          <span class="text-white text-xs font-bold">04/14（一）～ 04/18（五）</span>
+          <button class="text-white font-black text-lg">›</button>
+        </div>
+      </div>
+
+      <div class="px-3 pt-3">
+        <div class="text-xs font-black text-gray-500 mb-2">📅 本週課表</div>
+        <div class="grid grid-cols-6 text-center mb-1">
+          <div class="text-[10px] font-black text-gray-400 py-1">時間</div>
+          <div class="text-[10px] font-black text-indigo-600 py-1">一</div>
+          <div class="text-[10px] font-black text-gray-400 py-1">二</div>
+          <div class="text-[10px] font-black text-gray-400 py-1">三</div>
+          <div class="text-[10px] font-black text-indigo-600 py-1">四</div>
+          <div class="text-[10px] font-black text-gray-400 py-1">五</div>
+        </div>
+
+        <div class="grid grid-cols-6 gap-1 mb-1">
+          <div class="text-[9px] font-black text-gray-400 flex items-center justify-center bg-gray-100 rounded-lg">15:00</div>
+          <div class="bg-blue-100 border border-blue-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-blue-700">聽說課</div>
+            <div class="text-[8px] text-blue-400">Tom老師</div>
+          </div>
+          <div class="rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center py-3"><span class="text-[9px] text-gray-300">—</span></div>
+          <div class="rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center py-3"><span class="text-[9px] text-gray-300">—</span></div>
+          <div class="bg-rose-100 border border-rose-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-rose-700">閱讀課</div>
+            <div class="text-[8px] text-rose-400">小李老師</div>
+          </div>
+          <div class="rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center py-3"><span class="text-[9px] text-gray-300">—</span></div>
+        </div>
+
+        <div class="grid grid-cols-6 gap-1 mb-1">
+          <div class="text-[9px] font-black text-gray-400 flex items-center justify-center bg-gray-100 rounded-lg">16:30</div>
+          <div class="bg-teal-100 border border-teal-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-teal-700">課後輔導</div>
+            <div class="text-[8px] text-teal-400">張老師</div>
+          </div>
+          <div class="bg-purple-100 border border-purple-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-purple-700">文法課</div>
+            <div class="text-[8px] text-purple-400">小李老師</div>
+          </div>
+          <div class="bg-teal-100 border border-teal-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-teal-700">課後輔導</div>
+            <div class="text-[8px] text-teal-400">張老師</div>
+          </div>
+          <div class="bg-teal-100 border border-teal-200 rounded-xl p-1.5">
+            <div class="text-[9px] font-black text-teal-700">課後輔導</div>
+            <div class="text-[8px] text-teal-400">張老師</div>
+          </div>
+          <div class="rounded-xl bg-gray-50 border border-dashed border-gray-200 flex items-center justify-center py-3"><span class="text-[9px] text-gray-300">—</span></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 my-3">
+          <div class="bg-white rounded-xl p-2 border text-center shadow-sm">
+            <div class="text-base font-black text-blue-600">3h</div>
+            <div class="text-[10px] text-gray-400">英文課</div>
+          </div>
+          <div class="bg-white rounded-xl p-2 border text-center shadow-sm">
+            <div class="text-base font-black text-teal-600">4h</div>
+            <div class="text-[10px] text-gray-400">課後輔導</div>
+          </div>
+          <div class="bg-white rounded-xl p-2 border text-center shadow-sm">
+            <div class="text-base font-black text-gray-700">3</div>
+            <div class="text-[10px] text-gray-400">上課天</div>
+          </div>
+        </div>
+
+        <div class="font-black text-gray-700 text-xs mb-2">📋 近期出缺勤</div>
+        <div class="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm mb-3">
+          <div class="flex justify-between items-center p-2.5 border-b">
+            <div><div class="text-xs font-bold text-gray-700">04/14 聽說課</div><div class="text-[10px] text-gray-400">Tom老師</div></div>
+            <span class="text-[10px] bg-green-100 text-green-700 font-black px-2 py-0.5 rounded-full">✅ 出席</span>
+          </div>
+          <div class="flex justify-between items-center p-2.5 bg-red-50">
+            <div><div class="text-xs font-bold text-gray-700">04/10 文法課</div><div class="text-[10px] text-gray-400">小李老師</div></div>
+            <span class="text-[10px] bg-red-100 text-red-600 font-black px-2 py-0.5 rounded-full">❌ 病假</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== 資料架構 ===================== -->
+<div id="view-arch" class="max-w-4xl mx-auto hidden">
+  <div class="grid md:grid-cols-2 gap-4">
+    <div class="space-y-4">
+      <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div class="bg-indigo-50 px-4 py-2 font-black text-indigo-700 text-xs border-b">📅 semesters（學期）</div>
+        <div class="p-3 text-xs text-gray-600 space-y-1">
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">name</span><span>「2025 下學期」</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">start_date / end_date</span><span>學期起訖</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">is_current</span><span>是否為目前學期</span></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div class="bg-green-50 px-4 py-2 font-black text-green-700 text-xs border-b">📋 course_templates（課程範本）</div>
+        <div class="p-3 text-xs text-gray-600 space-y-1">
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">name</span><span>「低年級英文班」</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">grade_level</span><span>low / high</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">weekly_slots</span><span>每週幾堂（4 or 3）</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">slot_types</span><span>["英文綜合"] 或 ["聽說","文法","閱讀"]</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">requires_external</span><span>是否需要外師</span></div>
+        </div>
+      </div>
+      <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div class="bg-orange-50 px-4 py-2 font-black text-orange-700 text-xs border-b">👩‍🏫 users 表（新增欄位）</div>
+        <div class="p-3 text-xs text-gray-600 space-y-1">
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">teacher_type</span><span>staff / external（外師）</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">available_days</span><span>[1,2,4,5]（外師可來天）</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="space-y-4">
+      <div class="bg-white rounded-2xl border shadow-sm overflow-hidden">
+        <div class="bg-blue-50 px-4 py-2 font-black text-blue-700 text-xs border-b">🗓️ schedule_slots（排課）</div>
+        <div class="p-3 text-xs text-gray-600 space-y-1">
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">semester_id</span><span>→ semesters</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">class_group</span><span>「CEI-B」</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">slot_type</span><span>聽說 / 文法 / 閱讀 / 英文綜合 / 課後輔導</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">lead_teacher_id</span><span>主教老師</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">assistant_teacher_id</span><span>助教（選填）</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">day_of_week</span><span>1–5</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">start_time / end_time</span><span>上課時間</span></div>
+          <div class="flex gap-2"><span class="font-black text-gray-400 w-32">earliest_student_time</span><span>班級最早可上課時間</span></div>
+        </div>
+      </div>
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+        <div class="font-black text-amber-800 mb-2">✨ 一鍵預排邏輯</div>
+        <div class="text-xs text-amber-700 space-y-1.5">
+          <div>1. 讀取每個班的課程範本（要幾堂、什麼類型）</div>
+          <div>2. 聽說課 → 只能排外師有來的天（Mon/Tue/Thu/Fri）</div>
+          <div>3. 文法/閱讀 → 排在剩餘時段，英文老師補上</div>
+          <div>4. 比對各班最早上課時間，避免衝突</div>
+          <div>5. 產生建議草稿，主任確認後儲存</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 一鍵預排 Modal ===== -->
+<div id="modal-preschd" class="modal">
+  <div class="modal-box bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6">
+    <h3 class="font-black text-xl mb-1">✨ 一鍵預排建議</h3>
+    <p class="text-gray-400 text-sm mb-5">系統根據老師可用時間與課程範本，自動建議排課。你可以接受或手動調整。</p>
+    <div class="space-y-3 mb-6">
+      <div class="flex items-center gap-3 p-3 bg-green-50 rounded-xl border border-green-100">
+        <span class="text-2xl">🌱</span>
+        <div class="flex-1"><div class="font-black text-green-800 text-sm">CEI-A（低年級）</div><div class="text-xs text-green-600">週一二四五 13:30–15:00，Tom＋小王(助)</div></div>
+        <span class="text-[10px] bg-green-500 text-white font-black px-2 py-1 rounded-full">4/4 ✓</span>
+      </div>
+      <div class="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+        <span class="text-2xl">📚</span>
+        <div class="flex-1">
+          <div class="font-black text-blue-800 text-sm">CEI-B（高年級）</div>
+          <div class="text-xs text-blue-600">聽說：週一 15:00｜文法：週二 16:30｜閱讀：週四 15:00</div>
+        </div>
+        <span class="text-[10px] bg-blue-500 text-white font-black px-2 py-1 rounded-full">3/3 ✓</span>
+      </div>
+      <div class="flex items-center gap-3 p-3 bg-orange-50 rounded-xl border border-orange-200">
+        <span class="text-2xl">⚠️</span>
+        <div class="flex-1">
+          <div class="font-black text-orange-800 text-sm">CEI-C（高年級）</div>
+          <div class="text-xs text-orange-600">聽說＆閱讀已排，文法週三無外師，建議小李老師擔任</div>
+        </div>
+        <span class="text-[10px] bg-orange-400 text-white font-black px-2 py-1 rounded-full">需確認</span>
+      </div>
+    </div>
+    <div class="flex gap-3">
+      <button class="flex-1 py-3 bg-indigo-600 text-white font-black rounded-xl hover:bg-indigo-700">✅ 套用建議</button>
+      <button onclick="closeModal('modal-preschd')" class="flex-1 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200">稍後手動排</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 新增課程 Modal ===== -->
+<div id="modal-add" class="modal">
+  <div class="modal-box bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6">
+    <h3 class="font-black text-xl mb-4">＋ 新增課程</h3>
+    <div class="space-y-4">
+      <div>
+        <label class="text-xs font-black text-gray-400 mb-1 block">班級</label>
+        <select class="w-full p-3 border rounded-xl font-bold bg-gray-50 text-sm">
+          <option>CEI-A（低年級）</option>
+          <option>CEI-B（高年級）</option>
+          <option>CEI-C（高年級）</option>
+          <option>安親班</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-xs font-black text-gray-400 mb-1 block">課程類型</label>
+        <div class="grid grid-cols-3 gap-2">
+          <button class="p-2 bg-blue-100 border-2 border-blue-300 rounded-xl text-xs font-black text-blue-700">🎧 聽說課</button>
+          <button class="p-2 bg-white border-2 border-gray-200 rounded-xl text-xs font-black text-gray-500">📖 文法課</button>
+          <button class="p-2 bg-white border-2 border-gray-200 rounded-xl text-xs font-black text-gray-500">📚 閱讀課</button>
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-black text-gray-400 mb-1 block">🌍 主教老師（外師）</label>
+        <select class="w-full p-3 border rounded-xl font-bold bg-gray-50 text-sm">
+          <option>Tom（週一二四五 可來）✓</option>
+        </select>
+        <p class="text-[10px] text-gray-400 mt-1">聽說課限外師主教，僅顯示今天可來的老師</p>
+      </div>
+      <div>
+        <label class="text-xs font-black text-gray-400 mb-1 block">助教（選填）</label>
+        <select class="w-full p-3 border rounded-xl font-bold bg-gray-50 text-sm">
+          <option>— 不需助教 —</option>
+          <option>小李老師</option>
+          <option>小王老師</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-black text-gray-400 mb-1 block">星期</label>
+          <select class="w-full p-3 border rounded-xl font-bold bg-gray-50 text-sm">
+            <option>週一</option><option>週二</option><option>週四</option><option>週五</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-black text-gray-400 mb-1 block">開始時間</label>
+          <select class="w-full p-3 border rounded-xl font-bold bg-gray-50 text-sm">
+            <option>15:00</option><option>16:30</option><option>17:00</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="flex gap-3 mt-5">
+      <button class="flex-1 py-3 bg-indigo-600 text-white font-black rounded-xl">確認新增</button>
+      <button onclick="closeModal('modal-add')" class="flex-1 py-3 bg-gray-100 text-gray-600 font-bold rounded-xl">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function showTab(t) {
+  ['grid','template','teacher','parent','arch'].forEach(x => {
+    document.getElementById('view-'+x).classList.add('hidden');
+    document.getElementById('tab-'+x).className = 'tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-white text-gray-500 border-2 border-gray-200';
+  });
+  document.getElementById('view-'+t).classList.remove('hidden');
+  document.getElementById('tab-'+t).className = 'tab-btn px-5 py-2.5 rounded-full font-black text-sm bg-indigo-600 text-white shadow-lg';
+}
+function showPreSchedule() { document.getElementById('modal-preschd').classList.add('open'); }
+function openAddSlot() { document.getElementById('modal-add').classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openDetail(title, cls, time, teacher) { alert(`${title}\n${cls}\n${time}\n${teacher}`); }
+document.querySelectorAll('.modal').forEach(m => m.addEventListener('click', function(e){ if(e.target===this) this.classList.remove('open'); }));
+</script>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>職稱設定預覽</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.js"></script>
+<style>
+  body { font-family: 'Microsoft JhengHei', sans-serif; background: #f1f5f9; }
+  .toggle { position: relative; display: inline-block; width: 44px; height: 24px; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; border-radius: 24px; transition: .3s; }
+  .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: .3s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  input:checked + .slider { background-color: #6366f1; }
+  input:checked + .slider:before { transform: translateX(20px); }
+  .tag { display: inline-block; cursor: pointer; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; border: 1.5px solid #e2e8f0; color: #64748b; transition: all .15s; }
+  .tag:hover, .tag.active { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body class="p-4 md:p-8">
+<div class="max-w-4xl mx-auto space-y-6">
+
+  <!-- 說明 -->
+  <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-5">
+    <h2 class="text-lg font-black text-indigo-800 mb-2">📋 職稱系統說明</h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">① 角色 vs 職稱</div>
+        <div class="text-gray-500">角色決定「權限」，職稱是「顯示名稱」。例如角色=老師，職稱可以是「數學科任老師」</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">② 快速選職稱範本</div>
+        <div class="text-gray-500">每個角色有一組預設職稱選項，點一下就帶入，也可以手動輸入自訂</div>
+      </div>
+      <div class="bg-white rounded-xl p-3 border border-indigo-100">
+        <div class="font-bold text-indigo-700 mb-1">③ 顯示在哪裡</div>
+        <div class="text-gray-500">首頁 header、聯絡簿署名、聊天室聯絡人列表都會顯示職稱</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-6">
+
+    <!-- 左：編輯使用者 Modal 預覽 -->
+    <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <div class="p-4 border-b bg-gray-50">
+        <h3 class="font-black text-gray-700">人事管理 → 編輯帳號</h3>
+        <p class="text-xs text-gray-400">yaya@tombear.com</p>
+      </div>
+      <div class="p-5 space-y-4">
+        <!-- 角色 -->
+        <div>
+          <label class="text-sm font-bold text-gray-600 block mb-1">系統角色 <span class="text-xs text-gray-400">(決定權限)</span></label>
+          <select class="w-full p-2.5 border rounded-xl text-sm bg-gray-50">
+            <option>🏠 家長</option>
+            <option>👩‍🏫 老師</option>
+            <option selected>💼 行政人員</option>
+            <option>🇬🇧 英文主任</option>
+            <option>🧸 安親主任</option>
+            <option>👑 總園長</option>
+          </select>
+        </div>
+
+        <!-- 職稱 (新增區塊) -->
+        <div class="bg-indigo-50 rounded-xl p-4 border border-indigo-100 fade-in">
+          <label class="text-sm font-black text-indigo-700 block mb-2">✏️ 顯示職稱 <span class="text-xs font-normal text-indigo-400">(顯示在系統中的職稱名稱)</span></label>
+
+          <!-- 快速選範本 -->
+          <div class="mb-3">
+            <p class="text-xs text-gray-500 mb-2">快速套用：</p>
+            <div class="flex flex-wrap gap-2" id="tags">
+              <span class="tag" onclick="setTitle(this,'行政人員')">行政人員</span>
+              <span class="tag active" onclick="setTitle(this,'行政組長')">行政組長</span>
+              <span class="tag" onclick="setTitle(this,'教務秘書')">教務秘書</span>
+              <span class="tag" onclick="setTitle(this,'招生專員')">招生專員</span>
+              <span class="tag" onclick="setTitle(this,'財務人員')">財務人員</span>
+            </div>
+          </div>
+
+          <!-- 自訂輸入 -->
+          <div class="relative">
+            <input id="title-input" type="text" value="行政組長"
+              class="w-full p-2.5 border border-indigo-200 rounded-xl text-sm bg-white focus:ring-2 focus:ring-indigo-400 outline-none pr-20"
+              placeholder="或自行輸入職稱..."
+              oninput="syncInput(this)">
+            <span class="absolute right-3 top-2.5 text-xs text-gray-400" id="char-count">4/20</span>
+          </div>
+          <p class="text-xs text-gray-400 mt-1">此職稱會顯示在 Header、聯絡簿、聊天室等位置</p>
+        </div>
+
+        <!-- 審核 -->
+        <div class="flex justify-between items-center">
+          <span class="text-sm font-bold text-gray-600">審核狀態</span>
+          <div class="flex items-center gap-2">
+            <label class="toggle"><input type="checkbox" checked><span class="slider"></span></label>
+            <span class="text-sm text-gray-600">已通過</span>
+          </div>
+        </div>
+
+        <div class="flex gap-2 pt-2">
+          <button class="flex-1 py-2.5 border rounded-xl text-gray-500 text-sm">取消</button>
+          <button class="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700">儲存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：顯示效果預覽 -->
+    <div class="space-y-4">
+
+      <!-- 首頁 Header 顯示效果 -->
+      <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-3 border-b bg-gray-50">
+          <p class="text-xs font-bold text-gray-500">預覽：首頁 Header 顯示效果</p>
+        </div>
+        <div class="p-4">
+          <div class="bg-white border rounded-xl p-3 flex justify-between items-center shadow-sm">
+            <div class="flex items-center gap-2">
+              <span class="text-2xl">🐻</span>
+              <div>
+                <div class="font-bold text-gray-800 text-sm">Tom Bear</div>
+                <div class="text-xs text-gray-500">
+                  Hi, yaya
+                  <span class="ml-1 px-1.5 py-0.5 rounded text-white text-[10px] font-bold bg-gray-700" id="badge-role">行政人員</span>
+                  <!-- 職稱 tag (新增) -->
+                  <span class="ml-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700" id="badge-title">行政組長</span>
+                </div>
+              </div>
+            </div>
+            <button class="text-xs text-gray-400">登出</button>
+          </div>
+          <p class="text-xs text-gray-400 mt-2 text-center">角色badge(灰) + 職稱badge(藍) 並排顯示</p>
+        </div>
+      </div>
+
+      <!-- 聊天室聯絡人顯示 -->
+      <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-3 border-b bg-gray-50">
+          <p class="text-xs font-bold text-gray-500">預覽：聊天室聯絡人列表</p>
+        </div>
+        <div class="p-4 space-y-2">
+          <div class="flex items-center gap-3 p-3 rounded-xl border border-gray-100">
+            <div class="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center font-bold text-indigo-700">Amy</div>
+            <div>
+              <div class="font-bold text-sm text-gray-800">Amy 老師</div>
+              <div class="text-xs text-gray-400">數學科任老師</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 p-3 rounded-xl border border-indigo-200 bg-indigo-50">
+            <div class="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-700">Y</div>
+            <div>
+              <div class="font-bold text-sm text-gray-800">yaya</div>
+              <div class="text-xs text-indigo-600 font-bold" id="chat-title">行政組長</div>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 text-center">職稱顯示在姓名下方</p>
+        </div>
+      </div>
+
+      <!-- 範本管理 (可選功能) -->
+      <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+        <div class="p-3 border-b bg-gray-50 flex justify-between">
+          <p class="text-xs font-bold text-gray-500">📌 各角色職稱範本（總園長可管理）</p>
+        </div>
+        <div class="p-4 space-y-2 text-sm">
+          <div class="flex justify-between items-center py-1 border-b">
+            <span class="text-gray-600">💼 行政人員</span>
+            <span class="text-gray-400 text-xs">行政人員 / 行政組長 / 教務秘書 / 招生專員...</span>
+          </div>
+          <div class="flex justify-between items-center py-1 border-b">
+            <span class="text-gray-600">👩‍🏫 老師</span>
+            <span class="text-gray-400 text-xs">英文老師 / 數學老師 / 科任老師 / 班導...</span>
+          </div>
+          <div class="flex justify-between items-center py-1">
+            <span class="text-gray-600">🇬🇧 英文主任</span>
+            <span class="text-gray-400 text-xs">英文部主任 / 課程主任...</span>
+          </div>
+          <button class="w-full mt-2 py-2 text-xs border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-indigo-300 hover:text-indigo-500 transition">＋ 管理職稱範本</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function setTitle(el, title) {
+  document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('title-input').value = title;
+  document.getElementById('char-count').textContent = title.length + '/20';
+  document.getElementById('badge-title').textContent = title;
+  document.getElementById('chat-title').textContent = title;
+}
+function syncInput(el) {
+  const val = el.value.slice(0,20);
+  el.value = val;
+  document.getElementById('char-count').textContent = val.length + '/20';
+  document.getElementById('badge-title').textContent = val || '(未設定)';
+  document.getElementById('chat-title').textContent = val || '(未設定)';
+  document.querySelectorAll('.tag').forEach(t => t.classList.remove('active'));
+}
+</script>
+</body>
+</html>

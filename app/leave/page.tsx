@@ -36,7 +36,7 @@ export default function LeavePage() {
         if (!session) { router.push('/'); return; }
 
         // Get Profile
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+        const { data: profile } = await supabase.from('users').select('*').eq('id', session.user.id).single();
         setCurrentUser(profile);
 
         if (profile.role === 'parent') {
