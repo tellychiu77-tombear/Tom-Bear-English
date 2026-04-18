@@ -41,6 +41,13 @@ export default function AdminPage() {
     const [isApproved, setIsApproved] = useState(false);
     const [targetIsSuperAdmin, setTargetIsSuperAdmin] = useState(false);
 
+    // 姓名
+    const [editingName, setEditingName] = useState('');
+
+    // 老師專屬
+    const [editingTeacherType, setEditingTeacherType] = useState('');
+    const [editingAvailableDays, setEditingAvailableDays] = useState<number[]>([]);
+
     // 職稱
     const [editingJobTitle, setEditingJobTitle] = useState('');
 
@@ -104,7 +111,10 @@ export default function AdminPage() {
         setSelectedRole(user.role);
         setIsApproved(user.is_approved || false);
         setTargetIsSuperAdmin(user.is_super_admin || false);
+        setEditingName(user.name || '');
         setEditingJobTitle(user.job_title || '');
+        setEditingTeacherType(user.teacher_type || '');
+        setEditingAvailableDays(user.available_days || []);
         setEditingExtraPerms(user.extra_permissions || {});
         try { setTeacherClasses(JSON.parse(user.responsible_classes || '[]')); }
         catch { setTeacherClasses([]); }
@@ -122,6 +132,7 @@ export default function AdminPage() {
                 if (v === true || v === false) cleanedExtraPerms[k] = v;
             });
             const updates: any = {
+                name: editingName.trim() || null,
                 role: selectedRole,
                 is_approved: isApproved,
                 job_title: editingJobTitle.trim() || null,
@@ -129,6 +140,8 @@ export default function AdminPage() {
             };
             if (['teacher', 'english_director', 'care_director'].includes(selectedRole)) {
                 updates.responsible_classes = JSON.stringify(teacherClasses);
+                updates.teacher_type = editingTeacherType || null;
+                updates.available_days = editingAvailableDays;
             }
             if (currentUser.is_super_admin && ['director', 'english_director', 'care_director', 'admin'].includes(selectedRole)) {
                 updates.is_super_admin = targetIsSuperAdmin;
@@ -282,6 +295,7 @@ export default function AdminPage() {
 
     const filteredUsers = users.filter(u =>
         (u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (u.name || '').includes(searchTerm) ||
         (u.role || '').includes(searchTerm) ||
         (u.job_title || '').includes(searchTerm)
     );
@@ -332,7 +346,8 @@ export default function AdminPage() {
                                 {filteredUsers.map(u => (
                                     <tr key={u.id} className="border-t hover:bg-gray-50">
                                         <td className="p-4">
-                                            <div className="font-bold text-sm text-gray-800">{u.email}</div>
+                                            {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
+                                            <div className={`text-sm ${u.name ? 'text-gray-400 text-xs' : 'font-bold text-gray-800'}`}>{u.email}</div>
                                             {u.is_super_admin && <span className="inline-block mt-1 text-[10px] bg-red-100 text-red-600 px-1.5 rounded font-bold border border-red-200">SUPER</span>}
                                             {!u.is_approved && u.role !== 'parent' && <span className="inline-block mt-1 ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold border border-yellow-200">待審核</span>}
                                         </td>
@@ -411,13 +426,26 @@ export default function AdminPage() {
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                         <div className="sticky top-0 bg-white border-b px-6 py-4 flex justify-between items-center z-10">
                             <div>
-                                <h3 className="font-black text-xl text-gray-800">用戶設定</h3>
+                                <h3 className="font-black text-xl text-gray-800">{editingUser.name || '用戶設定'}</h3>
                                 <p className="text-xs text-gray-500">{editingUser.email}</p>
                             </div>
                             <button onClick={() => setIsModalOpen(false)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 font-bold text-gray-500">✕</button>
                         </div>
 
                         <div className="p-6 space-y-6">
+                            {/* 0. 姓名 */}
+                            <div>
+                                <label className="block text-xs font-black text-gray-400 mb-2 uppercase">0. 真實姓名</label>
+                                <input
+                                    type="text"
+                                    value={editingName}
+                                    onChange={e => setEditingName(e.target.value)}
+                                    placeholder="例：王小明"
+                                    className="w-full p-3 border rounded-xl font-bold bg-gray-50 focus:ring-2 focus:ring-indigo-300 outline-none"
+                                />
+                                <p className="text-xs text-gray-400 mt-1">顯示於排課系統、聯絡簿、聊天等所有位置</p>
+                            </div>
+
                             {/* 1. 角色 */}
                             <div>
                                 <label className="block text-xs font-black text-gray-400 mb-2 uppercase">1. 系統角色（決定基礎權限）</label>
@@ -488,6 +516,59 @@ export default function AdminPage() {
                                                 <input type="checkbox" checked={teacherClasses.includes('課後輔導')} onChange={() => toggleClass('課後輔導')} className="accent-indigo-600" />
                                                 <span className="text-xs font-bold">課後輔導</span>
                                             </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3b. 老師類型與可來天數 */}
+                            {['teacher', 'english_director', 'care_director'].includes(selectedRole) && (
+                                <div>
+                                    <label className="block text-xs font-black text-gray-400 mb-2 uppercase">3b. 老師類型與可來天數</label>
+                                    <div className="bg-teal-50 p-4 rounded-xl border border-teal-100 space-y-4">
+                                        {/* 老師類型 */}
+                                        <div>
+                                            <p className="text-xs font-bold text-teal-700 mb-2">老師類型</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {[
+                                                    { value: 'foreign', label: '🌎 外籍老師' },
+                                                    { value: 'external', label: '🏃 外聘老師' },
+                                                    { value: 'staff', label: '🏫 全職員工' },
+                                                ].map(opt => (
+                                                    <button
+                                                        key={opt.value}
+                                                        type="button"
+                                                        onClick={() => setEditingTeacherType(opt.value)}
+                                                        className={`p-2 rounded-lg border-2 text-xs font-bold transition ${editingTeacherType === opt.value ? 'border-teal-500 bg-teal-500 text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-teal-300'}`}
+                                                    >
+                                                        {opt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                        {/* 可來天數 */}
+                                        <div>
+                                            <p className="text-xs font-bold text-teal-700 mb-2">可來天數（可多選）</p>
+                                            <div className="flex gap-2">
+                                                {[
+                                                    { day: 1, label: '一' },
+                                                    { day: 2, label: '二' },
+                                                    { day: 3, label: '三' },
+                                                    { day: 4, label: '四' },
+                                                    { day: 5, label: '五' },
+                                                ].map(({ day, label }) => (
+                                                    <button
+                                                        key={day}
+                                                        type="button"
+                                                        onClick={() => setEditingAvailableDays(prev =>
+                                                            prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort()
+                                                        )}
+                                                        className={`flex-1 py-2 rounded-lg border-2 text-sm font-black transition ${editingAvailableDays.includes(day) ? 'border-teal-500 bg-teal-500 text-white' : 'border-gray-200 bg-white text-gray-500 hover:border-teal-300'}`}
+                                                    >
+                                                        週{label}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

@@ -161,3 +161,5 @@ supabase.from('students').select('class_name')
 | 2026-04-17 | `profiles` 表 → `users` 表（廢棄 profiles）| register/page.tsx, onboarding/page.tsx, lib/logService.ts |
 | 2026-04-17 | `students(name)` → `students(chinese_name)` | dashboard/page.tsx |
 | 2026-04-17 | 新增排課系統相關表格 | supabase/schema.sql |
+| 2026-04-18 | admin modal 新增 name / teacher_type / available_days 欄位 | admin/page.tsx |
+| 2026-04-18 | 用戶清單顯示 users.name，搜尋支援姓名 | admin/page.tsx |
