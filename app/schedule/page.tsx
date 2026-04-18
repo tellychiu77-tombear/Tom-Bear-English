@@ -12,7 +12,7 @@ type DayOfWeek = 1 | 2 | 3 | 4 | 5;
 
 interface Teacher {
     id: string;
-    full_name: string;
+    name: string;
     email: string;
     teacher_type: TeacherType | null;
     available_days: number[];
@@ -116,7 +116,7 @@ export default function SchedulePage() {
 
     const fetchAll = useCallback(async () => {
         const [{ data: t }, { data: a }, { data: s }] = await Promise.all([
-            supabase.from('users').select('id,full_name,email,teacher_type,available_days').eq('role', 'teacher').order('full_name'),
+            supabase.from('users').select('id,name,email,teacher_type,available_days').eq('role', 'teacher').order('name'),
             supabase.from('teacher_assignments').select('*'),
             supabase.from('schedule_slots').select('*').eq('semester', semester).order('day_of_week').order('start_time'),
         ]);
@@ -219,7 +219,7 @@ export default function SchedulePage() {
         return DAY_NUMS;
     }
 
-    const teacherName = (id: string | null) => teachers.find(t => t.id === id)?.full_name || '—';
+    const teacherName = (id: string | null) => teachers.find(t => t.id === id)?.name || '—';
 
     if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400 text-lg">載入中...</div>;
 
@@ -229,7 +229,7 @@ export default function SchedulePage() {
             <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
                 <div>
                     <h1 className="text-2xl font-black text-gray-800">📅 排課系統</h1>
-                    <p className="text-sm text-gray-400 mt-0.5">{currentUser?.full_name} · 學期：
+                    <p className="text-sm text-gray-400 mt-0.5">{currentUser?.name} · 學期：
                         <select value={semester} onChange={e => setSemester(e.target.value)}
                             className="ml-1 text-sm font-bold text-indigo-700 border-none bg-transparent cursor-pointer">
                             <option>2025下</option>
@@ -448,7 +448,7 @@ function TeacherCard({ teacher, assignments, onEdit, onAssign }: {
                     {type === 'foreign' ? '🌍' : type === 'external' ? '📝' : '👩‍🏫'}
                 </div>
                 <div className="flex-1">
-                    <div className="font-black text-gray-800">{teacher.full_name}</div>
+                    <div className="font-black text-gray-800">{teacher.name}</div>
                     {type ? (
                         <span className={`inline-block text-[11px] font-black px-2 py-0.5 rounded-full mt-0.5
                             ${type === 'foreign' ? 'bg-amber-100 text-amber-700' : type === 'external' ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>
@@ -546,7 +546,7 @@ function AssignMatrix({ teachers, assignments, onEditTeacher }: {
                                         <button onClick={() => onEditTeacher(t)} className="flex items-center gap-2 text-left hover:text-indigo-600 transition">
                                             <span className="text-lg">{t.teacher_type === 'foreign' ? '🌍' : t.teacher_type === 'external' ? '📝' : '👩‍🏫'}</span>
                                             <div>
-                                                <div className="font-black text-gray-800 text-sm underline decoration-dotted">{t.full_name}</div>
+                                                <div className="font-black text-gray-800 text-sm underline decoration-dotted">{t.name}</div>
                                                 <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full
                                                     ${t.teacher_type === 'foreign' ? 'bg-amber-100 text-amber-700' : t.teacher_type === 'external' ? 'bg-violet-100 text-violet-700' : 'bg-emerald-100 text-emerald-700'}`}>
                                                     {t.teacher_type ? TEACHER_TYPE_LABEL[t.teacher_type].replace(/^[^ ]+ /, '') : '?'}
@@ -742,7 +742,7 @@ function AssignmentModal({ teacher, allAssignments, pendingAssigns, setPendingAs
             <div className="flex items-center gap-3 mb-5">
                 <span className="text-3xl">{teacher.teacher_type === 'foreign' ? '🌍' : teacher.teacher_type === 'external' ? '📝' : '👩‍🏫'}</span>
                 <div>
-                    <h3 className="text-xl font-black">{teacher.full_name}</h3>
+                    <h3 className="text-xl font-black">{teacher.name}</h3>
                     <span className="text-xs text-gray-400">{teacher.teacher_type ? TEACHER_TYPE_LABEL[teacher.teacher_type] : '未設類型'}</span>
                 </div>
             </div>
@@ -892,7 +892,7 @@ function SlotModal({ slot, setSlot, teachers, assignments, getEligibleTeachers, 
                                             onChange={() => upd('lead_teacher_id', t.id)}
                                             className="accent-indigo-500" />
                                         <div>
-                                            <div className="font-black text-sm text-gray-800">{t.full_name}</div>
+                                            <div className="font-black text-sm text-gray-800">{t.name}</div>
                                             <div className="text-[10px] text-gray-400">
                                                 {t.teacher_type ? TEACHER_TYPE_LABEL[t.teacher_type] : ''}
                                                 {t.teacher_type !== 'staff' && t.available_days?.length ? `・可來：${t.available_days.map(d => DAY_SHORT[d - 1]).join('、')}` : '・正職全天'}
@@ -912,7 +912,7 @@ function SlotModal({ slot, setSlot, teachers, assignments, getEligibleTeachers, 
                         <select value={slot.assistant_teacher_id || ''} onChange={e => upd('assistant_teacher_id', e.target.value || null)}
                             className="w-full p-3 border rounded-xl font-bold text-sm bg-gray-50">
                             <option value="">— 不需助教 —</option>
-                            {assistOptions.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+                            {assistOptions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                         </select>
                     </div>
                 )}

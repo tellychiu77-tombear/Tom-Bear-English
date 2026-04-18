@@ -19,7 +19,7 @@ export default function Dashboard() {
           id,
           status,
           created_at,
-          students ( name )
+          students ( chinese_name )
         `)
                 .order('created_at', { ascending: true });
 
@@ -71,7 +71,7 @@ export default function Dashboard() {
             // 第一步：先建立學生資料
             const { data: studentData, error: studentError } = await supabase
                 .from('students')
-                .insert([{ name: newStudentName }])
+                .insert([{ chinese_name: newStudentName }])
                 .select()
                 .single();
 
@@ -172,7 +172,7 @@ export default function Dashboard() {
                                 {pendingList.map((item) => (
                                     <div key={item.id} className="flex items-center justify-between bg-gray-50 p-4 rounded-lg border border-gray-100 hover:shadow-md transition-shadow">
                                         <div>
-                                            <p className="text-xl font-bold text-gray-800">{item.students?.name || '未知學生'}</p>
+                                            <p className="text-xl font-bold text-gray-800">{item.students?.chinese_name || '未知學生'}</p>
                                             <p className="text-sm text-gray-500">等待家長中...</p>
                                         </div>
                                         <button
@@ -206,7 +206,7 @@ export default function Dashboard() {
                                 {arrivedList.map((item) => (
                                     <div key={item.id} className="flex items-center justify-between bg-green-50 p-4 rounded-lg border border-green-100">
                                         <div>
-                                            <p className="text-xl font-bold text-gray-800">{item.students?.name || '未知學生'}</p>
+                                            <p className="text-xl font-bold text-gray-800">{item.students?.chinese_name || '未知學生'}</p>
                                             <p className="text-sm text-green-600 font-medium">請廣播學生出來</p>
                                         </div>
                                         <button

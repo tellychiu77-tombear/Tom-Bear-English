@@ -236,7 +236,7 @@ export default function ManagerDashboard() {
                         <h1 className="text-3xl font-black text-gray-800 tracking-tight">
                             📊 {deptName} 管理儀表板
                         </h1>
-                        <p className="text-gray-500 mt-1">Hello, {currentUser?.full_name} ({currentUser?.job_title || 'Manager'})</p>
+                        <p className="text-gray-500 mt-1">Hello, {currentUser?.name} ({currentUser?.job_title || 'Manager'})</p>
                     </div>
                     <button onClick={() => router.push('/')} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-xl transition">
                         回首頁
@@ -277,10 +277,10 @@ export default function ManagerDashboard() {
                                         <td className="p-5">
                                             <div className="flex items-center gap-3">
                                                 <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">
-                                                    {t.full_name?.[0] || 'T'}
+                                                    {t.name?.[0] || 'T'}
                                                 </div>
                                                 <div>
-                                                    <div className="font-bold text-gray-800">{t.full_name}</div>
+                                                    <div className="font-bold text-gray-800">{t.name}</div>
                                                     <div className="text-xs text-gray-500">{t.job_title || '教師'}</div>
                                                 </div>
                                             </div>
@@ -337,7 +337,7 @@ export default function ManagerDashboard() {
                             <div>
                                 <h2 className="text-2xl font-black flex items-center gap-3">
                                     <span className="text-3xl">👨‍🏫</span>
-                                    {selectedTeacher.full_name}
+                                    {selectedTeacher.name}
                                     <span className="text-sm bg-blue-500/50 px-2 py-1 rounded font-normal border border-blue-400">
                                         {selectedTeacher.job_title || '教師'}
                                     </span>

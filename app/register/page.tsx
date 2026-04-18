@@ -62,13 +62,13 @@ export default function RegisterPage() {
 
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-            // 1. 建立 Profile (包含姓名電話，狀態 pending)
-            await supabase.from('profiles').insert({
+            // 1. 建立使用者資料（寫入 users 表，等待審核）
+            await supabase.from('users').upsert({
                 id: user.id,
                 email,
-                full_name: fullName,
-                phone,
-                role: 'pending' // 等待審核
+                name: fullName,
+                role: 'pending',
+                is_approved: false
             });
 
             // 2. 家長：建立小孩資料

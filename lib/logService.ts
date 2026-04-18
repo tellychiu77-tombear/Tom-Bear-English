@@ -11,18 +11,16 @@ export async function logAction(action: string, details: string) {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return; // 沒登入就不記 (或記為系統自動)
 
-        // 2. 取得使用者姓名 (從 profiles)
-        // 為了效能，這裡可以用 session metadata，但 profiles 更準確
-        // 簡單起見，我們嘗試從 profiles 抓，若抓不到就用 email
+        // 2. 取得使用者姓名（從 users 表）
         let userName = session.user.email;
         const { data: profile } = await supabase
-            .from('profiles')
-            .select('full_name, name') // 兼容舊欄位
+            .from('users')
+            .select('name')
             .eq('id', session.user.id)
             .single();
 
         if (profile) {
-            userName = profile.full_name || profile.name || session.user.email;
+            userName = profile.name || session.user.email;
         }
 
         // 3. 寫入 Logs

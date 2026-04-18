@@ -70,12 +70,13 @@ export default function Onboarding() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
 
-        // 1. 更新 Profile
-        const nameWithNote = `${fullName} (${applyRole === 'parent' ? '申請家長' : '申請老師'})`;
-        const { error } = await supabase.from('profiles').update({
-            full_name: nameWithNote,
+        // 1. 更新 users 表（姓名＋待審核狀態）
+        const { error } = await supabase.from('users').upsert({
+            id: session.user.id,
+            name: fullName,
             role: 'pending',
-        }).eq('id', session.user.id);
+            is_approved: false,
+        });
 
         if (error) { alert('更新失敗: ' + error.message); setLoading(false); return; }
 
