@@ -5,12 +5,14 @@ import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
 const DEFAULT_FORM = {
-    mood: 3,
-    focus: 3,
-    appetite: 3,
-    homework: '',
-    note: '',        // 🔒 內部備註（家長看不到）
-    public_note: '', // 📤 公開留言（家長看得到）
+    mood: 3,           // 心情
+    focus: 3,          // 專注度
+    participation: 3,  // 課堂互動
+    expression: 3,     // 主動表達
+    lesson_topic: '',  // 今日主題（班級共用）
+    homework: '',      // 複習建議
+    note: '',          // 🔒 內部備註（家長看不到）
+    public_note: '',   // 📤 公開留言（家長看得到）
     photos: [] as string[],
     is_absent: false,
     signature: null as string | null
@@ -43,6 +45,7 @@ export default function ContactBookPage() {
     const [uploadingStudentId, setUploadingStudentId] = useState<string | null>(null);
 
     // Bulk Actions
+    const [bulkLessonTopic, setBulkLessonTopic] = useState('');
     const [bulkHomework, setBulkHomework] = useState('');
     const [bulkAnnouncement, setBulkAnnouncement] = useState('');
 
@@ -118,9 +121,11 @@ export default function ContactBookPage() {
         if (historyLogs && historyLogs.length > 0) {
             historyLogs.forEach(log => {
                 newForms[log.student_id] = {
-                    mood: log.mood,
-                    focus: log.focus,
-                    appetite: log.appetite,
+                    mood: log.mood ?? 3,
+                    focus: log.focus ?? 3,
+                    participation: log.participation ?? 3,
+                    expression: log.expression ?? 3,
+                    lesson_topic: log.lesson_topic || '',
                     homework: log.homework || '',
                     note: log.teacher_note || '',
                     public_note: log.public_note || '',
@@ -282,7 +287,9 @@ export default function ContactBookPage() {
                 date: selectedDate,
                 mood: formData.mood,
                 focus: formData.focus,
-                appetite: formData.appetite,
+                participation: formData.participation,
+                expression: formData.expression,
+                lesson_topic: formData.lesson_topic,
                 homework: formData.homework,
                 teacher_note: formData.note,
                 public_note: formData.public_note,
@@ -310,7 +317,7 @@ export default function ContactBookPage() {
 
     const handleBulkApply = () => {
         // ... (保持原有的群發邏輯)
-        if (!bulkHomework && !bulkAnnouncement) return alert('請輸入內容');
+        if (!bulkLessonTopic && !bulkHomework && !bulkAnnouncement) return alert('請輸入內容');
         if (!confirm(`確定要套用給 ${selectedClass} 全班嗎？`)) return;
 
         setForms(prev => {
@@ -321,7 +328,12 @@ export default function ContactBookPage() {
                 const newPublicNote = bulkAnnouncement && !currentPublicNote.includes(bulkAnnouncement)
                     ? (currentPublicNote ? `${currentPublicNote}\n\n【班級叮嚀】${bulkAnnouncement}` : `【班級叮嚀】${bulkAnnouncement}`)
                     : currentPublicNote;
-                next[s.id] = { ...next[s.id], homework: bulkHomework || next[s.id].homework, public_note: newPublicNote };
+                next[s.id] = {
+                    ...next[s.id],
+                    lesson_topic: bulkLessonTopic || next[s.id].lesson_topic,
+                    homework: bulkHomework || next[s.id].homework,
+                    public_note: newPublicNote
+                };
             });
             return next;
         });
@@ -519,16 +531,20 @@ export default function ContactBookPage() {
                                     <span className="text-[10px] text-indigo-400 ml-2 font-normal">(點擊展開)</span>
                                 </summary>
                                 <div className="mt-4 grid md:grid-cols-2 gap-4 animate-fade-in pl-8">
-                                    <div className="col-span-full md:col-span-1">
-                                        <label className="text-xs font-bold text-indigo-400 ml-1">📚 全班今日作業</label>
-                                        <input type="text" placeholder="輸入作業..." value={bulkHomework} onChange={e => setBulkHomework(e.target.value)} className="w-full p-2 bg-white border border-indigo-100 rounded-lg text-sm font-bold mt-1" />
+                                    <div className="col-span-full">
+                                        <label className="text-xs font-bold text-indigo-400 ml-1">📖 今日課程主題（全班共用）</label>
+                                        <input type="text" placeholder="例如：Unit 5 Animals / Phonics 長母音 ea" value={bulkLessonTopic} onChange={e => setBulkLessonTopic(e.target.value)} className="w-full p-2 bg-white border border-indigo-100 rounded-lg text-sm font-bold mt-1" />
                                     </div>
                                     <div className="col-span-full md:col-span-1">
-                                        <label className="text-xs font-bold text-indigo-400 ml-1">🔔 全班統一叮嚀</label>
+                                        <label className="text-xs font-bold text-indigo-400 ml-1">📝 複習建議（全班共用）</label>
+                                        <input type="text" placeholder="例如：練習 p.30 生字卡、複習本週單字..." value={bulkHomework} onChange={e => setBulkHomework(e.target.value)} className="w-full p-2 bg-white border border-indigo-100 rounded-lg text-sm font-bold mt-1" />
+                                    </div>
+                                    <div className="col-span-full md:col-span-1">
+                                        <label className="text-xs font-bold text-indigo-400 ml-1">🔔 班級統一叮嚀（給家長）</label>
                                         <input type="text" placeholder="附加叮嚀..." value={bulkAnnouncement} onChange={e => setBulkAnnouncement(e.target.value)} className="w-full p-2 bg-white border border-indigo-100 rounded-lg text-sm font-bold mt-1" />
                                     </div>
                                     <div className="col-span-full flex gap-3 mt-1">
-                                        <button onClick={handleBulkApply} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-sm">⚡ 套用文字設定</button>
+                                        <button onClick={handleBulkApply} className="flex-1 bg-indigo-600 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-indigo-700 shadow-sm">⚡ 套用到全班</button>
                                         <button onClick={handleBulkUploadClick} className="flex-1 bg-pink-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-pink-600 shadow-sm flex items-center justify-center gap-2"><span>📸</span> 上傳全班照片</button>
                                     </div>
                                 </div>
@@ -605,20 +621,18 @@ export default function ContactBookPage() {
                                                     </div>
                                                     {/* Status dots row */}
                                                     {!isExpanded && (
-                                                        <div className="flex items-center gap-3 mt-1.5">
-                                                            <div className="flex items-center gap-1">
-                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.mood)}`}></div>
-                                                                <span className="text-[10px] text-gray-400">心情</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.focus)}`}></div>
-                                                                <span className="text-[10px] text-gray-400">專注</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.appetite)}`}></div>
-                                                                <span className="text-[10px] text-gray-400">食慾</span>
-                                                            </div>
-                                                            {form.homework && <span className="text-[10px] text-gray-400 truncate max-w-[120px]">📚 {form.homework}</span>}
+                                                        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                                            {[
+                                                                { label: '心情', val: form.mood },
+                                                                { label: '專注', val: form.focus },
+                                                                { label: '互動', val: form.participation },
+                                                                { label: '表達', val: form.expression },
+                                                            ].map(({ label, val }) => (
+                                                                <div key={label} className="flex items-center gap-1">
+                                                                    <div className={`w-2 h-2 rounded-full ${moodDot(val)}`}></div>
+                                                                    <span className="text-[10px] text-gray-400">{label}</span>
+                                                                </div>
+                                                            ))}
                                                             {!form.public_note && isTeacher && <span className="text-[10px] text-orange-400 font-bold">留言未填</span>}
                                                         </div>
                                                     )}
@@ -645,16 +659,42 @@ export default function ContactBookPage() {
                                                         </div>
                                                     )}
                                                     <div className="px-4 pb-4 space-y-4">
-                                                        <div className="flex justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                                            <StarRating label="心情" value={form.mood} onChange={(v: any) => handleFormChange(student.id, 'mood', v)} disabled={!isTeacher} />
-                                                            <div className="w-px bg-gray-200"></div>
-                                                            <StarRating label="專注" value={form.focus} onChange={(v: any) => handleFormChange(student.id, 'focus', v)} disabled={!isTeacher} />
-                                                            <div className="w-px bg-gray-200"></div>
-                                                            <StarRating label="食慾" value={form.appetite} onChange={(v: any) => handleFormChange(student.id, 'appetite', v)} disabled={!isTeacher} />
+                                                        {/* 今日主題（班級共用，顯示用） */}
+                                                        {form.lesson_topic && (
+                                                            <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-3 py-2 flex items-center gap-2">
+                                                                <span className="text-indigo-400 text-sm">📖</span>
+                                                                <div>
+                                                                    <span className="text-[10px] font-black text-indigo-400">今日主題</span>
+                                                                    <p className="font-bold text-sm text-indigo-700">{form.lesson_topic}</p>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* 課堂表現評分 */}
+                                                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 space-y-2">
+                                                            <p className="text-[10px] font-black text-gray-400 uppercase mb-2">課堂表現</p>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                                                    <StarRating label="心情" value={form.mood} onChange={(v: any) => handleFormChange(student.id, 'mood', v)} disabled={!isTeacher} />
+                                                                </div>
+                                                                <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                                                    <StarRating label="專注度" value={form.focus} onChange={(v: any) => handleFormChange(student.id, 'focus', v)} disabled={!isTeacher} />
+                                                                </div>
+                                                                <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                                                    <StarRating label="課堂互動" value={form.participation} onChange={(v: any) => handleFormChange(student.id, 'participation', v)} disabled={!isTeacher} />
+                                                                </div>
+                                                                <div className="flex items-center justify-between bg-white rounded-lg px-3 py-2 border border-gray-100">
+                                                                    <StarRating label="主動表達" value={form.expression} onChange={(v: any) => handleFormChange(student.id, 'expression', v)} disabled={!isTeacher} />
+                                                                </div>
+                                                            </div>
                                                         </div>
+
+                                                        {/* 複習建議 */}
                                                         <div>
-                                                            <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📚 今日作業</label>
-                                                            {isTeacher ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
+                                                            <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📝 複習建議</label>
+                                                            {isTeacher
+                                                                ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="例如：練習 p.30 生字卡..." />
+                                                                : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
                                                         </div>
                                                         {/* 📤 公開留言 — 家長看得到 */}
                                                         <div className="rounded-xl border border-green-100 bg-green-50/50 p-3">
