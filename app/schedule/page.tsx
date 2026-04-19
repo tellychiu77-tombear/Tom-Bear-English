@@ -92,6 +92,7 @@ export default function SchedulePage() {
 
     // UI state
     const [tab, setTab] = useState<'teachers' | 'assign' | 'add' | 'grid'>('teachers');
+    const [assignView, setAssignView] = useState<'teacher' | 'class'>('class');
 
     // Teacher modal
     const [teacherModal, setTeacherModal] = useState<Partial<Teacher> | null>(null);
@@ -312,8 +313,27 @@ export default function SchedulePage() {
 
                 {/* ══ TAB: 負責設定矩陣 ══════════════════════════════════════════ */}
                 {tab === 'assign' && (
-                    <AssignMatrix teachers={teachers} assignments={assignments}
-                        onEditTeacher={t => openAssignModal(t)} />
+                    <div>
+                        {/* View toggle */}
+                        <div className="flex items-center gap-2 mb-5">
+                            <span className="text-xs font-black text-gray-400 mr-2">視角切換</span>
+                            <button
+                                onClick={() => setAssignView('class')}
+                                className={`px-4 py-2 rounded-xl text-sm font-black transition ${assignView === 'class' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600'}`}>
+                                🏫 班級視角
+                            </button>
+                            <button
+                                onClick={() => setAssignView('teacher')}
+                                className={`px-4 py-2 rounded-xl text-sm font-black transition ${assignView === 'teacher' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-500 hover:border-indigo-300 hover:text-indigo-600'}`}>
+                                👩‍🏫 老師視角
+                            </button>
+                            <span className="text-xs text-gray-400 ml-2">點老師名字可修改負責設定</span>
+                        </div>
+                        {assignView === 'class'
+                            ? <ClassMatrix teachers={teachers} assignments={assignments} onEditTeacher={t => openAssignModal(t)} />
+                            : <AssignMatrix teachers={teachers} assignments={assignments} onEditTeacher={t => openAssignModal(t)} />
+                        }
+                    </div>
                 )}
 
                 {/* ══ TAB: 新增課程 ══════════════════════════════════════════════ */}
@@ -515,6 +535,96 @@ function TeacherCard({ teacher, assignments, onEdit, onAssign }: {
 }
 
 // ── Assignment Matrix ────────────────────────────────────────────────────────
+// ── Class-Centric Matrix (班級視角) ──────────────────────────────────────────
+function ClassMatrix({ teachers, assignments, onEditTeacher }: {
+    teachers: Teacher[];
+    assignments: Assignment[];
+    onEditTeacher: (t: Teacher) => void;
+}) {
+    const activeClasses = Array.from(
+        new Set([...PRESET_CLASSES, ...assignments.map(a => a.class_group)])
+    ).sort().filter(cls => assignments.some(a => a.class_group === cls));
+
+    const getTeacher = (cls: string, slotType: SlotType, role: AssignRole) => {
+        const a = assignments.find(a => a.class_group === cls && a.slot_type === slotType && a.role === role);
+        return a ? teachers.find(t => t.id === a.teacher_id) ?? null : null;
+    };
+
+    const typeIcon = (t: Teacher | null) => {
+        if (!t) return null;
+        if (t.teacher_type === 'foreign') return '🌍';
+        if (t.teacher_type === 'external') return '📝';
+        return '👩‍🏫';
+    };
+
+    if (activeClasses.length === 0) {
+        return (
+            <div className="bg-white rounded-2xl border border-dashed border-gray-200 p-10 text-center text-gray-400">
+                尚無負責設定資料。請先在「老師管理」點每位老師的「負責班級」進行設定。
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <div className="bg-white rounded-2xl shadow-sm border overflow-x-auto">
+                <table className="w-full text-xs border-collapse min-w-[700px]">
+                    <thead>
+                        <tr className="bg-gray-50 border-b">
+                            <th className="p-3 text-left font-black text-gray-500 w-24 border-r">班級</th>
+                            {SLOT_TYPES.map(st => (
+                                <th key={st} className="p-2 text-center font-black text-gray-500 border-r" colSpan={2}>
+                                    {SLOT_TYPE_ICON[st]} {st}
+                                </th>
+                            ))}
+                        </tr>
+                        <tr className="bg-gray-50/50 border-b text-[10px]">
+                            <th className="border-r p-1"></th>
+                            {SLOT_TYPES.map(st => (
+                                [
+                                    <th key={st + '-lead'} className="p-1.5 border-r text-green-600 font-black text-center">主教</th>,
+                                    <th key={st + '-ass'} className="p-1.5 border-r text-gray-400 font-black text-center">助教</th>
+                                ]
+                            ))}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {activeClasses.map(cls => (
+                            <tr key={cls} className="border-b hover:bg-indigo-50/20 transition">
+                                <td className="p-3 font-black text-gray-800 border-r text-sm">{cls}</td>
+                                {SLOT_TYPES.map(st => {
+                                    const lead = getTeacher(cls, st, 'lead');
+                                    const asst = getTeacher(cls, st, 'assistant');
+                                    return [
+                                        <td key={st + '-lead'} className="p-2 text-center border-r">
+                                            {lead
+                                                ? <button onClick={() => onEditTeacher(lead)} className={`text-[11px] font-black px-2 py-1 rounded-lg hover:opacity-80 transition ${SLOT_TYPE_COLOR[st]}`}>
+                                                    {typeIcon(lead)} {lead.name}
+                                                </button>
+                                                : <span className="text-gray-200">—</span>}
+                                        </td>,
+                                        <td key={st + '-ass'} className="p-2 text-center border-r">
+                                            {asst
+                                                ? <button onClick={() => onEditTeacher(asst)} className="text-[11px] font-black px-2 py-1 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 transition">
+                                                    {typeIcon(asst)} {asst.name}
+                                                </button>
+                                                : <span className="text-gray-200">—</span>}
+                                        </td>
+                                    ];
+                                })}
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+            <div className="mt-3 bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-700">
+                💡 點老師名字可直接修改該老師的負責班級設定。顏色代表課程類型，圖示代表老師類型（🌍外師 / 📝外聘 / 👩‍🏫正職）。
+            </div>
+        </div>
+    );
+}
+
+// ── Teacher-Centric Matrix (老師視角) ─────────────────────────────────────────
 function AssignMatrix({ teachers, assignments, onEditTeacher }: {
     teachers: Teacher[];
     assignments: Assignment[];
