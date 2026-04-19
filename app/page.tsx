@@ -206,17 +206,7 @@ export default function DashboardPage() {
                     )}
 
                     {/* 公告欄：所有人可看 */}
-                    <div
-                        onClick={() => router.push('/announcements')}
-                        className="group bg-white p-8 rounded-3xl shadow-sm border border-slate-100 hover:shadow-xl hover:border-indigo-100 transition-all cursor-pointer relative overflow-hidden"
-                    >
-                        <div className="absolute top-0 right-0 w-24 h-24 bg-rose-50 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
-                        <div className="relative">
-                            <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center text-3xl mb-6 shadow-md shadow-rose-100">📢</div>
-                            <h2 className="text-2xl font-bold text-slate-800 mb-2 group-hover:text-rose-600 transition-colors">公告欄</h2>
-                            <p className="text-slate-500 font-medium">查看最新校園公告</p>
-                        </div>
-                    </div>
+                    <DashboardCard title="公告欄" icon="📢" color="bg-rose-500" onClick={() => router.push('/announcements')} desc="查看最新校園公告" />
 
                     {/* 聯絡簿：家長或有 fillContactBook 權限者 */}
                     {(role === 'parent' || permissions?.fillContactBook) && (
@@ -275,11 +265,15 @@ export default function DashboardPage() {
 
 function DashboardCard({ title, icon, color, onClick, badge = 0, desc }: any) {
     return (
-        <button onClick={onClick} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition text-left relative overflow-hidden group">
-            <div className={`w-12 h-12 ${color} text-white rounded-xl flex items-center justify-center text-2xl shadow-md mb-4`}>{icon}</div>
-            <h3 className="font-bold text-gray-800 text-lg mb-1">{title}</h3>
-            <p className="text-xs text-gray-400">{desc}</p>
-            {badge > 0 && <div className="absolute top-4 right-4 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full animate-bounce">{badge}</div>}
+        <button onClick={onClick} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-200 text-left relative overflow-hidden group w-full">
+            <div className={`w-11 h-11 ${color} text-white rounded-xl flex items-center justify-center text-xl shadow-sm mb-3`}>{icon}</div>
+            <h3 className="font-bold text-gray-800 text-base mb-1 group-hover:text-indigo-600 transition-colors">{title}</h3>
+            <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
+            {badge > 0 && (
+                <div className="absolute top-3 right-3 min-w-[22px] h-[22px] bg-red-500 text-white text-[11px] font-black px-1.5 rounded-full flex items-center justify-center shadow-sm">
+                    {badge > 99 ? '99+' : badge}
+                </div>
+            )}
         </button>
     );
 }

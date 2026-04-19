@@ -45,6 +45,10 @@ export default function ContactBookPage() {
     const [bulkHomework, setBulkHomework] = useState('');
     const [bulkAnnouncement, setBulkAnnouncement] = useState('');
 
+    // Collapsible cards
+    const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
+    const [showOnlyUnfilled, setShowOnlyUnfilled] = useState(false);
+
     const parseClassTags = (gradeString: string): string[] => {
         if (!gradeString) return ['待分班'];
         const tags = gradeString.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
@@ -182,6 +186,8 @@ export default function ContactBookPage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { if (students.length > 0) fetchHistory(); }, [fetchHistory, students.length]);
+    // Reset card expanded state when class or date changes
+    useEffect(() => { setExpandedStudents(new Set()); setShowOnlyUnfilled(false); }, [selectedClass, selectedDate]);
 
     // 當月曆打開或切換月份時，重新抓統計
     useEffect(() => {
@@ -409,6 +415,19 @@ export default function ContactBookPage() {
         : students.filter(s => parseClassTags(s.grade).includes(selectedClass!));
     const isTeacher = userRole !== 'parent';
 
+    // Collapsible card helpers
+    const toggleExpand = (id: string) => {
+        setExpandedStudents(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+    const displayedStudents = showOnlyUnfilled
+        ? filteredStudents.filter(s => { const f = forms[s.id] || DEFAULT_FORM; return !f.signature && !f.is_absent; })
+        : filteredStudents;
+    const moodDot = (v: number) => v <= 2 ? 'bg-red-400' : v === 3 ? 'bg-amber-400' : 'bg-emerald-400';
+
     return (
         <div className="min-h-screen bg-[#F3F4F6] pb-20 font-sans">
             <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" onChange={(e) => handleFileChange(e, false)} />
@@ -535,70 +554,136 @@ export default function ContactBookPage() {
                 )}
 
                 {!isDashboard && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {filteredStudents.length === 0 ? (
-                            <div className="col-span-full text-center py-20 text-gray-300 font-bold">此班級無學生</div>
-                        ) : (
-                            filteredStudents.map(student => {
-                                const form = forms[student.id] || DEFAULT_FORM;
-                                const absent = form.is_absent;
-                                const tags = parseClassTags(student.grade);
-                                const otherTags = tags.filter(t => t !== selectedClass);
-
-                                return (
-                                    <div key={student.id} className={`bg-white rounded-3xl shadow-sm border transition-all ${absent ? 'border-gray-200 bg-gray-50/50 grayscale' : 'border-gray-100 hover:shadow-xl hover:border-indigo-100'}`}>
-                                        <div className="p-5 flex justify-between items-start border-b border-gray-50">
-                                            <div className="flex items-center gap-3">
-                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-xl ${absent ? 'bg-gray-200 text-gray-400' : 'bg-[#EEF2FF] text-[#4F46E5]'}`}>{student.chinese_name.charAt(0)}</div>
-                                                <div>
-                                                    <h3 className="font-black text-lg text-gray-800 flex items-center gap-2 flex-wrap">
-                                                        {student.chinese_name}
-                                                        {absent ? <span className="bg-gray-500 text-white text-[10px] px-2 py-0.5 rounded-full">請假</span> : otherTags.map(t => (<span key={t} className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-200">🧸 {t}</span>))}
-                                                    </h3>
-                                                    <p className="text-[10px] font-bold text-gray-400 uppercase">{student.grade}</p>
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                                {form.signature ? <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold">✅ 已簽名</span> : <span className="text-[10px] bg-red-50 text-red-400 px-2 py-1 rounded font-bold">尚未簽名</span>}
-                                                {isTeacher && <label className="text-[10px] font-bold text-gray-400 flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={form.is_absent} onChange={e => handleFormChange(student.id, 'is_absent', e.target.checked)} className="accent-gray-500" /> 請假</label>}
-                                            </div>
-                                        </div>
-
-                                        <div className={`p-5 space-y-4 ${absent ? 'opacity-50 pointer-events-none' : ''}`}>
-                                            <div className="flex justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
-                                                <StarRating label="心情" value={form.mood} onChange={(v: any) => handleFormChange(student.id, 'mood', v)} disabled={!isTeacher} />
-                                                <div className="w-px bg-gray-200"></div>
-                                                <StarRating label="專注" value={form.focus} onChange={(v: any) => handleFormChange(student.id, 'focus', v)} disabled={!isTeacher} />
-                                                <div className="w-px bg-gray-200"></div>
-                                                <StarRating label="食慾" value={form.appetite} onChange={(v: any) => handleFormChange(student.id, 'appetite', v)} disabled={!isTeacher} />
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📚 今日作業</label>
-                                                {isTeacher ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
-                                            </div>
-                                            <div>
-                                                <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">💬 老師叮嚀</label>
-                                                {isTeacher ? <textarea rows={3} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="個別評語..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">{form.note || '無'}</div>}
-                                            </div>
-                                            <div>
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📸 照片</label>
-                                                    {isTeacher && <button onClick={() => handleUploadClick(student.id)} className="text-[10px] text-indigo-500 font-bold hover:bg-indigo-50 px-2 py-0.5 rounded">➕ 上傳</button>}
-                                                </div>
-                                                <div className="flex gap-2 overflow-x-auto min-h-[60px] pb-1">
-                                                    {form.photos?.map((url: string, i: number) => <img key={i} src={url} onClick={() => setLightboxPhoto(url)} className="w-16 h-16 rounded-lg object-cover border border-gray-100 cursor-zoom-in" />)}
-                                                    {!form.photos?.length && <div className="text-xs text-gray-300 italic flex items-center pl-1">無照片</div>}
-                                                </div>
-                                            </div>
-                                            <div className="pt-2">
-                                                {isTeacher ? <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-md transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '📤 發送 / 儲存'}</button> : !form.signature && <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })
+                    <>
+                        {/* Toolbar */}
+                        {filteredStudents.length > 0 && (
+                            <div className="flex items-center justify-between mb-4 px-1">
+                                <button
+                                    onClick={() => setShowOnlyUnfilled(v => !v)}
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${showOnlyUnfilled ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200 hover:border-orange-300 hover:text-orange-500'}`}
+                                >
+                                    {showOnlyUnfilled ? '✓ 只看未填寫' : '只看未填寫'}
+                                    {showOnlyUnfilled && <span className="ml-1 text-orange-100">({displayedStudents.length})</span>}
+                                </button>
+                                <div className="flex gap-2">
+                                    <button onClick={() => setExpandedStudents(new Set(filteredStudents.map(s => s.id)))} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-500 transition-all">全部展開</button>
+                                    <button onClick={() => setExpandedStudents(new Set())} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700 transition-all">全部收合</button>
+                                </div>
+                            </div>
                         )}
-                    </div>
+
+                        <div className="space-y-3">
+                            {displayedStudents.length === 0 ? (
+                                <div className="text-center py-20 text-gray-300 font-bold">{showOnlyUnfilled ? '所有學生都已填寫完成 🎉' : '此班級無學生'}</div>
+                            ) : (
+                                displayedStudents.map(student => {
+                                    const form = forms[student.id] || DEFAULT_FORM;
+                                    const absent = form.is_absent;
+                                    const tags = parseClassTags(student.grade);
+                                    const otherTags = tags.filter(t => t !== selectedClass);
+                                    const isExpanded = expandedStudents.has(student.id);
+
+                                    return (
+                                        <div key={student.id} className={`bg-white rounded-2xl shadow-sm border transition-all duration-200 ${absent ? 'border-gray-200 bg-gray-50/50 opacity-70' : isExpanded ? 'border-indigo-200 shadow-md' : 'border-gray-100 hover:border-gray-200'}`}>
+                                            {/* Always-visible header — click to toggle */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleExpand(student.id)}
+                                                className="w-full p-4 flex items-center gap-3 text-left"
+                                            >
+                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-black text-lg flex-shrink-0 ${absent ? 'bg-gray-200 text-gray-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                                                    {student.chinese_name.charAt(0)}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className={`font-black text-base ${absent ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{student.chinese_name}</span>
+                                                        {absent && <span className="bg-gray-400 text-white text-[10px] px-2 py-0.5 rounded-full font-bold">請假</span>}
+                                                        {otherTags.map(t => (<span key={t} className="bg-orange-100 text-orange-600 text-[10px] px-2 py-0.5 rounded-full border border-orange-200 font-bold">🧸 {t}</span>))}
+                                                    </div>
+                                                    {/* Status dots row */}
+                                                    {!isExpanded && (
+                                                        <div className="flex items-center gap-3 mt-1.5">
+                                                            <div className="flex items-center gap-1">
+                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.mood)}`}></div>
+                                                                <span className="text-[10px] text-gray-400">心情</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.focus)}`}></div>
+                                                                <span className="text-[10px] text-gray-400">專注</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <div className={`w-2 h-2 rounded-full ${moodDot(form.appetite)}`}></div>
+                                                                <span className="text-[10px] text-gray-400">食慾</span>
+                                                            </div>
+                                                            {form.homework && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">📚 {form.homework}</span>}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                    {form.signature
+                                                        ? <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">✅ 簽名</span>
+                                                        : <span className="text-[10px] bg-red-50 text-red-400 px-2 py-0.5 rounded-full font-bold">未簽</span>
+                                                    }
+                                                    <span className={`text-gray-300 text-sm transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                                                </div>
+                                            </button>
+
+                                            {/* Expandable content */}
+                                            {isExpanded && (
+                                                <div className={`border-t border-gray-50 ${absent ? 'opacity-50 pointer-events-none' : ''}`}>
+                                                    {/* Absent toggle for teacher */}
+                                                    {isTeacher && (
+                                                        <div className="px-4 py-2 flex justify-end">
+                                                            <label className="text-[11px] font-bold text-gray-400 flex items-center gap-1.5 cursor-pointer">
+                                                                <input type="checkbox" checked={form.is_absent} onChange={e => handleFormChange(student.id, 'is_absent', e.target.checked)} className="accent-gray-500" />
+                                                                標記請假
+                                                            </label>
+                                                        </div>
+                                                    )}
+                                                    <div className="px-4 pb-4 space-y-4">
+                                                        <div className="flex justify-between bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                                            <StarRating label="心情" value={form.mood} onChange={(v: any) => handleFormChange(student.id, 'mood', v)} disabled={!isTeacher} />
+                                                            <div className="w-px bg-gray-200"></div>
+                                                            <StarRating label="專注" value={form.focus} onChange={(v: any) => handleFormChange(student.id, 'focus', v)} disabled={!isTeacher} />
+                                                            <div className="w-px bg-gray-200"></div>
+                                                            <StarRating label="食慾" value={form.appetite} onChange={(v: any) => handleFormChange(student.id, 'appetite', v)} disabled={!isTeacher} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📚 今日作業</label>
+                                                            {isTeacher ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">💬 老師叮嚀</label>
+                                                            {isTeacher ? <textarea rows={3} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="個別評語..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">{form.note || '無'}</div>}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📸 照片</label>
+                                                                {isTeacher && <button onClick={() => handleUploadClick(student.id)} className="text-[10px] text-indigo-500 font-bold hover:bg-indigo-50 px-2 py-0.5 rounded">➕ 上傳</button>}
+                                                            </div>
+                                                            <div className="flex gap-2 overflow-x-auto min-h-[60px] pb-1">
+                                                                {form.photos?.map((url: string, i: number) => <img key={i} src={url} onClick={() => setLightboxPhoto(url)} className="w-16 h-16 rounded-lg object-cover border border-gray-100 cursor-zoom-in" />)}
+                                                                {!form.photos?.length && <div className="text-xs text-gray-300 italic flex items-center pl-1">無照片</div>}
+                                                            </div>
+                                                        </div>
+                                                        <div className="pt-1">
+                                                            {isTeacher ? (
+                                                                <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                                                    {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '📤 發送 / 儲存'}
+                                                                </button>
+                                                            ) : !form.signature && (
+                                                                <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </>
                 )}
             </div>
         </div>
