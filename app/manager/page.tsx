@@ -99,7 +99,12 @@ export default function ManagerDashboard() {
         let totalLeaves = 0;
 
         const processedTeachers = teacherList.map(t => {
-            const classes = t.responsible_classes || [];
+            // responsible_classes 在 DB 可能是 JSON 字串或陣列，統一 parse
+            let classes: string[] = [];
+            try {
+                const raw = t.responsible_classes;
+                classes = Array.isArray(raw) ? raw : JSON.parse(raw || '[]');
+            } catch { classes = []; }
 
             // Find students in this teacher's classes
             // 邏輯：學生的 grade 包含老師負責的班級 (e.g. Student: "CEI-A, 課後輔導班" matches Class "CEI-A")
@@ -128,10 +133,11 @@ export default function ManagerDashboard() {
 
             return {
                 ...t,
+                responsible_classes: classes, // 確保是 array，不是 JSON 字串
                 studentCount: myStudents.length,
                 avgScore: avg,
                 leaveCount: myLeaves.length,
-                students: myStudents // Keep ref if needed
+                students: myStudents
             };
         });
 

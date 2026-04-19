@@ -66,8 +66,13 @@ const SLOT_TYPE_ICON: Record<SlotType, string> = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+const PRESET_CLASSES = [
+    ...Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`),
+    '安親班',
+];
+
 function buildClassGroups(slots: ScheduleSlot[], assignments: Assignment[]) {
-    const set = new Set<string>();
+    const set = new Set<string>(PRESET_CLASSES);
     slots.forEach(s => set.add(s.class_group));
     assignments.forEach(a => set.add(a.class_group));
     return Array.from(set).sort();
@@ -715,7 +720,7 @@ function AssignmentModal({ teacher, allAssignments, pendingAssigns, setPendingAs
 }) {
     const [classInput, setClassInput] = useState('');
     const [classes, setClasses] = useState<string[]>(
-        Array.from(new Set([...allAssignments.map(a => a.class_group), ...pendingAssigns.map(a => a.class_group)])).sort()
+        Array.from(new Set([...PRESET_CLASSES, ...allAssignments.map(a => a.class_group), ...pendingAssigns.map(a => a.class_group)])).sort()
     );
 
     function addClass() {
@@ -835,7 +840,7 @@ function SlotModal({ slot, setSlot, teachers, assignments, getEligibleTeachers, 
     onSave: () => void;
     onClose: () => void;
 }) {
-    const allClasses = Array.from(new Set(assignments.map(a => a.class_group))).sort();
+    const allClasses = Array.from(new Set([...PRESET_CLASSES, ...assignments.map(a => a.class_group)])).sort();
     const leadOptions = (slot.class_group && slot.slot_type)
         ? getEligibleTeachers(slot.class_group, slot.slot_type as SlotType, 'lead') : [];
     const assistOptions = (slot.class_group && slot.slot_type)
@@ -856,7 +861,6 @@ function SlotModal({ slot, setSlot, teachers, assignments, getEligibleTeachers, 
                         className="w-full p-3 border-2 border-indigo-200 bg-indigo-50 rounded-xl font-bold text-sm focus:outline-none focus:border-indigo-400">
                         <option value="">— 請選擇班級 —</option>
                         {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
-                        <option value="安親班">安親班</option>
                     </select>
                 </div>
 
