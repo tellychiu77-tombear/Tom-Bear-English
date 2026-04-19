@@ -9,7 +9,8 @@ const DEFAULT_FORM = {
     focus: 3,
     appetite: 3,
     homework: '',
-    note: '',
+    note: '',        // 🔒 內部備註（家長看不到）
+    public_note: '', // 📤 公開留言（家長看得到）
     photos: [] as string[],
     is_absent: false,
     signature: null as string | null
@@ -122,6 +123,7 @@ export default function ContactBookPage() {
                     appetite: log.appetite,
                     homework: log.homework || '',
                     note: log.teacher_note || '',
+                    public_note: log.public_note || '',
                     photos: log.photos || [],
                     is_absent: log.is_absent || false,
                     signature: log.parent_signature
@@ -283,6 +285,7 @@ export default function ContactBookPage() {
                 appetite: formData.appetite,
                 homework: formData.homework,
                 teacher_note: formData.note,
+                public_note: formData.public_note,
                 photos: formData.photos,
                 is_absent: formData.is_absent
             };
@@ -314,11 +317,11 @@ export default function ContactBookPage() {
             const next = { ...prev };
             const targets = students.filter(s => parseClassTags(s.grade).includes(selectedClass!));
             targets.forEach(s => {
-                const currentNote = next[s.id].note || '';
-                const newNote = bulkAnnouncement && !currentNote.includes(bulkAnnouncement)
-                    ? (currentNote ? `${currentNote}\n\n【班級叮嚀】${bulkAnnouncement}` : `【班級叮嚀】${bulkAnnouncement}`)
-                    : currentNote;
-                next[s.id] = { ...next[s.id], homework: bulkHomework || next[s.id].homework, note: newNote };
+                const currentPublicNote = next[s.id].public_note || '';
+                const newPublicNote = bulkAnnouncement && !currentPublicNote.includes(bulkAnnouncement)
+                    ? (currentPublicNote ? `${currentPublicNote}\n\n【班級叮嚀】${bulkAnnouncement}` : `【班級叮嚀】${bulkAnnouncement}`)
+                    : currentPublicNote;
+                next[s.id] = { ...next[s.id], homework: bulkHomework || next[s.id].homework, public_note: newPublicNote };
             });
             return next;
         });
@@ -615,7 +618,8 @@ export default function ContactBookPage() {
                                                                 <div className={`w-2 h-2 rounded-full ${moodDot(form.appetite)}`}></div>
                                                                 <span className="text-[10px] text-gray-400">食慾</span>
                                                             </div>
-                                                            {form.homework && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">📚 {form.homework}</span>}
+                                                            {form.homework && <span className="text-[10px] text-gray-400 truncate max-w-[120px]">📚 {form.homework}</span>}
+                                                            {!form.public_note && isTeacher && <span className="text-[10px] text-orange-400 font-bold">留言未填</span>}
                                                         </div>
                                                     )}
                                                 </div>
@@ -652,10 +656,28 @@ export default function ContactBookPage() {
                                                             <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📚 今日作業</label>
                                                             {isTeacher ? <input type="text" value={form.homework} onChange={e => handleFormChange(student.id, 'homework', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all" placeholder="輸入作業..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[46px]">{form.homework || '無'}</div>}
                                                         </div>
-                                                        <div>
-                                                            <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">💬 老師叮嚀</label>
-                                                            {isTeacher ? <textarea rows={3} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-3 bg-gray-50 border-transparent hover:border-indigo-100 focus:bg-white focus:border-indigo-500 rounded-xl font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="個別評語..." /> : <div className="p-3 bg-gray-50 rounded-xl font-bold text-sm text-gray-700 min-h-[80px] whitespace-pre-wrap">{form.note || '無'}</div>}
+                                                        {/* 📤 公開留言 — 家長看得到 */}
+                                                        <div className="rounded-xl border border-green-100 bg-green-50/50 p-3">
+                                                            <label className="text-[10px] font-black text-green-600 ml-1 flex items-center gap-1 mb-1.5">
+                                                                <span>📤</span> 給家長的留言
+                                                                <span className="text-green-400 font-normal">（家長看得到）</span>
+                                                            </label>
+                                                            {isTeacher
+                                                                ? <textarea rows={2} value={form.public_note} onChange={e => handleFormChange(student.id, 'public_note', e.target.value)} className="w-full p-2.5 bg-white border border-green-100 hover:border-green-300 focus:border-green-500 rounded-lg font-bold text-sm text-gray-700 outline-none transition-all resize-none" placeholder="今天表現很棒！作業記得完成..." />
+                                                                : <div className="p-2.5 bg-white rounded-lg font-bold text-sm text-gray-700 min-h-[60px] whitespace-pre-wrap">{form.public_note || '無留言'}</div>
+                                                            }
                                                         </div>
+
+                                                        {/* 🔒 內部備註 — 僅老師/主任可見 */}
+                                                        {isTeacher && (
+                                                            <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-3">
+                                                                <label className="text-[10px] font-black text-gray-400 ml-1 flex items-center gap-1 mb-1.5">
+                                                                    <span>🔒</span> 內部備註
+                                                                    <span className="text-gray-300 font-normal">（家長看不到）</span>
+                                                                </label>
+                                                                <textarea rows={2} value={form.note} onChange={e => handleFormChange(student.id, 'note', e.target.value)} className="w-full p-2.5 bg-white border border-gray-100 hover:border-gray-300 focus:border-gray-400 rounded-lg font-bold text-sm text-gray-600 outline-none transition-all resize-none" placeholder="內部觀察，例如：注意力渙散、與同學起衝突..." />
+                                                            </div>
+                                                        )}
                                                         <div>
                                                             <div className="flex justify-between items-center mb-1">
                                                                 <label className="text-[10px] font-black text-gray-400 ml-1 uppercase">📸 照片</label>

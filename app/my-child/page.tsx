@@ -376,10 +376,22 @@ export default function MyChildPage() {
                                         <h3 className="text-lg font-black text-gray-800 mb-6">近五日課堂表現</h3>
                                         {recentLogs.length === 0 ? <div className="text-center py-10 text-gray-400">尚無聯絡簿紀錄</div> : (
                                             <div className="space-y-4">
-                                                {recentLogs.map(log => (
-                                                    <div key={log.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-2xl border border-gray-100">
-                                                        <div className="flex flex-col"><span className="text-xs font-bold text-gray-400">{log.date}</span><span className="font-bold text-gray-700 mt-1 truncate w-32 md:w-auto">{log.homework || '無作業'}</span></div>
-                                                        <div className="flex gap-4 text-sm"><div className="text-center"><div className="text-[10px] text-gray-400">心情</div>{renderStars(log.mood)}</div><div className="text-center"><div className="text-[10px] text-gray-400">專注</div>{renderStars(log.focus)}</div><div className="text-center hidden md:block"><div className="text-[10px] text-gray-400">食慾</div>{renderStars(log.appetite)}</div></div>
+                                                {recentLogs.map((log: any) => (
+                                                    <div key={log.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="text-xs font-bold text-gray-400">{log.date}</span>
+                                                            {log.parent_signature
+                                                                ? <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">✅ 已簽名</span>
+                                                                : <span className="text-[10px] bg-red-50 text-red-400 px-2 py-0.5 rounded-full font-bold">未簽名</span>
+                                                            }
+                                                        </div>
+                                                        <div className="flex gap-4 text-sm">
+                                                            <div className="text-center"><div className="text-[10px] text-gray-400">心情</div>{renderStars(log.mood)}</div>
+                                                            <div className="text-center"><div className="text-[10px] text-gray-400">專注</div>{renderStars(log.focus)}</div>
+                                                            <div className="text-center hidden md:block"><div className="text-[10px] text-gray-400">食慾</div>{renderStars(log.appetite)}</div>
+                                                        </div>
+                                                        {log.homework && <div className="text-sm"><span className="text-[10px] font-black text-gray-400">📚 作業</span><div className="font-bold text-gray-700 mt-0.5">{log.homework}</div></div>}
+                                                        {log.public_note && <div className="text-sm bg-green-50 border border-green-100 rounded-xl p-3"><span className="text-[10px] font-black text-green-600">💬 老師留言</span><div className="font-bold text-gray-700 mt-0.5 whitespace-pre-wrap">{log.public_note}</div></div>}
                                                     </div>
                                                 ))}
                                                 <button onClick={() => router.push('/contact-book')} className="w-full py-3 mt-4 text-indigo-600 font-bold bg-indigo-50 rounded-xl hover:bg-indigo-100 transition">查看完整聯絡簿紀錄 ➔</button>
