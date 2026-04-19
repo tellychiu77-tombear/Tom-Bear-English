@@ -46,8 +46,14 @@ export default function ContactBookPage() {
     const [bulkAnnouncement, setBulkAnnouncement] = useState('');
 
     const parseClassTags = (gradeString: string): string[] => {
-        if (!gradeString) return ['未分類'];
-        return gradeString.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
+        if (!gradeString) return ['待分班'];
+        const tags = gradeString.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
+        // 標準化常見的班級名稱寫法
+        return tags.map(tag => {
+            if (tag === '課後輔導' || tag === '課後') return '課後輔導班';
+            if (tag === '未分類' || tag === '未分班') return '待分班';
+            return tag;
+        });
     };
 
     const fetchData = useCallback(async () => {

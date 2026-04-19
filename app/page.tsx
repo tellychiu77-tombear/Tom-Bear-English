@@ -53,8 +53,8 @@ export default function DashboardPage() {
             } else {
                 setRole(userData.role);
             }
-            // 這裡抓取暱稱，如果沒有就顯示 Email 前綴
-            setUserName(userData.name || userData.email?.split('@')[0] || 'User');
+            // 優先顯示真實姓名，沒有就顯示完整 email
+            setUserName(userData.name || userData.email || 'User');
             setJobTitle(userData.job_title || '');
 
             // 計算有效權限（三層：硬編碼 → role_configs → 個人覆蓋）
@@ -147,7 +147,7 @@ export default function DashboardPage() {
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center">
                     <div className="text-6xl mb-4">⏳</div>
                     <h1 className="text-2xl font-black text-gray-800 mb-2">帳號審核中</h1>
-                    <p className="text-gray-500 mb-6">您好，<b>{userName}</b><br />您的申請已送出，請等待行政人員審核開通。</p>
+                    <p className="text-gray-500 mb-6">您好，<b className="text-gray-800">{userName}</b><br />您的申請已送出，請等待行政人員審核開通。</p>
                     <button onClick={handleLogout} className="w-full py-3 border border-gray-300 text-gray-600 font-bold rounded-lg hover:bg-gray-50">登出並返回</button>
                 </div>
             </div>
@@ -165,7 +165,7 @@ export default function DashboardPage() {
                             <h1 className="font-bold text-gray-800">Tom Bear</h1>
                             {/* ✅ 修正重點：使用 ROLE_MAP 來顯示正確的職稱 (如：行政人員) */}
                             <div className="text-xs text-gray-500 flex items-center flex-wrap gap-1">
-                                Hi, {userName}
+                                Hi, <span className="font-bold text-gray-700">{userName}</span>
                                 <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold
                                     ${role === 'parent' ? 'bg-green-500' :
                                         role === 'teacher' ? 'bg-indigo-500' :
