@@ -94,9 +94,13 @@ export default function SchedulePage() {
     const [tab, setTab] = useState<'teachers' | 'assign' | 'add' | 'grid'>('teachers');
     const [assignView, setAssignView] = useState<'teacher' | 'class'>('class');
 
-    // Teacher modal
+    // Teacher modal (edit existing)
     const [teacherModal, setTeacherModal] = useState<Partial<Teacher> | null>(null);
     const [saving, setSaving] = useState(false);
+
+    // Add teacher modal (create without account)
+    const [addTeacherModal, setAddTeacherModal] = useState(false);
+    const [newTeacher, setNewTeacher] = useState<{ name: string; teacher_type: string; available_days: number[] }>({ name: '', teacher_type: 'staff', available_days: [] });
 
     // Assignment modal
     const [assignModal, setAssignModal] = useState<{ teacher: Teacher } | null>(null);
@@ -137,11 +141,34 @@ export default function SchedulePage() {
     async function saveTeacher() {
         if (!teacherModal) return;
         setSaving(true);
-        const { id, teacher_type, available_days } = teacherModal;
-        await supabase.from('users').update({ teacher_type, available_days: available_days || [] }).eq('id', id!);
+        const { id, name, teacher_type, available_days } = teacherModal;
+        await supabase.from('users').update({ name, teacher_type, available_days: available_days || [] }).eq('id', id!);
         await fetchAll();
         setSaving(false);
         setTeacherModal(null);
+    }
+
+    async function createTeacher() {
+        if (!newTeacher.name.trim()) { alert('請填寫老師姓名'); return; }
+        setSaving(true);
+        // Create a placeholder user row (no real auth account needed)
+        const placeholderEmail = `teacher_${Date.now()}@tombear.internal`;
+        const { error } = await supabase.from('users').insert({
+            id: crypto.randomUUID(),
+            name: newTeacher.name.trim(),
+            email: placeholderEmail,
+            role: 'teacher',
+            is_approved: true,
+            teacher_type: newTeacher.teacher_type || null,
+            available_days: newTeacher.available_days,
+        });
+        if (error) { alert('新增失敗：' + error.message); }
+        else {
+            setAddTeacherModal(false);
+            setNewTeacher({ name: '', teacher_type: 'staff', available_days: [] });
+            await fetchAll();
+        }
+        setSaving(false);
     }
 
     // ── Assignment CRUD ─────────────────────────────────────────────────
@@ -273,7 +300,11 @@ export default function SchedulePage() {
                     <div>
                         <div className="mb-4 flex justify-between items-center">
                             <h2 className="text-lg font-black text-gray-700">老師列表（{teachers.length} 位）</h2>
-                            <p className="text-xs text-gray-400">點「設定」可以調整老師類型與可來天數</p>
+                            <button
+                                onClick={() => { setNewTeacher({ name: '', teacher_type: 'staff', available_days: [] }); setAddTeacherModal(true); }}
+                                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm rounded-xl shadow transition">
+                                ＋ 新增老師
+                            </button>
                         </div>
 
                         {/* 類型說明 */}
@@ -359,8 +390,17 @@ export default function SchedulePage() {
             {/* ── Teacher Edit Modal ──────────────────────────────────────────── */}
             {teacherModal && (
                 <Modal onClose={() => setTeacherModal(null)}>
-                    <h3 className="text-xl font-black mb-5">設定老師類型</h3>
+                    <h3 className="text-xl font-black mb-5">編輯老師資料</h3>
                     <div className="space-y-5">
+                        <div>
+                            <label className="text-xs font-black text-gray-400 block mb-2">姓名</label>
+                            <input
+                                value={teacherModal.name || ''}
+                                onChange={e => setTeacherModal(p => ({ ...p!, name: e.target.value }))}
+                                className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-300"
+                                placeholder="老師姓名"
+                            />
+                        </div>
                         <div>
                             <label className="text-xs font-black text-gray-400 block mb-2">老師類型</label>
                             <div className="grid grid-cols-3 gap-2">
@@ -410,6 +450,74 @@ export default function SchedulePage() {
                                 {saving ? '儲存中...' : '✅ 儲存'}
                             </button>
                             <button onClick={() => setTeacherModal(null)}
+                                className="px-5 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+
+            {/* ── Add Teacher Modal (無帳號新增) ────────────────────────────── */}
+            {addTeacherModal && (
+                <Modal onClose={() => setAddTeacherModal(false)}>
+                    <h3 className="text-xl font-black mb-1">新增老師</h3>
+                    <p className="text-xs text-gray-400 mb-5">無需帳號，直接輸入姓名即可加入排課系統</p>
+                    <div className="space-y-5">
+                        <div>
+                            <label className="text-xs font-black text-gray-400 block mb-2">姓名 <span className="text-red-400">*</span></label>
+                            <input
+                                value={newTeacher.name}
+                                onChange={e => setNewTeacher(p => ({ ...p, name: e.target.value }))}
+                                className="w-full px-3 py-2 border rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-indigo-300"
+                                placeholder="輸入老師姓名"
+                                autoFocus
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-black text-gray-400 block mb-2">老師類型</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {(['foreign', 'external', 'staff'] as TeacherType[]).map(type => (
+                                    <button key={type}
+                                        onClick={() => setNewTeacher(p => ({ ...p, teacher_type: type, available_days: type === 'staff' ? [] : p.available_days }))}
+                                        className={`p-3 rounded-xl text-xs font-black border-2 transition
+                                            ${newTeacher.teacher_type === type
+                                                ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                                                : 'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                        {TEACHER_TYPE_LABEL[type]}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        {newTeacher.teacher_type !== 'staff' && (
+                            <div>
+                                <label className="text-xs font-black text-gray-400 block mb-2">可來天數（可複選）</label>
+                                <div className="flex gap-2">
+                                    {DAY_NUMS.map((d, i) => {
+                                        const active = newTeacher.available_days.includes(d);
+                                        return (
+                                            <button key={d}
+                                                onClick={() => setNewTeacher(p => ({
+                                                    ...p,
+                                                    available_days: active ? p.available_days.filter(x => x !== d) : [...p.available_days, d].sort()
+                                                }))}
+                                                className={`w-10 h-10 rounded-xl text-sm font-black transition
+                                                    ${active
+                                                        ? (newTeacher.teacher_type === 'foreign' ? 'bg-amber-500 text-white' : 'bg-violet-500 text-white')
+                                                        : 'bg-gray-100 text-gray-300 hover:bg-gray-200'}`}>
+                                                {DAY_SHORT[i]}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex gap-3 mt-6">
+                            <button onClick={createTeacher} disabled={saving}
+                                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl transition disabled:opacity-50">
+                                {saving ? '新增中...' : '✅ 新增老師'}
+                            </button>
+                            <button onClick={() => setAddTeacherModal(false)}
                                 className="px-5 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition">
                                 取消
                             </button>
