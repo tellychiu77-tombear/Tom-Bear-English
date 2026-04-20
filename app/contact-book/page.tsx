@@ -53,6 +53,10 @@ export default function ContactBookPage() {
     const [expandedStudents, setExpandedStudents] = useState<Set<string>>(new Set());
     const [showOnlyUnfilled, setShowOnlyUnfilled] = useState(false);
 
+    // Save tracking
+    const [savedStudentIds, setSavedStudentIds] = useState<Set<string>>(new Set());
+    const [savingAll, setSavingAll] = useState(false);
+
     const parseClassTags = (gradeString: string): string[] => {
         if (!gradeString) return ['待分班'];
         const tags = gradeString.split(/[,，]/).map(s => s.trim()).filter(s => s !== '');
@@ -136,6 +140,10 @@ export default function ContactBookPage() {
             });
         }
         setForms(prev => ({ ...prev, ...newForms }));
+        // Mark students that already have a record today as saved
+        if (historyLogs && historyLogs.length > 0) {
+            setSavedStudentIds(new Set(historyLogs.map((l: any) => l.student_id)));
+        }
     }, [selectedClass, selectedDate, students, userRole]);
 
     // 📅 抓取整個月的統計資料 (用於月曆)
@@ -194,7 +202,11 @@ export default function ContactBookPage() {
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { if (students.length > 0) fetchHistory(); }, [fetchHistory, students.length]);
     // Reset card expanded state when class or date changes
-    useEffect(() => { setExpandedStudents(new Set()); setShowOnlyUnfilled(false); }, [selectedClass, selectedDate]);
+    useEffect(() => {
+        setExpandedStudents(new Set());
+        setShowOnlyUnfilled(false);
+        setSavedStudentIds(new Set());
+    }, [selectedClass, selectedDate]);
 
     // 當月曆打開或切換月份時，重新抓統計
     useEffect(() => {
@@ -277,8 +289,7 @@ export default function ContactBookPage() {
         }
     };
 
-    const handleSave = async (student: any) => {
-        // ... (保持原有的儲存邏輯)
+    const handleSave = async (student: any, silent = false) => {
         const formData = forms[student.id] || DEFAULT_FORM;
         try {
             const { data: existing } = await supabase.from('contact_books').select('id').eq('student_id', student.id).eq('date', selectedDate).single();
@@ -299,20 +310,56 @@ export default function ContactBookPage() {
 
             if (existing) {
                 await supabase.from('contact_books').update(payload).eq('id', existing.id);
-                await supabase.from('system_logs').insert({
-                    operator_email: currentUser?.email,
-                    action: 'UPDATE_CONTACT_BOOK',
-                    details: `更新 ${student.chinese_name} ${selectedDate} 聯絡簿`
-                });
             } else {
                 await supabase.from('contact_books').insert(payload);
             }
-            alert(`💾 ${student.chinese_name} 儲存成功`);
-            // 儲存後更新一下月曆統計
+            setSavedStudentIds(prev => new Set([...prev, student.id]));
             if (isCalendarOpen) fetchMonthStats(calendarMonth);
         } catch (e: any) {
-            alert('❌ 儲存失敗: ' + e.message);
+            if (!silent) alert('❌ 儲存失敗: ' + e.message);
         }
+    };
+
+    const handleSaveAll = async () => {
+        if (!filteredStudents.length) return;
+        if (!confirm(`確定要儲存全班 ${filteredStudents.length} 位學生的資料嗎？`)) return;
+        setSavingAll(true);
+
+        // 一次查出全班今日現有紀錄
+        const ids = filteredStudents.map(s => s.id);
+        const { data: existingRecords } = await supabase
+            .from('contact_books').select('id, student_id')
+            .in('student_id', ids).eq('date', selectedDate);
+        const existingMap = new Map((existingRecords || []).map((r: any) => [r.student_id, r.id]));
+
+        const toInsert: any[] = [];
+        const toUpdate: any[] = [];
+
+        filteredStudents.forEach(student => {
+            const f = forms[student.id] || DEFAULT_FORM;
+            const payload = {
+                student_id: student.id, date: selectedDate,
+                mood: f.mood, focus: f.focus,
+                participation: f.participation, expression: f.expression,
+                lesson_topic: f.lesson_topic, homework: f.homework,
+                teacher_note: f.note, public_note: f.public_note,
+                photos: f.photos, is_absent: f.is_absent,
+            };
+            if (existingMap.has(student.id)) toUpdate.push({ id: existingMap.get(student.id), ...payload });
+            else toInsert.push(payload);
+        });
+
+        try {
+            if (toInsert.length) await supabase.from('contact_books').insert(toInsert);
+            for (const { id, ...data } of toUpdate) {
+                await supabase.from('contact_books').update(data).eq('id', id);
+            }
+            setSavedStudentIds(new Set(filteredStudents.map(s => s.id)));
+            if (isCalendarOpen) fetchMonthStats(calendarMonth);
+        } catch (e: any) {
+            alert('❌ 儲存失敗：' + e.message);
+        }
+        setSavingAll(false);
     };
 
     const handleBulkApply = () => {
@@ -439,7 +486,7 @@ export default function ContactBookPage() {
         });
     };
     const displayedStudents = showOnlyUnfilled
-        ? filteredStudents.filter(s => { const f = forms[s.id] || DEFAULT_FORM; return !f.signature && !f.is_absent; })
+        ? filteredStudents.filter(s => !savedStudentIds.has(s.id) && !(forms[s.id]?.is_absent))
         : filteredStudents;
     const moodDot = (v: number) => v <= 2 ? 'bg-red-400' : v === 3 ? 'bg-amber-400' : 'bg-emerald-400';
 
@@ -575,18 +622,57 @@ export default function ContactBookPage() {
                 {!isDashboard && (
                     <>
                         {/* Toolbar */}
-                        {filteredStudents.length > 0 && (
+                        {filteredStudents.length > 0 && isTeacher && (
+                            <div className="mb-4 space-y-3">
+                                {/* 進度條 */}
+                                {(() => {
+                                    const saved = filteredStudents.filter(s => savedStudentIds.has(s.id)).length;
+                                    const total = filteredStudents.length;
+                                    const pct = Math.round((saved / total) * 100);
+                                    const allDone = saved === total;
+                                    return (
+                                        <div className={`rounded-xl p-3 border ${allDone ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className={`text-xs font-black ${allDone ? 'text-green-700' : 'text-gray-600'}`}>
+                                                    {allDone ? '✅ 今日已全部儲存！' : `今日進度：${saved} / ${total} 已儲存`}
+                                                </span>
+                                                <button
+                                                    onClick={handleSaveAll}
+                                                    disabled={savingAll || allDone}
+                                                    className={`text-xs font-black px-4 py-1.5 rounded-lg transition-all ${allDone ? 'bg-green-100 text-green-600 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm disabled:opacity-50'}`}
+                                                >
+                                                    {savingAll ? '儲存中...' : allDone ? '✅ 完成' : '💾 全班一鍵儲存'}
+                                                </button>
+                                            </div>
+                                            <div className="w-full bg-gray-100 rounded-full h-1.5">
+                                                <div
+                                                    className={`h-1.5 rounded-full transition-all duration-500 ${allDone ? 'bg-green-500' : 'bg-indigo-500'}`}
+                                                    style={{ width: `${pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                                {/* 篩選與展開按鈕 */}
+                                <div className="flex items-center justify-between px-1">
+                                    <button
+                                        onClick={() => setShowOnlyUnfilled(v => !v)}
+                                        className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${showOnlyUnfilled ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200 hover:border-orange-300 hover:text-orange-500'}`}
+                                    >
+                                        {showOnlyUnfilled ? `✓ 只看未儲存 (${displayedStudents.length})` : '只看未儲存'}
+                                    </button>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => setExpandedStudents(new Set(filteredStudents.map(s => s.id)))} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-500 transition-all">全部展開</button>
+                                        <button onClick={() => setExpandedStudents(new Set())} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700 transition-all">全部收合</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        {filteredStudents.length > 0 && !isTeacher && (
                             <div className="flex items-center justify-between mb-4 px-1">
-                                <button
-                                    onClick={() => setShowOnlyUnfilled(v => !v)}
-                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${showOnlyUnfilled ? 'bg-orange-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200 hover:border-orange-300 hover:text-orange-500'}`}
-                                >
-                                    {showOnlyUnfilled ? '✓ 只看未填寫' : '只看未填寫'}
-                                    {showOnlyUnfilled && <span className="ml-1 text-orange-100">({displayedStudents.length})</span>}
-                                </button>
                                 <div className="flex gap-2">
                                     <button onClick={() => setExpandedStudents(new Set(filteredStudents.map(s => s.id)))} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-indigo-300 hover:text-indigo-500 transition-all">全部展開</button>
-                                    <button onClick={() => setExpandedStudents(new Set())} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 hover:border-gray-400 hover:text-gray-700 transition-all">全部收合</button>
+                                    <button onClick={() => setExpandedStudents(new Set())} className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white text-gray-500 border border-gray-200 transition-all">全部收合</button>
                                 </div>
                             </div>
                         )}
@@ -601,9 +687,10 @@ export default function ContactBookPage() {
                                     const tags = parseClassTags(student.grade);
                                     const otherTags = tags.filter(t => t !== selectedClass);
                                     const isExpanded = expandedStudents.has(student.id);
+                                    const isSaved = savedStudentIds.has(student.id);
 
                                     return (
-                                        <div key={student.id} className={`bg-white rounded-2xl shadow-sm border transition-all duration-200 ${absent ? 'border-gray-200 bg-gray-50/50 opacity-70' : isExpanded ? 'border-indigo-200 shadow-md' : 'border-gray-100 hover:border-gray-200'}`}>
+                                        <div key={student.id} className={`bg-white rounded-2xl shadow-sm border transition-all duration-200 ${absent ? 'border-gray-200 bg-gray-50/50 opacity-70' : isSaved && !isExpanded ? 'border-green-200 bg-green-50/30' : isExpanded ? 'border-indigo-200 shadow-md' : 'border-gray-100 hover:border-gray-200'}`}>
                                             {/* Always-visible header — click to toggle */}
                                             <button
                                                 type="button"
@@ -730,8 +817,8 @@ export default function ContactBookPage() {
                                                         </div>
                                                         <div className="pt-1">
                                                             {isTeacher ? (
-                                                                <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                                                    {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '📤 發送 / 儲存'}
+                                                                <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : isSaved ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                                                    {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : isSaved ? '✅ 已儲存（再次儲存）' : '💾 儲存'}
                                                                 </button>
                                                             ) : !form.signature && (
                                                                 <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>
