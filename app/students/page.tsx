@@ -291,6 +291,24 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
         teacher_assessment: student.teacher_assessment || ''
     });
 
+    const [customStrengthInput, setCustomStrengthInput] = useState('');
+    const [customImprovementInput, setCustomImprovementInput] = useState('');
+
+    function addCustomTag(field: 'strength_tags' | 'improvement_tags', input: string, clearFn: () => void) {
+        const trimmed = input.trim();
+        if (!trimmed) return;
+        setLearningForm(f => {
+            const arr = f[field] as string[];
+            if (arr.includes(trimmed)) return f;
+            return { ...f, [field]: [...arr, trimmed] };
+        });
+        clearFn();
+    }
+
+    function removeTag(field: 'strength_tags' | 'improvement_tags', tag: string) {
+        setLearningForm(f => ({ ...f, [field]: (f[field] as string[]).filter((t: string) => t !== tag) }));
+    }
+
     async function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -567,9 +585,11 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
 
                                 {/* 右：標籤 */}
                                 <div className="space-y-4">
+                                    {/* 優勢標籤 */}
                                     <div className="bg-green-50 rounded-xl p-4 border border-green-100">
                                         <h3 className="text-sm font-black text-green-700 mb-3">✦ 優勢標籤</h3>
                                         <div className="flex flex-wrap gap-2">
+                                            {/* 預設標籤 */}
                                             {STRENGTH_TAGS.map(tag => (
                                                 <button key={tag} onClick={() => canEdit && toggleTag('strength_tags', tag)}
                                                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition
@@ -580,14 +600,40 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     {tag}
                                                 </button>
                                             ))}
+                                            {/* 自訂標籤 (不在預設清單中的) */}
+                                            {learningForm.strength_tags
+                                                .filter((t: string) => !STRENGTH_TAGS.includes(t))
+                                                .map((tag: string) => (
+                                                    <span key={tag} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold bg-green-500 text-white border border-green-500 shadow-sm">
+                                                        {tag}
+                                                        {canEdit && (
+                                                            <button onClick={() => removeTag('strength_tags', tag)}
+                                                                className="ml-0.5 hover:text-green-200 transition font-black">×</button>
+                                                        )}
+                                                    </span>
+                                                ))}
                                         </div>
-                                        {learningForm.strength_tags.length > 0 && (
-                                            <p className="text-xs text-green-600 mt-2 font-bold">
-                                                已選：{learningForm.strength_tags.join('、')}
-                                            </p>
+                                        {/* 自訂輸入框 */}
+                                        {canEdit && (
+                                            <div className="flex gap-2 mt-3">
+                                                <input
+                                                    type="text"
+                                                    value={customStrengthInput}
+                                                    onChange={e => setCustomStrengthInput(e.target.value)}
+                                                    onKeyDown={e => e.key === 'Enter' && addCustomTag('strength_tags', customStrengthInput, () => setCustomStrengthInput(''))}
+                                                    placeholder="自訂標籤，按 Enter 新增..."
+                                                    className="flex-1 px-3 py-1.5 text-xs border border-green-200 rounded-full bg-white outline-none focus:ring-2 focus:ring-green-300 font-bold text-green-700 placeholder-green-300"
+                                                />
+                                                <button
+                                                    onClick={() => addCustomTag('strength_tags', customStrengthInput, () => setCustomStrengthInput(''))}
+                                                    className="px-3 py-1.5 bg-green-500 text-white text-xs font-black rounded-full hover:bg-green-600 transition">
+                                                    ＋
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
 
+                                    {/* 待加強標籤 */}
                                     <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
                                         <h3 className="text-sm font-black text-amber-700 mb-3">△ 待加強標籤</h3>
                                         <div className="flex flex-wrap gap-2">
@@ -601,11 +647,35 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     {tag}
                                                 </button>
                                             ))}
+                                            {/* 自訂標籤 */}
+                                            {learningForm.improvement_tags
+                                                .filter((t: string) => !IMPROVEMENT_TAGS.includes(t))
+                                                .map((tag: string) => (
+                                                    <span key={tag} className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-bold bg-amber-500 text-white border border-amber-500 shadow-sm">
+                                                        {tag}
+                                                        {canEdit && (
+                                                            <button onClick={() => removeTag('improvement_tags', tag)}
+                                                                className="ml-0.5 hover:text-amber-200 transition font-black">×</button>
+                                                        )}
+                                                    </span>
+                                                ))}
                                         </div>
-                                        {learningForm.improvement_tags.length > 0 && (
-                                            <p className="text-xs text-amber-600 mt-2 font-bold">
-                                                已選：{learningForm.improvement_tags.join('、')}
-                                            </p>
+                                        {canEdit && (
+                                            <div className="flex gap-2 mt-3">
+                                                <input
+                                                    type="text"
+                                                    value={customImprovementInput}
+                                                    onChange={e => setCustomImprovementInput(e.target.value)}
+                                                    onKeyDown={e => e.key === 'Enter' && addCustomTag('improvement_tags', customImprovementInput, () => setCustomImprovementInput(''))}
+                                                    placeholder="自訂標籤，按 Enter 新增..."
+                                                    className="flex-1 px-3 py-1.5 text-xs border border-amber-200 rounded-full bg-white outline-none focus:ring-2 focus:ring-amber-300 font-bold text-amber-700 placeholder-amber-300"
+                                                />
+                                                <button
+                                                    onClick={() => addCustomTag('improvement_tags', customImprovementInput, () => setCustomImprovementInput(''))}
+                                                    className="px-3 py-1.5 bg-amber-500 text-white text-xs font-black rounded-full hover:bg-amber-600 transition">
+                                                    ＋
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
