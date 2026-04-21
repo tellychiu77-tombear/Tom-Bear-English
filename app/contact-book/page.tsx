@@ -214,10 +214,22 @@ export default function ContactBookPage() {
     useEffect(() => { chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
 
     // Auto-select first unfilled student on desktop when class loads
+    // Note: compute inline to avoid TDZ with filteredStudents (defined after early return)
     useEffect(() => {
-        if (filteredStudents.length > 0 && !desktopStudentId) {
-            const firstUnfilled = filteredStudents.find(s => !savedStudentIds.has(s.id));
-            setDesktopStudentId(firstUnfilled?.id || filteredStudents[0].id);
+        const filtered = (userRole === 'parent' || selectedClass === 'ALL')
+            ? students
+            : students.filter((s: any) => {
+                if (!s.grade) return selectedClass === '待分班';
+                const tags = s.grade.split(/[,，]/).map((t: string) => t.trim()).filter(Boolean).map((tag: string) => {
+                    if (tag === '課後輔導' || tag === '課後') return '課後輔導班';
+                    if (tag === '未分類' || tag === '未分班') return '待分班';
+                    return tag;
+                });
+                return selectedClass ? tags.includes(selectedClass) : false;
+            });
+        if (filtered.length > 0 && !desktopStudentId) {
+            const firstUnfilled = filtered.find((s: any) => !savedStudentIds.has(s.id));
+            setDesktopStudentId(firstUnfilled?.id || filtered[0].id);
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedClass, students.length]);
