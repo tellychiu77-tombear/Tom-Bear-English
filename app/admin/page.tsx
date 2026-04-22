@@ -33,6 +33,10 @@ export default function AdminPage() {
 
     // Tab
     const [activeTab, setActiveTab] = useState<'users' | 'rolePerms'>('users');
+    const [userSubTab, setUserSubTab] = useState<'staff' | 'parents'>('staff');
+
+    // 綁定申請
+    const [linkRequests, setLinkRequests] = useState<any[]>([]);
 
     // Modal 狀態
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -80,6 +84,7 @@ export default function AdminPage() {
         setCurrentUser(userData);
         fetchUsers();
         fetchRoleConfigs();
+        fetchLinkRequests();
     }
 
     async function fetchUsers() {
@@ -89,6 +94,35 @@ export default function AdminPage() {
         if (error) alert('讀取失敗');
         else { setUsers(usersData || []); setAllStudents(studentsData || []); }
         setLoading(false);
+    }
+
+    async function fetchLinkRequests() {
+        const { data } = await supabase
+            .from('student_link_requests')
+            .select(`*, parent:users!parent_id(email, name), student:students!matched_student_id(chinese_name, english_name, grade)`)
+            .order('created_at', { ascending: false });
+        setLinkRequests(data || []);
+    }
+
+    async function handleApproveLinkRequest(req: any) {
+        try {
+            // 綁定學生
+            await supabase.from('students').update({ parent_id: req.parent_id }).eq('id', req.matched_student_id);
+            // 標記已審核
+            await supabase.from('student_link_requests').update({ status: 'approved', reviewed_by: currentUser.id }).eq('id', req.id);
+            await logAction('審核綁定申請', `批准 ${req.parent?.email} 綁定 ${req.student?.chinese_name}`);
+            fetchLinkRequests();
+            fetchUsers();
+            alert('✅ 已批准，學生已連結至家長帳號');
+        } catch (e: any) { alert('❌ ' + e.message); }
+    }
+
+    async function handleRejectLinkRequest(req: any) {
+        const note = prompt('退回原因（可不填）：');
+        if (note === null) return;
+        await supabase.from('student_link_requests').update({ status: 'rejected', reviewed_by: currentUser.id, review_note: note }).eq('id', req.id);
+        await logAction('退回綁定申請', `退回 ${req.parent?.email} 的申請`);
+        fetchLinkRequests();
     }
 
     async function fetchRoleConfigs() {
@@ -293,12 +327,20 @@ export default function AdminPage() {
         );
     }
 
-    const filteredUsers = users.filter(u =>
-        (u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (u.name || '').includes(searchTerm) ||
-        (u.role || '').includes(searchTerm) ||
-        (u.job_title || '').includes(searchTerm)
+    const staffRoles = ['teacher', 'english_director', 'care_director', 'director', 'admin', 'manager', 'pending'];
+    const filteredStaff = users.filter(u =>
+        staffRoles.includes(u.role) &&
+        ((u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+         (u.name || '').includes(searchTerm) ||
+         (u.role || '').includes(searchTerm) ||
+         (u.job_title || '').includes(searchTerm))
     );
+    const filteredParents = users.filter(u =>
+        u.role === 'parent' &&
+        ((u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+         (u.name || '').includes(searchTerm))
+    );
+    const pendingRequests = linkRequests.filter(r => r.status === 'pending');
 
     if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
 
@@ -333,54 +375,139 @@ export default function AdminPage() {
 
                     {/* ── 帳號管理 Tab ── */}
                     {activeTab === 'users' && (
-                        <table className="w-full text-left">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="p-4 text-xs font-black text-gray-500">EMAIL / 帳號</th>
-                                    <th className="p-4 text-xs font-black text-gray-500">角色 / 職稱</th>
-                                    <th className="p-4 text-xs font-black text-gray-500">詳細資訊</th>
-                                    <th className="p-4 text-xs font-black text-gray-500 text-right">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {filteredUsers.map(u => (
-                                    <tr key={u.id} className="border-t hover:bg-gray-50">
-                                        <td className="p-4">
-                                            {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
-                                            <div className={`text-sm ${u.name ? 'text-gray-400 text-xs' : 'font-bold text-gray-800'}`}>{u.email}</div>
-                                            {u.is_super_admin && <span className="inline-block mt-1 text-[10px] bg-red-100 text-red-600 px-1.5 rounded font-bold border border-red-200">SUPER</span>}
-                                            {!u.is_approved && u.role !== 'parent' && <span className="inline-block mt-1 ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold border border-yellow-200">待審核</span>}
-                                        </td>
-                                        <td className="p-4">
-                                            <div className="flex flex-col gap-1">
-                                                {getRoleBadge(u.role)}
-                                                {u.job_title && (
-                                                    <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded w-fit">{u.job_title}</span>
-                                                )}
-                                                {u.extra_permissions && Object.keys(u.extra_permissions).length > 0 && (
-                                                    <span className="text-[10px] text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded font-bold w-fit border border-purple-100">✨ 有額外授權</span>
-                                                )}
+                        <div>
+                            {/* Sub-tab bar */}
+                            <div className="flex border-b bg-gray-50 px-4 gap-1 pt-2">
+                                <button onClick={() => setUserSubTab('staff')} className={`px-5 py-2.5 text-sm font-bold rounded-t-lg transition ${userSubTab === 'staff' ? 'bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    👨‍🏫 老師 / 員工 <span className="ml-1.5 text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{filteredStaff.length}</span>
+                                </button>
+                                <button onClick={() => setUserSubTab('parents')} className={`px-5 py-2.5 text-sm font-bold rounded-t-lg transition ${userSubTab === 'parents' ? 'bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    👪 家長 <span className="ml-1.5 text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{filteredParents.length}</span>
+                                    {pendingRequests.length > 0 && <span className="ml-1 text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">{pendingRequests.length}</span>}
+                                </button>
+                            </div>
+
+                            {/* ── 老師/員工 Sub-tab ── */}
+                            {userSubTab === 'staff' && (
+                                <table className="w-full text-left">
+                                    <thead className="bg-gray-50 border-b">
+                                        <tr>
+                                            <th className="p-4 text-xs font-black text-gray-500">姓名 / EMAIL</th>
+                                            <th className="p-4 text-xs font-black text-gray-500">角色 / 職稱</th>
+                                            <th className="p-4 text-xs font-black text-gray-500">負責班級</th>
+                                            <th className="p-4 text-xs font-black text-gray-500 text-right">操作</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredStaff.map(u => (
+                                            <tr key={u.id} className="border-t hover:bg-gray-50">
+                                                <td className="p-4">
+                                                    {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
+                                                    <div className={`text-sm ${u.name ? 'text-gray-400 text-xs' : 'font-bold text-gray-800'}`}>{u.email}</div>
+                                                    {u.is_super_admin && <span className="inline-block mt-1 text-[10px] bg-red-100 text-red-600 px-1.5 rounded font-bold border border-red-200">SUPER</span>}
+                                                    {!u.is_approved && <span className="inline-block mt-1 ml-1 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 rounded font-bold border border-yellow-200">待審核</span>}
+                                                </td>
+                                                <td className="p-4">
+                                                    <div className="flex flex-col gap-1">
+                                                        {getRoleBadge(u.role)}
+                                                        {u.job_title && <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded w-fit">{u.job_title}</span>}
+                                                    </div>
+                                                </td>
+                                                <td className="p-4">
+                                                    {['teacher', 'english_director', 'care_director'].includes(u.role) && (
+                                                        <div className="flex flex-wrap items-center gap-1">
+                                                            {getTeacherClasses(u.responsible_classes)}
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className="p-4 text-right">
+                                                    <div className="flex justify-end gap-2">
+                                                        <button onClick={() => openEditModal(u)} className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 transition">⚙️ 設定</button>
+                                                        <button onClick={() => handleDeleteUser(u.id, u.email)} className="text-red-500 font-bold text-xs hover:bg-red-50 px-3 py-1.5 rounded border border-red-200 transition">刪除</button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            {/* ── 家長 Sub-tab ── */}
+                            {userSubTab === 'parents' && (
+                                <div>
+                                    {/* 待審核綁定申請 */}
+                                    {pendingRequests.length > 0 && (
+                                        <div className="p-4 border-b bg-amber-50">
+                                            <h3 className="font-black text-amber-800 text-sm mb-3">🔔 待審核綁定申請（{pendingRequests.length} 件）</h3>
+                                            <div className="space-y-3">
+                                                {pendingRequests.map(req => (
+                                                    <div key={req.id} className="bg-white rounded-xl border border-amber-200 p-4 flex flex-col md:flex-row md:items-center gap-4">
+                                                        <div className="flex-1 space-y-1">
+                                                            <div className="font-bold text-sm text-gray-800">
+                                                                👤 {req.parent?.name || req.parent?.email}
+                                                                <span className="text-gray-400 font-normal text-xs ml-2">{req.parent?.email}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 text-xs">
+                                                                <span className="text-gray-500">申請綁定：</span>
+                                                                <span className="font-bold text-gray-700">{req.submitted_chinese_name} {req.submitted_english_name}</span>
+                                                                <span className="text-gray-400">（電話：{req.submitted_phone}）</span>
+                                                            </div>
+                                                            {req.student ? (
+                                                                <div className="flex items-center gap-2 text-xs">
+                                                                    <span className="text-green-600 font-bold">✅ 系統比對到：</span>
+                                                                    <span className="font-bold text-gray-800">{req.student.chinese_name} {req.student.english_name}</span>
+                                                                    <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded">{req.student.grade}</span>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-xs text-orange-600 font-bold">⚠️ 系統未自動比對到學生，需手動確認</div>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex gap-2 flex-shrink-0">
+                                                            {req.matched_student_id && (
+                                                                <button onClick={() => handleApproveLinkRequest(req)} className="bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-700 transition">✅ 確認綁定</button>
+                                                            )}
+                                                            <button onClick={() => handleRejectLinkRequest(req)} className="bg-white text-red-500 text-xs font-bold px-4 py-2 rounded-lg border border-red-200 hover:bg-red-50 transition">❌ 退回</button>
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        </td>
-                                        <td className="p-4">
-                                            {u.role === 'parent' && getParentChildren(u.id)}
-                                            {['teacher', 'english_director', 'care_director'].includes(u.role) && (
-                                                <div className="flex flex-wrap items-center gap-1">
-                                                    <span className="text-[10px] text-gray-400 font-bold">班級:</span>
-                                                    {getTeacherClasses(u.responsible_classes)}
-                                                </div>
-                                            )}
-                                        </td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <button onClick={() => openEditModal(u)} className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 transition">⚙️ 設定</button>
-                                                <button onClick={() => handleDeleteUser(u.id, u.email)} className="text-red-500 font-bold text-xs hover:bg-red-50 px-3 py-1.5 rounded border border-red-200 transition">刪除</button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                                        </div>
+                                    )}
+
+                                    {/* 家長清單 */}
+                                    <table className="w-full text-left">
+                                        <thead className="bg-gray-50 border-b">
+                                            <tr>
+                                                <th className="p-4 text-xs font-black text-gray-500">姓名 / EMAIL</th>
+                                                <th className="p-4 text-xs font-black text-gray-500">已綁定學生</th>
+                                                <th className="p-4 text-xs font-black text-gray-500 text-right">操作</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {filteredParents.map(u => (
+                                                <tr key={u.id} className="border-t hover:bg-gray-50">
+                                                    <td className="p-4">
+                                                        {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
+                                                        <div className={`text-sm ${u.name ? 'text-gray-400 text-xs' : 'font-bold text-gray-800'}`}>{u.email}</div>
+                                                    </td>
+                                                    <td className="p-4">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {getParentChildren(u.id)}
+                                                        </div>
+                                                    </td>
+                                                    <td className="p-4 text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <button onClick={() => openEditModal(u)} className="text-indigo-600 font-bold text-xs hover:bg-indigo-50 px-3 py-1.5 rounded border border-indigo-200 transition">⚙️ 設定</button>
+                                                            <button onClick={() => handleDeleteUser(u.id, u.email)} className="text-red-500 font-bold text-xs hover:bg-red-50 px-3 py-1.5 rounded border border-red-200 transition">刪除</button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* ── 職位權限設定 Tab ── */}
