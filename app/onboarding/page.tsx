@@ -4,200 +4,251 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
-const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
+type Step = 'role' | 'info' | 'bind' | 'done';
 
 export default function Onboarding() {
+    const router = useRouter();
     const [loading, setLoading] = useState(false);
+    const [step, setStep] = useState<Step>('role');
     const [applyRole, setApplyRole] = useState<'parent' | 'teacher'>('parent');
     const [fullName, setFullName] = useState('');
     const [phone, setPhone] = useState('');
 
-    // 預設小孩列表
-    const [children, setChildren] = useState([
-        { name: '', english_grade: '', is_after_school: false }
-    ]);
+    // 家長綁定用
+    const [chineseName, setChineseName] = useState('');
+    const [englishName, setEnglishName] = useState('');
+    const [bindResult, setBindResult] = useState<'idle' | 'matched' | 'not_found' | 'submitted'>('idle');
+    const [matchedStudent, setMatchedStudent] = useState<any>(null);
+    const [session, setSession] = useState<any>(null);
 
-    // 🟢 自動找到的小孩
-    const [foundChildren, setFoundChildren] = useState<any[]>([]);
-
-    const router = useRouter();
-
-    // 畫面載入時，自動執行「尋找小孩」任務
     useEffect(() => {
-        checkExistingChildren();
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (!session) router.push('/');
+            else setSession(session);
+        });
     }, []);
 
-    async function checkExistingChildren() {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session || !session.user.email) return;
-
-        const userEmail = session.user.email;
-
-        // 1. 搜尋：有沒有學生的 parent_email 剛好是我的 Email？
-        const { data: matchedStudents } = await supabase
-            .from('students')
-            .select('*')
-            .eq('parent_email', userEmail); // 找 Email 符合的
-
-        if (matchedStudents && matchedStudents.length > 0) {
-            setFoundChildren(matchedStudents);
-
-            // 🟢 自動綁定！(把 parent_id 補上去)
-            // 這一步是關鍵：一旦發現 Email 對上了，立刻把這個學生歸戶給現在登入的這個人
-            await supabase
-                .from('students')
-                .update({ parent_id: session.user.id })
-                .eq('parent_email', userEmail);
-        }
-    }
-
-    function addChild() {
-        setChildren([...children, { name: '', english_grade: '', is_after_school: false }]);
-    }
-
-    function removeChild(index: number) {
-        setChildren(children.filter((_, i) => i !== index));
-    }
-
-    function updateChild(index: number, field: string, value: any) {
-        setChildren(prev => prev.map((child, i) => i === index ? { ...child, [field]: value } : child));
-    }
-
-    async function handleSubmit(e: React.FormEvent) {
+    // Step 1 → Step 2：儲存基本資料
+    async function handleSaveInfo(e: React.FormEvent) {
         e.preventDefault();
+        if (!fullName.trim()) return alert('請輸入姓名');
         setLoading(true);
-
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return;
-
-        // 1. 更新 users 表（姓名＋待審核狀態）
         const { error } = await supabase.from('users').upsert({
             id: session.user.id,
-            name: fullName,
-            role: 'pending',
-            is_approved: false,
+            name: fullName.trim(),
+            role: applyRole === 'teacher' ? 'pending' : 'parent',
+            is_approved: applyRole === 'teacher' ? false : true,
         });
-
-        if (error) { alert('更新失敗: ' + error.message); setLoading(false); return; }
-
-        // 2. 如果是申請家長，且有填寫「額外」的小孩，才新增
-        // (如果已經有 foundChildren，代表老師建好了，這裡就不用再建，除非有第二個小孩)
-        if (applyRole === 'parent') {
-            for (const child of children) {
-                if (child.name.trim()) {
-                    const parts = [];
-                    if (child.english_grade) parts.push(child.english_grade);
-                    if (child.is_after_school) parts.push('課後輔導班');
-                    const finalGrade = parts.join(', ') || '未分班';
-
-                    await supabase.from('students').insert({
-                        parent_id: session.user.id,
-                        chinese_name: child.name,
-                        grade: finalGrade
-                    });
-                }
-            }
+        setLoading(false);
+        if (error) return alert('更新失敗：' + error.message);
+        if (applyRole === 'teacher') {
+            alert('申請已送出！待行政人員審核後即可使用。');
+            router.push('/');
+        } else {
+            setStep('bind');
         }
+    }
 
-        alert('申請已送出！待行政人員開通後即可使用。');
-        router.push('/');
+    // Step 3（家長）：比對學生
+    async function handleBindSearch(e: React.FormEvent) {
+        e.preventDefault();
+        if (!chineseName.trim() && !englishName.trim()) return alert('請至少填入孩子的中文姓名或英文名');
+        if (!phone.trim()) return alert('請先填入手機號碼');
+        setLoading(true);
+        setBindResult('idle');
+
+        const cleanPhone = phone.trim().replace(/[-\s]/g, '');
+
+        let query = supabase
+            .from('students')
+            .select('id, chinese_name, english_name, grade, school_grade')
+            .or(`parent_phone_1.eq.${cleanPhone},parent_phone_2.eq.${cleanPhone}`);
+
+        if (chineseName.trim()) query = query.eq('chinese_name', chineseName.trim());
+        if (englishName.trim()) query = query.ilike('english_name', englishName.trim());
+
+        const { data: matched } = await query.limit(1).maybeSingle();
+
+        if (matched) {
+            setMatchedStudent(matched);
+            setBindResult('matched');
+        } else {
+            setBindResult('not_found');
+        }
+        setLoading(false);
+    }
+
+    // 送出綁定申請
+    async function handleSubmitRequest() {
+        setLoading(true);
+        const cleanPhone = phone.trim().replace(/[-\s]/g, '');
+        const { error } = await supabase.from('student_link_requests').insert({
+            parent_id: session.user.id,
+            submitted_chinese_name: chineseName.trim(),
+            submitted_english_name: englishName.trim(),
+            submitted_phone: cleanPhone,
+            matched_student_id: matchedStudent?.id || null,
+            status: 'pending',
+        });
+        setLoading(false);
+        if (error) return alert('送出失敗：' + error.message);
+        setBindResult('submitted');
+        setStep('done');
     }
 
     return (
-        <div className="min-h-screen bg-blue-50 flex items-center justify-center p-4">
-            <div className="bg-white max-w-lg w-full p-8 rounded-xl shadow-2xl animate-fade-in">
-                <div className="text-center mb-8">
-                    <h1 className="text-3xl font-black text-blue-900">📝 註冊申請</h1>
-                    <p className="text-gray-500 mt-2">請填寫基本資料。</p>
-                </div>
+        <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+            <div className="bg-white max-w-lg w-full p-8 rounded-2xl shadow-2xl">
 
-                <form onSubmit={handleSubmit} className="space-y-6">
-
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">真實姓名</label>
-                        <input type="text" required className="w-full p-3 border rounded-lg" placeholder="例: 王大明" value={fullName} onChange={e => setFullName(e.target.value)} />
+                {/* Step 指示器 */}
+                {step !== 'done' && (
+                    <div className="flex items-center justify-center gap-2 mb-8">
+                        {(['role', 'info', 'bind'] as Step[]).map((s, i) => (
+                            <div key={s} className="flex items-center gap-2">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black transition ${
+                                    step === s ? 'bg-indigo-600 text-white' :
+                                    ['role','info','bind'].indexOf(step) > i ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'
+                                }`}>{['role','info','bind'].indexOf(step) > i ? '✓' : i + 1}</div>
+                                {i < 2 && <div className="w-8 h-0.5 bg-gray-200" />}
+                            </div>
+                        ))}
                     </div>
+                )}
 
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">手機號碼</label>
-                        <input type="tel" className="w-full p-3 border rounded-lg" placeholder="0912345678" value={phone} onChange={e => setPhone(e.target.value)} />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-2">申請身分</label>
+                {/* ── Step 1: 選擇身分 ── */}
+                {step === 'role' && (
+                    <div className="space-y-6">
+                        <div className="text-center">
+                            <h1 className="text-2xl font-black text-gray-800">歡迎！請選擇身分</h1>
+                            <p className="text-gray-500 text-sm mt-1">選擇您的申請類型</p>
+                        </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div onClick={() => setApplyRole('parent')} className={`cursor-pointer border-2 rounded-xl p-4 text-center transition ${applyRole === 'parent' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 hover:border-blue-200'}`}>🏠 申請當家長</div>
-                            <div onClick={() => setApplyRole('teacher')} className={`cursor-pointer border-2 rounded-xl p-4 text-center transition ${applyRole === 'teacher' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 hover:border-green-200'}`}>👩‍🏫 申請當老師</div>
+                            <button type="button" onClick={() => setApplyRole('parent')} className={`border-2 rounded-2xl p-6 text-center transition ${applyRole === 'parent' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-indigo-200'}`}>
+                                <div className="text-4xl mb-2">🏠</div>
+                                <div className="font-black text-gray-800">家長</div>
+                                <div className="text-xs text-gray-500 mt-1">查看孩子的聯絡簿</div>
+                            </button>
+                            <button type="button" onClick={() => setApplyRole('teacher')} className={`border-2 rounded-2xl p-6 text-center transition ${applyRole === 'teacher' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:border-green-200'}`}>
+                                <div className="text-4xl mb-2">👩‍🏫</div>
+                                <div className="font-black text-gray-800">老師 / 員工</div>
+                                <div className="text-xs text-gray-500 mt-1">需要管理員審核</div>
+                            </button>
                         </div>
+                        <button type="button" onClick={() => setStep('info')} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition">
+                            下一步 →
+                        </button>
                     </div>
+                )}
 
-                    <hr className="border-gray-100" />
-
-                    {/* 🟢 自動找到的小孩顯示區 */}
-                    {applyRole === 'parent' && foundChildren.length > 0 && (
-                        <div className="bg-green-50 p-4 rounded-xl border border-green-200 mb-4 animate-fade-in">
-                            <h3 className="text-green-800 font-bold text-sm mb-2">🎉 系統自動找到您的孩子：</h3>
-                            <ul className="space-y-2">
-                                {foundChildren.map(child => (
-                                    <li key={child.id} className="flex items-center gap-2 bg-white p-2 rounded border border-green-100 shadow-sm">
-                                        <span className="text-xl">👶</span>
-                                        <span className="font-bold text-gray-700">{child.chinese_name}</span>
-                                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{child.grade}</span>
-                                        <span className="ml-auto text-xs text-green-600 font-bold bg-green-100 px-2 py-1 rounded-full">已連結 ✅</span>
-                                    </li>
-                                ))}
-                            </ul>
-                            <p className="text-xs text-green-600 mt-2 font-bold">* 這些孩子已經自動歸戶，您 **不需要** 在下方重複填寫。</p>
+                {/* ── Step 2: 填寫基本資料 ── */}
+                {step === 'info' && (
+                    <form onSubmit={handleSaveInfo} className="space-y-5">
+                        <div className="text-center">
+                            <h1 className="text-2xl font-black text-gray-800">基本資料</h1>
+                            <p className="text-gray-500 text-sm mt-1">請填寫您的真實姓名</p>
                         </div>
-                    )}
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">真實姓名 *</label>
+                            <input type="text" required className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="例：王大明" value={fullName} onChange={e => setFullName(e.target.value)} />
+                        </div>
+                        {applyRole === 'parent' && (
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">手機號碼 *（用於比對孩子資料）</label>
+                                <input type="tel" required className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="0912345678" value={phone} onChange={e => setPhone(e.target.value)} />
+                                <p className="text-xs text-gray-400 mt-1">請填入孩子學籍上登記的家長手機號碼</p>
+                            </div>
+                        )}
+                        <div className="flex gap-3">
+                            <button type="button" onClick={() => setStep('role')} className="flex-1 py-3 border border-gray-200 rounded-xl font-bold text-gray-500 hover:bg-gray-50 transition">← 返回</button>
+                            <button type="submit" disabled={loading} className="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+                                {loading ? '處理中...' : applyRole === 'teacher' ? '送出申請' : '下一步 →'}
+                            </button>
+                        </div>
+                    </form>
+                )}
 
-                    {/* 手動新增區 */}
-                    {applyRole === 'parent' && (
-                        <div className="space-y-4">
-                            <label className="block text-sm font-bold text-gray-700">
-                                {foundChildren.length > 0 ? '還有其他小孩嗎？(若無請留空)' : '小孩資料設定'}
-                            </label>
+                {/* ── Step 3: 家長綁定孩子 ── */}
+                {step === 'bind' && (
+                    <div className="space-y-5">
+                        <div className="text-center">
+                            <h1 className="text-2xl font-black text-gray-800">🔗 連結您的孩子</h1>
+                            <p className="text-gray-500 text-sm mt-1">填入孩子的姓名，系統自動比對學籍</p>
+                        </div>
 
-                            {children.map((child, index) => (
-                                <div key={index} className="bg-orange-50 p-4 rounded-xl border border-orange-100 relative">
-                                    <div className="flex justify-between items-center mb-2">
-                                        <span className="text-xs font-bold text-orange-800 bg-orange-200 px-2 py-1 rounded">
-                                            {foundChildren.length > 0 ? `額外新增第 ${index + 1} 位` : `第 ${index + 1} 位`}
-                                        </span>
-                                        {children.length > 1 && <button type="button" onClick={() => removeChild(index)} className="text-red-400 text-xs font-bold">移除 ✕</button>}
+                        <form onSubmit={handleBindSearch} className="space-y-4">
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">孩子中文姓名</label>
+                                    <input type="text" className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="例：王小明" value={chineseName} onChange={e => setChineseName(e.target.value)} />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-600 mb-1">孩子英文名</label>
+                                    <input type="text" className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-indigo-300 outline-none" placeholder="例：Ryan" value={englishName} onChange={e => setEnglishName(e.target.value)} />
+                                </div>
+                            </div>
+                            <p className="text-xs text-gray-400 bg-gray-50 px-3 py-2 rounded-lg">📱 登記電話：{phone}（上一步填入）</p>
+                            <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition disabled:opacity-50">
+                                {loading ? '比對中...' : '🔍 比對孩子資料'}
+                            </button>
+                        </form>
+
+                        {/* 比對結果：找到 */}
+                        {bindResult === 'matched' && matchedStudent && (
+                            <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3 animate-fade-in">
+                                <div className="flex items-center gap-2 text-green-700 font-bold text-sm">
+                                    <span className="text-lg">✅</span> 找到您的孩子！
+                                </div>
+                                <div className="bg-white rounded-xl p-3 border border-green-100 flex items-center gap-3">
+                                    <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center font-black text-indigo-600 text-lg">
+                                        {matchedStudent.chinese_name?.[0] || matchedStudent.english_name?.[0]}
                                     </div>
-
-                                    <div className="space-y-3">
-                                        <div>
-                                            <label className="block text-xs font-bold text-gray-600 mb-1">姓名</label>
-                                            <input type="text" className="w-full p-2 border rounded" placeholder="姓名" value={child.name} onChange={e => updateChild(index, 'name', e.target.value)} />
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <div className="w-1/2">
-                                                <label className="block text-xs font-bold text-gray-600 mb-1">英文班級</label>
-                                                <select className="w-full p-2 border rounded text-sm bg-white" value={child.english_grade} onChange={e => updateChild(index, 'english_grade', e.target.value)}>
-                                                    <option value="">(無)</option>
-                                                    {ENGLISH_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
-                                                </select>
-                                            </div>
-                                            <div className="w-1/2 flex items-end">
-                                                <label className="flex items-center gap-2 bg-white border rounded px-2 w-full h-[38px] cursor-pointer">
-                                                    <input type="checkbox" checked={child.is_after_school} onChange={e => updateChild(index, 'is_after_school', e.target.checked)} />
-                                                    <span className="text-xs font-bold text-gray-700">參加課輔</span>
-                                                </label>
-                                            </div>
-                                        </div>
+                                    <div>
+                                        <div className="font-black text-gray-800">{matchedStudent.chinese_name} <span className="text-gray-400 font-normal text-sm">{matchedStudent.english_name}</span></div>
+                                        <div className="text-xs text-gray-500">{matchedStudent.grade} · {matchedStudent.school_grade}</div>
                                     </div>
                                 </div>
-                            ))}
-                            <button type="button" onClick={addChild} className="w-full py-2 border-2 border-dashed border-orange-300 text-orange-600 rounded-lg text-sm font-bold hover:bg-orange-50 transition">+ 還有其他小孩</button>
-                        </div>
-                    )}
+                                <p className="text-xs text-gray-500">申請送出後需管理員確認，通常 1 個工作天內完成。</p>
+                                <button type="button" onClick={handleSubmitRequest} disabled={loading} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition disabled:opacity-50">
+                                    {loading ? '送出中...' : '📨 送出綁定申請'}
+                                </button>
+                            </div>
+                        )}
 
-                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg shadow-lg hover:bg-blue-700 transition disabled:opacity-50">
-                        {loading ? '處理中...' : '送出申請 (等待審核)'}
-                    </button>
-                </form>
+                        {/* 比對結果：找不到 */}
+                        {bindResult === 'not_found' && (
+                            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 space-y-3 animate-fade-in">
+                                <div className="font-bold text-orange-700 text-sm">⚠️ 找不到符合的學生資料</div>
+                                <p className="text-sm text-gray-600">請確認姓名和電話是否正確，或聯絡老師協助處理。</p>
+                                <button type="button" onClick={handleSubmitRequest} disabled={loading} className="w-full bg-orange-500 text-white py-2.5 rounded-xl font-bold hover:bg-orange-600 transition text-sm disabled:opacity-50">
+                                    {loading ? '送出中...' : '仍要送出申請（請老師手動核對）'}
+                                </button>
+                            </div>
+                        )}
+
+                        <button type="button" onClick={() => setStep('done')} className="w-full py-2.5 text-sm text-gray-400 hover:text-gray-600 transition font-bold">
+                            暫時跳過，之後再綁定
+                        </button>
+                    </div>
+                )}
+
+                {/* ── 完成頁 ── */}
+                {step === 'done' && (
+                    <div className="text-center space-y-5 py-4">
+                        <div className="text-6xl">{bindResult === 'submitted' ? '🎉' : '✅'}</div>
+                        <h1 className="text-2xl font-black text-gray-800">
+                            {bindResult === 'submitted' ? '申請送出！' : '設定完成！'}
+                        </h1>
+                        <p className="text-gray-500 text-sm leading-relaxed">
+                            {bindResult === 'submitted'
+                                ? '您的綁定申請已送出，管理員審核後即完成連結。通常在 1 個工作天內完成。'
+                                : '您的帳號已完成設定。'}
+                        </p>
+                        <button type="button" onClick={() => router.push('/')} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition">
+                            前往首頁 →
+                        </button>
+                    </div>
+                )}
+
             </div>
         </div>
     );
