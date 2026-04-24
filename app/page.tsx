@@ -7,6 +7,15 @@ import Link from 'next/link';
 import { getEffectivePermissions } from '@/lib/permissions';
 import type { PermissionsMap } from '@/lib/usePermissions';
 
+// ✅ Issue #2：登入錯誤中文化
+function getChineseLoginError(message: string): string {
+    if (message.includes('Invalid login credentials')) return '電子郵件或密碼錯誤，請再確認';
+    if (message.includes('Email not confirmed')) return '請先到信箱確認驗證信';
+    if (message.includes('Too many requests')) return '嘗試次數過多，請稍後再試';
+    if (message.includes('User not found')) return '找不到此帳號，請確認電子郵件';
+    return '登入失敗，請稍後再試';
+}
+
 // ✅ 新增：角色名稱對照表 (讓介面顯示正確的中文職稱)
 const ROLE_MAP: Record<string, string> = {
     director: '總園長',
@@ -23,6 +32,20 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [userName, setUserName] = useState('');
     const [jobTitle, setJobTitle] = useState('');
+
+    // ✅ Issue #2：行內錯誤狀態
+    const [loginError, setLoginError] = useState('');
+    const [loginLoading, setLoginLoading] = useState(false);
+
+    // ✅ Issue #1：忘記密碼狀態
+    const [showForgotPw, setShowForgotPw] = useState(false);
+    const [forgotEmail, setForgotEmail] = useState('');
+    const [forgotSent, setForgotSent] = useState(false);
+    const [forgotLoading, setForgotLoading] = useState(false);
+    const [forgotError, setForgotError] = useState('');
+
+    // ✅ Issue #4：審核頁角色偵測
+    const [pendingRole, setPendingRole] = useState<'parent' | 'teacher' | null>(null);
 
     // 計數器狀態
     const [counts, setCounts] = useState({ pickup: 0, leaves: 0, unreadChats: 0 });
@@ -50,6 +73,7 @@ export default function DashboardPage() {
             // 雙重確認：如果 is_approved 是 false，強制視為 pending (審核中)
             if (userData.is_approved === false) {
                 setRole('pending');
+                detectPendingRole(session.user.id);
             } else {
                 setRole(userData.role);
             }
@@ -72,11 +96,15 @@ export default function DashboardPage() {
 
             fetchCounts(session.user.id, userData.role);
         } else {
-            // 如果 users 表找不到人，可能是剛註冊還沒寫入，或是資料庫異常
-            // 這裡可以視情況處理，暫時先設為 pending
             setRole('pending');
         }
         setLoading(false);
+    }
+
+    // ✅ Issue #4：pending 時偵測是家長或老師
+    async function detectPendingRole(userId: string) {
+        const { data } = await supabase.from('students').select('id').eq('parent_id', userId).limit(1);
+        setPendingRole(data && data.length > 0 ? 'parent' : 'teacher');
     }
 
     async function fetchCounts(userId?: string, userRole?: string) {
@@ -100,13 +128,30 @@ export default function DashboardPage() {
         setCounts({ unreadChats: chatCount || 0, leaves: leaveCount, pickup: pickupCount });
     }
 
+    // ✅ Issue #2：移除 alert()，改為行內中文錯誤
     const handleLogin = async (e: any) => {
         e.preventDefault();
+        setLoginError('');
+        setLoginLoading(true);
         const email = e.target.email.value;
         const password = e.target.password.value;
         const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) alert(error.message);
+        if (error) setLoginError(getChineseLoginError(error.message));
         else window.location.reload();
+        setLoginLoading(false);
+    };
+
+    // ✅ Issue #1：忘記密碼寄信
+    const handleForgotPassword = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setForgotError('');
+        setForgotLoading(true);
+        const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail, {
+            redirectTo: `${window.location.origin}/reset-password`,
+        });
+        if (error) setForgotError('發送失敗，請確認電子郵件地址是否正確');
+        else setForgotSent(true);
+        setForgotLoading(false);
     };
 
     const handleLogout = async () => {
@@ -120,6 +165,51 @@ export default function DashboardPage() {
 
     // 1. 未登入狀態
     if (!role) {
+        // ✅ Issue #1：忘記密碼面板
+        if (showForgotPw) {
+            return (
+                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-blue-500 p-4">
+                    <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm animate-fade-in">
+                        {forgotSent ? (
+                            <div className="text-center">
+                                <div className="text-5xl mb-4">📧</div>
+                                <h2 className="text-xl font-bold text-gray-800 mb-2">重設信已寄出</h2>
+                                <p className="text-gray-500 text-sm mb-6">請到 <strong>{forgotEmail}</strong> 的信箱，點選連結設定新密碼。</p>
+                                <p className="text-xs text-gray-400 mb-6">（若未收到，請檢查垃圾郵件）</p>
+                                <button onClick={() => { setShowForgotPw(false); setForgotSent(false); setForgotEmail(''); }}
+                                    className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition">
+                                    回到登入
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <button onClick={() => setShowForgotPw(false)}
+                                    className="text-gray-400 hover:text-indigo-600 text-sm mb-6 flex items-center gap-1">
+                                    ← 回到登入
+                                </button>
+                                <h2 className="text-xl font-bold text-gray-800 mb-1">忘記密碼</h2>
+                                <p className="text-gray-500 text-sm mb-6">輸入您的電子郵件，我們會寄送密碼重設連結。</p>
+                                <form onSubmit={handleForgotPassword} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label>
+                                        <input type="email" required
+                                            className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
+                                            placeholder="name@example.com"
+                                            value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} />
+                                    </div>
+                                    {forgotError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-600 text-sm">{forgotError}</div>}
+                                    <button type="submit" disabled={forgotLoading}
+                                        className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                                        {forgotLoading ? '發送中...' : '發送重設連結'}
+                                    </button>
+                                </form>
+                            </>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-blue-500 p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
@@ -128,9 +218,25 @@ export default function DashboardPage() {
                         <p className="text-gray-500">智慧補習班系統</p>
                     </div>
                     <form onSubmit={handleLogin} className="space-y-4">
-                        <div><label className="block text-sm font-bold text-gray-700 mb-1">Email</label><input name="email" type="email" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-                        <div><label className="block text-sm font-bold text-gray-700 mb-1">密碼</label><input name="password" type="password" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-                        <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition">登入系統</button>
+                        {/* ✅ Issue #10：Email 改中文 */}
+                        <div><label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label><input name="email" type="email" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" /></div>
+                        <div>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="block text-sm font-bold text-gray-700">密碼</label>
+                                {/* ✅ Issue #1：忘記密碼按鈕 */}
+                                <button type="button" onClick={() => setShowForgotPw(true)}
+                                    className="text-xs text-indigo-500 hover:underline">忘記密碼？</button>
+                            </div>
+                            <input name="password" type="password" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                        </div>
+                        {/* ✅ Issue #2：行內中文錯誤訊息 */}
+                        {loginError && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-600 text-sm font-medium">❌ {loginError}</div>
+                        )}
+                        <button type="submit" disabled={loginLoading}
+                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
+                            {loginLoading ? '處理中...' : '登入系統'}
+                        </button>
                     </form>
                     <div className="mt-4 text-center">
                         <p className="text-gray-500 text-sm">還沒有帳號？ <button type="button" onClick={() => router.push('/register')} className="text-indigo-600 font-bold hover:underline">立即註冊</button></p>
@@ -140,14 +246,33 @@ export default function DashboardPage() {
         );
     }
 
-    // 2. 審核中狀態 (pending)
+    // 2. 審核中狀態 (pending) — ✅ Issue #4：顯示角色專屬說明
     if (role === 'pending') {
         return (
             <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md text-center">
                     <div className="text-6xl mb-4">⏳</div>
                     <h1 className="text-2xl font-black text-gray-800 mb-2">帳號審核中</h1>
-                    <p className="text-gray-500 mb-6">您好，<b className="text-gray-800">{userName}</b><br />您的申請已送出，請等待行政人員審核開通。</p>
+                    <p className="text-gray-500 mb-4">
+                        您好，<b className="text-gray-800">{userName}</b><br />
+                        您的申請已送出，請等待行政人員審核開通。
+                    </p>
+                    {/* ✅ Issue #4：依角色顯示不同說明 */}
+                    <div className="bg-blue-50 rounded-xl p-4 mb-6 text-left">
+                        {pendingRole === 'parent' ? (
+                            <>
+                                <p className="text-sm font-bold text-blue-700 mb-1">👨‍👩‍👧‍👦 家長帳號</p>
+                                <p className="text-xs text-blue-600">行政人員將核對您的孩子資料後開通帳號，通常需要 1～2 個工作天。</p>
+                            </>
+                        ) : pendingRole === 'teacher' ? (
+                            <>
+                                <p className="text-sm font-bold text-blue-700 mb-1">🧑‍🏫 老師帳號</p>
+                                <p className="text-xs text-blue-600">主任或行政人員審核後將開通您的帳號，通常需要 1～2 個工作天。</p>
+                            </>
+                        ) : (
+                            <p className="text-xs text-blue-600">通常需要 1～2 個工作天，請耐心等候。</p>
+                        )}
+                    </div>
                     <button onClick={handleLogout} className="w-full py-3 border border-gray-300 text-gray-600 font-bold rounded-lg hover:bg-gray-50">登出並返回</button>
                 </div>
             </div>
@@ -250,7 +375,7 @@ export default function DashboardPage() {
 
                     {/* 排課系統：有 viewManagerDashboard 者（主任/主管可排課） */}
                     {permissions?.viewManagerDashboard && (
-                        <DashboardCard title="排課系統" icon="📅" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
+                        <DashboardCard title="排課系統" icon="📋" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
                     )}
 
                     {/* 人事管理：有 manageUsers 者 */}
