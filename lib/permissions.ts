@@ -70,8 +70,14 @@ export const HARDCODED_DEFAULTS: Record<string, Record<PermissionKey, boolean>> 
   admin: {
     manageAnnouncements: true, viewAllStudents: true, editStudents: false,
     approveLeave: true, viewGrades: true, editGrades: false,
-    fillContactBook: false, viewPickupQueue: true, viewManagerDashboard: false,
+    fillContactBook: false, viewPickupQueue: true, viewManagerDashboard: true,
     manageUsers: true, chatWithParents: true,
+  },
+  admin_staff: {
+    manageAnnouncements: false, viewAllStudents: true, editStudents: false,
+    approveLeave: false, viewGrades: true, editGrades: false,
+    fillContactBook: false, viewPickupQueue: true, viewManagerDashboard: true,
+    manageUsers: false, chatWithParents: true,
   },
   teacher: {
     manageAnnouncements: true, viewAllStudents: false, editStudents: false,

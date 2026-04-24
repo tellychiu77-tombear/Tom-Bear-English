@@ -63,7 +63,7 @@ export default function ManagerDashboard() {
 
     // ── 總覽資料
     const [teachers, setTeachers] = useState<any[]>([]);
-    const [kpi, setKpi] = useState({ teacherCount: 0, studentCount: 0, avgScore: 0, absenceRate: 0, passRate: 0, atRiskCount: 0 });
+    const [kpi, setKpi] = useState({ teacherCount: 0, adminCount: 0, studentCount: 0, avgScore: 0, absenceRate: 0, passRate: 0, atRiskCount: 0 });
     const [classChartData, setClassChartData] = useState<any[]>([]);
     const [trendData, setTrendData] = useState<any[]>([]);
     const [atRiskStudents, setAtRiskStudents] = useState<any[]>([]);
@@ -105,9 +105,11 @@ export default function ManagerDashboard() {
 
         if (!perms.viewManagerDashboard) { router.push('/'); return; }
 
-        const director = ['director', 'manager'].includes(profile.role);
+        // 可看全校總覽的身分：總園長、系統管理員、部門主任、行政主管
+        const director = ['director', 'manager', 'english_director', 'care_director', 'admin'].includes(profile.role);
         setIsDirector(director);
         setCurrentUser(profile);
+        // 非總覽角色：預設顯示自己部門（只有明確設了 department 的才套用）
         if (!director && profile.department) setSelectedDept(profile.department);
     };
 
@@ -116,10 +118,26 @@ export default function ManagerDashboard() {
         setLoading(true);
         const { from, to } = getDateRange(period);
 
-        // 1. 教師清單（dept 篩選，可能為空，不 early-exit）
-        let tq = supabase.from('users').select('*').eq('role', 'teacher');
-        if (selectedDept) tq = tq.eq('department', selectedDept);
-        const { data: teacherList } = await tq;
+        // 1. 全員工清單（teacher + admin + admin_staff + director 等，排除家長/待審）
+        //    不在 DB 層做 dept 篩選，避免 department 欄未設值時查不到人
+        const STAFF_ROLES = ['director', 'manager', 'english_director', 'care_director', 'admin', 'admin_staff', 'teacher'];
+        const { data: allStaff } = await supabase.from('users').select('*').in('role', STAFF_ROLES);
+
+        // 部門篩選：client 端處理
+        //   - 若 selectedDept 為 null（全校總覽）→ 取全部員工
+        //   - 若有 dept 且員工有設 department → 精準篩
+        //   - 若有 dept 但無人有 department 設定 → fallback 顯示全部教師（不硬卡 0）
+        let staffList = allStaff || [];
+        if (selectedDept) {
+            const deptFiltered = staffList.filter(u => u.department === selectedDept);
+            // fallback：若 dept 篩選結果為空，至少顯示全部 teacher（避免全白畫面）
+            staffList = deptFiltered.length > 0 ? deptFiltered : staffList.filter(u => u.role === 'teacher');
+        }
+
+        // 教師（用於成績/班級分析）
+        const teacherList = staffList.filter(u => u.role === 'teacher');
+        // 行政/管理人員（用於 KPI 顯示）
+        const adminList = staffList.filter(u => u.role !== 'teacher');
 
         // 2. 所有學生（直接從 students 抓，不依賴老師 responsible_classes）
         const { data: allStudents } = await supabase.from('students').select('*');
@@ -129,11 +147,11 @@ export default function ManagerDashboard() {
         //   after_school  → 含 '課後輔導班'
         //   general/null  → 全部
         function isDeptStudent(grade: string | null): boolean {
-            if (!grade) return false;
-            if (!selectedDept) return true;
+            if (!selectedDept) return true;  // 全校總覽：全部學生，含無 grade 的
+            if (!grade) return false;         // 有部門篩選但無 grade → 無法判斷，排除
             if (selectedDept === 'english') return grade.includes('CEI-');
             if (selectedDept === 'after_school') return grade.includes('課後輔導班');
-            return true;
+            return true;  // general / 其他
         }
         const deptStudents = allStudents?.filter(s => isDeptStudent(s.grade)) || [];
         const deptStudentIds = deptStudents.map(s => s.id);
@@ -225,7 +243,7 @@ export default function ManagerDashboard() {
         });
 
         setTeachers(processed.sort((a: any, b: any) => b.avgScore - a.avgScore));
-        setKpi({ teacherCount: (teacherList || []).length, studentCount: totalStudents, avgScore: overallAvg, absenceRate, passRate, atRiskCount: allAtRisk.length });
+        setKpi({ teacherCount: teacherList.length, adminCount: adminList.length, studentCount: totalStudents, avgScore: overallAvg, absenceRate, passRate, atRiskCount: allAtRisk.length });
         setClassChartData(classChartArr);
         setAtRiskStudents(allAtRisk.slice(0, 8));
 
@@ -448,8 +466,9 @@ export default function ManagerDashboard() {
                     <>
                         {/* KPI 卡片 */}
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                            <KPICard title="部門教師" value={kpi.teacherCount} unit="位" icon="🧑‍🏫" color="bg-blue-500" />
-                            <KPICard title="負責學生" value={kpi.studentCount} unit="人" icon="👶" color="bg-indigo-500" />
+                            <KPICard title="部門教師" value={kpi.teacherCount} unit="位" icon="🧑‍🏫" color="bg-blue-500"
+                                sub={kpi.adminCount > 0 ? `行政 ${kpi.adminCount} 位` : undefined} />
+                            <KPICard title="在籍學生" value={kpi.studentCount} unit="人" icon="👶" color="bg-indigo-500" />
                             <KPICard title="平均成績" value={kpi.avgScore} unit="分" icon="📈"
                                 color={kpi.avgScore >= 80 ? 'bg-emerald-500' : kpi.avgScore < 60 ? 'bg-red-500' : 'bg-amber-500'}
                                 sub={kpi.avgScore >= 80 ? '優異 ✨' : kpi.avgScore < 60 ? '需關注 ⚠️' : '正常'} />
@@ -536,7 +555,7 @@ export default function ManagerDashboard() {
                     <>
                         {/* KPI */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <KPICard title="總班級數" value={fillRateData.length} unit="班" icon="🏫" color="bg-indigo-500" />
+                            <KPICard title="開班數" value={fillRateData.length} unit="班" icon="🏫" color="bg-indigo-500" />
                             <KPICard title="平均飽和率" value={avgFillRate} unit="%" icon="📊"
                                 color={avgFillRate >= 85 ? 'bg-emerald-500' : avgFillRate < 60 ? 'bg-orange-500' : 'bg-blue-500'}
                                 sub={avgFillRate >= 85 ? '近滿班 🔥' : avgFillRate < 60 ? '招生空間大' : '正常'} />
