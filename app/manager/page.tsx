@@ -143,14 +143,14 @@ export default function ManagerDashboard() {
         const { data: allStudents } = await supabase.from('students').select('*');
 
         // ── 依部門篩選學生（以 grade 的班級前綴判斷）────────────────────
-        //   english dept  → 含 'CEI-'（不含課後輔導班的純英文班）
-        //   after_school  → 含 '課後輔導班'
+        //   english dept  → 含 'CEI-'（不含課後輔導的純英文班）
+        //   after_school  → 含 '課後輔導'（包含「課後輔導」「課後輔導班」）
         //   general/null  → 全部
         function isDeptStudent(grade: string | null): boolean {
             if (!selectedDept) return true;  // 全校總覽：全部學生，含無 grade 的
             if (!grade) return false;         // 有部門篩選但無 grade → 無法判斷，排除
             if (selectedDept === 'english') return grade.includes('CEI-');
-            if (selectedDept === 'after_school') return grade.includes('課後輔導班');
+            if (selectedDept === 'after_school') return grade.includes('課後輔導');
             return true;  // general / 其他
         }
         const deptStudents = allStudents?.filter(s => isDeptStudent(s.grade)) || [];
@@ -185,7 +185,7 @@ export default function ManagerDashboard() {
             if (!s.grade) return;
             // 取主班級（逗號前）
             const primaryClass = s.grade.split(',')[0].trim();
-            if (!primaryClass || primaryClass === '課後輔導班') return;
+            if (!primaryClass || primaryClass.includes('課後輔導')) return;
             if (!classMap[primaryClass]) classMap[primaryClass] = { class: primaryClass, count: 0, scoreSum: 0, scoreCount: 0 };
             classMap[primaryClass].count++;
             // 成績稍後補入
