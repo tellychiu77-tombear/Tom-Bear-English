@@ -116,29 +116,41 @@ export default function ManagerDashboard() {
         setLoading(true);
         const { from, to } = getDateRange(period);
 
-        // 1. 教師清單
+        // 1. 教師清單（dept 篩選，可能為空，不 early-exit）
         let tq = supabase.from('users').select('*').eq('role', 'teacher');
         if (selectedDept) tq = tq.eq('department', selectedDept);
         const { data: teacherList } = await tq;
-        if (!teacherList || teacherList.length === 0) {
-            setTeachers([]); setKpi({ teacherCount: 0, studentCount: 0, avgScore: 0, absenceRate: 0, passRate: 0, atRiskCount: 0 });
-            setClassChartData([]); setAtRiskStudents([]); setLoading(false); return;
-        }
 
-        // 2. 學生（全部，含 created_at）
+        // 2. 所有學生（直接從 students 抓，不依賴老師 responsible_classes）
         const { data: allStudents } = await supabase.from('students').select('*');
 
-        // 3. 考試（含時間篩選）
+        // ── 依部門篩選學生（以 grade 的班級前綴判斷）────────────────────
+        //   english dept  → 含 'CEI-'（不含課後輔導班的純英文班）
+        //   after_school  → 含 '課後輔導班'
+        //   general/null  → 全部
+        function isDeptStudent(grade: string | null): boolean {
+            if (!grade) return false;
+            if (!selectedDept) return true;
+            if (selectedDept === 'english') return grade.includes('CEI-');
+            if (selectedDept === 'after_school') return grade.includes('課後輔導班');
+            return true;
+        }
+        const deptStudents = allStudents?.filter(s => isDeptStudent(s.grade)) || [];
+        const deptStudentIds = deptStudents.map(s => s.id);
+
+        // 3. 考試（只取部門學生，含時間篩選）
         let eq = supabase.from('exam_results').select('*');
+        if (deptStudentIds.length > 0) eq = eq.in('student_id', deptStudentIds);
         if (from) eq = eq.gte('exam_date', from);
         if (to) eq = eq.lte('exam_date', to);
-        const { data: allExams } = await eq;
+        const { data: allExams } = deptStudentIds.length > 0 ? await eq : { data: [] };
 
-        // 4. 請假（含時間篩選）
+        // 4. 請假（只取部門學生，含時間篩選）
         let lq = supabase.from('leave_requests').select('*').eq('status', 'approved');
+        if (deptStudentIds.length > 0) lq = lq.in('student_id', deptStudentIds);
         if (from) lq = lq.gte('leave_date', from);
         if (to) lq = lq.lte('leave_date', to);
-        const { data: allLeaves } = await lq;
+        const { data: allLeaves } = deptStudentIds.length > 0 ? await lq : { data: [] };
 
         // 5. 班級容量（schedule_slots）
         const { data: slots } = await supabase.from('schedule_slots').select('class_group, max_students');
@@ -149,60 +161,80 @@ export default function ManagerDashboard() {
             }
         });
 
-        // ── 處理教師資料 ───────────────────────────────────────────────────
-        let totalStudents = 0, totalScoreSum = 0, totalScoreCount = 0, totalLeaves = 0, totalPassed = 0;
+        // ── 直接從學生資料算班級分佈（不依賴老師）─────────────────────
         const classMap: Record<string, any> = {};
-        const allAtRisk: any[] = [];
+        deptStudents.forEach(s => {
+            if (!s.grade) return;
+            // 取主班級（逗號前）
+            const primaryClass = s.grade.split(',')[0].trim();
+            if (!primaryClass || primaryClass === '課後輔導班') return;
+            if (!classMap[primaryClass]) classMap[primaryClass] = { class: primaryClass, count: 0, scoreSum: 0, scoreCount: 0 };
+            classMap[primaryClass].count++;
+            // 成績稍後補入
+        });
+        allExams?.forEach((e: any) => {
+            const student = deptStudents.find(s => s.id === e.student_id);
+            if (!student?.grade) return;
+            const primaryClass = student.grade.split(',')[0].trim();
+            if (!classMap[primaryClass]) return;
+            classMap[primaryClass].scoreSum += e.score;
+            classMap[primaryClass].scoreCount++;
+        });
+        const classChartArr = Object.values(classMap).map((c: any) => ({
+            class: c.class,
+            count: c.count,
+            avg: c.scoreCount > 0 ? Math.round(c.scoreSum / c.scoreCount) : 0,
+        })).sort((a, b) => b.avg - a.avg || a.class.localeCompare(b.class)).slice(0, 14);
 
-        const processed = teacherList.map(t => {
+        // ── KPI 全域計算（直接用部門學生）──────────────────────────────
+        const totalStudents = deptStudents.length;
+        const examScores = allExams?.map((e: any) => e.score) || [];
+        const overallAvg = examScores.length > 0 ? Math.round(examScores.reduce((a: number, b: number) => a + b, 0) / examScores.length) : 0;
+        const passRate = examScores.length > 0 ? Math.round((examScores.filter((s: number) => s >= 60).length / examScores.length) * 100) : 0;
+        const absenceRate = totalStudents > 0 ? Math.round(((allLeaves?.length || 0) / totalStudents) * 100) : 0;
+
+        // ── 高風險學生（直接從部門學生計算）────────────────────────────
+        const allAtRisk: any[] = [];
+        deptStudents.forEach(s => {
+            const sExams = allExams?.filter((e: any) => e.student_id === s.id) || [];
+            const sLeaves = allLeaves?.filter((l: any) => l.student_id === s.id) || [];
+            const sAvg = sExams.length > 0 ? Math.round(sExams.reduce((a: number, e: any) => a + e.score, 0) / sExams.length) : null;
+            if ((sAvg !== null && sAvg < 60) || sLeaves.length > 3) {
+                // 嘗試找對應老師姓名
+                const teacher = (teacherList || []).find((t: any) => {
+                    let cls: string[] = [];
+                    try { cls = Array.isArray(t.responsible_classes) ? t.responsible_classes : JSON.parse(t.responsible_classes || '[]'); } catch { cls = []; }
+                    return cls.some((c: string) => s.grade?.includes(c));
+                });
+                allAtRisk.push({ ...s, avgScore: sAvg, absence: sLeaves.length, teacherName: teacher?.name || '—' });
+            }
+        });
+
+        // ── 處理老師績效（teacher table 仍用 responsible_classes 配對，但不影響 KPI）
+        const processed = (teacherList || []).map((t: any) => {
             let classes: string[] = [];
             try { const raw = t.responsible_classes; classes = Array.isArray(raw) ? raw : JSON.parse(raw || '[]'); } catch { classes = []; }
 
-            const myStudents = allStudents?.filter(s => s.grade && classes.some((c: string) => s.grade.includes(c))) || [];
+            const myStudents = deptStudents.filter(s => s.grade && classes.some((c: string) => s.grade.includes(c)));
             const sIds = myStudents.map(s => s.id);
-            const myExams = allExams?.filter(e => sIds.includes(e.student_id)) || [];
-            const myLeaves = allLeaves?.filter(l => sIds.includes(l.student_id)) || [];
-
-            const avg = myExams.length > 0 ? Math.round(myExams.reduce((a, b) => a + b.score, 0) / myExams.length) : 0;
-            const passed = myExams.filter(e => e.score >= 60).length;
-
-            totalStudents += myStudents.length;
-            if (myExams.length > 0) { totalScoreSum += myExams.reduce((a, b) => a + b.score, 0); totalScoreCount += myExams.length; }
-            totalLeaves += myLeaves.length;
-            totalPassed += passed;
-
-            classes.forEach((cls: string) => {
-                const studentsInCls = myStudents.filter(s => s.grade?.includes(cls));
-                const clsExams = allExams?.filter(e => studentsInCls.map(s => s.id).includes(e.student_id)) || [];
-                const clsAvg = clsExams.length > 0 ? Math.round(clsExams.reduce((a, b) => a + b.score, 0) / clsExams.length) : 0;
-                if (!classMap[cls]) classMap[cls] = { class: cls, avg: clsAvg, count: studentsInCls.length };
-            });
-
-            myStudents.forEach(s => {
-                const sExams = myExams.filter(e => e.student_id === s.id);
-                const sLeaves = myLeaves.filter(l => l.student_id === s.id);
-                const sAvg = sExams.length > 0 ? Math.round(sExams.reduce((a, b) => a + b.score, 0) / sExams.length) : null;
-                if ((sAvg !== null && sAvg < 60) || sLeaves.length > 3) {
-                    allAtRisk.push({ ...s, avgScore: sAvg, absence: sLeaves.length, teacherName: t.name });
-                }
-            });
+            const myExams = allExams?.filter((e: any) => sIds.includes(e.student_id)) || [];
+            const myLeaves = allLeaves?.filter((l: any) => sIds.includes(l.student_id)) || [];
+            const avg = myExams.length > 0 ? Math.round(myExams.reduce((a: number, b: any) => a + b.score, 0) / myExams.length) : 0;
 
             return { ...t, responsible_classes: classes, studentCount: myStudents.length, avgScore: avg, leaveCount: myLeaves.length, students: myStudents };
         });
 
-        const overallAvg = totalScoreCount > 0 ? Math.round(totalScoreSum / totalScoreCount) : 0;
-        const passRate = totalScoreCount > 0 ? Math.round((totalPassed / totalScoreCount) * 100) : 0;
-        const absenceRate = totalStudents > 0 ? Math.round((totalLeaves / totalStudents) * 100) : 0;
-
-        setTeachers(processed.sort((a, b) => b.avgScore - a.avgScore));
-        setKpi({ teacherCount: teacherList.length, studentCount: totalStudents, avgScore: overallAvg, absenceRate, passRate, atRiskCount: allAtRisk.length });
-        setClassChartData(Object.values(classMap).sort((a, b) => b.avg - a.avg).slice(0, 12));
+        setTeachers(processed.sort((a: any, b: any) => b.avgScore - a.avgScore));
+        setKpi({ teacherCount: (teacherList || []).length, studentCount: totalStudents, avgScore: overallAvg, absenceRate, passRate, atRiskCount: allAtRisk.length });
+        setClassChartData(classChartArr);
         setAtRiskStudents(allAtRisk.slice(0, 8));
 
         // ── 趨勢圖：過去 6 個月各月平均分 ────────────────────────────────
         const monthlyMap: Record<string, { sum: number; count: number }> = {};
-        const allStudentIds = allStudents?.map(s => s.id) || [];
-        const { data: trendExams } = await supabase.from('exam_results').select('score, exam_date').in('student_id', allStudentIds).gte('exam_date', new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0]);
+        const allStudentIds = deptStudentIds.length > 0 ? deptStudentIds : (allStudents?.map(s => s.id) || []);
+        const { data: trendExams } = allStudentIds.length > 0
+            ? await supabase.from('exam_results').select('score, exam_date').in('student_id', allStudentIds).gte('exam_date', new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0])
+            : { data: [] };
 
         trendExams?.forEach(e => {
             const month = e.exam_date?.slice(0, 7);
@@ -219,7 +251,7 @@ export default function ManagerDashboard() {
         // ─────────────────────────────────────────────────────────────────────
         // ── 新功能 2：班級飽和率 ─────────────────────────────────────────
         const classEnrollment: Record<string, number> = {};
-        allStudents?.forEach((s: any) => {
+        deptStudents.forEach((s: any) => {
             if (!s.grade) return;
             const classes = s.grade.split(',').map((g: string) => g.trim()).filter(Boolean);
             classes.forEach((cls: string) => {
@@ -251,14 +283,14 @@ export default function ManagerDashboard() {
         const thisMonthCount = retMap[thisMonthKey] || 0;
         const lastMonthCount = retMap[lastMonthKey] || 0;
         const growth = lastMonthCount > 0 ? Math.round(((thisMonthCount - lastMonthCount) / lastMonthCount) * 100) : 0;
-        setRetentionKpi({ thisMonth: thisMonthCount, total: allStudents?.length || 0, growthPct: growth });
+        setRetentionKpi({ thisMonth: thisMonthCount, total: deptStudents.length, growthPct: growth });
 
         // ── 新功能 4：請假頻率排名 ────────────────────────────────────────
         // Use ALL-TIME leaves for this ranking (not period-filtered)
         const { data: allTimeLeaves } = await supabase.from('leave_requests').select('*').eq('status', 'approved');
         const absMap: Record<string, { count: number; student: any }> = {};
         allTimeLeaves?.forEach((l: any) => {
-            const student = allStudents?.find((s: any) => s.id === l.student_id);
+            const student = deptStudents.find((s: any) => s.id === l.student_id);
             if (!student) return;
             if (!absMap[l.student_id]) absMap[l.student_id] = { count: 0, student };
             absMap[l.student_id].count++;
@@ -283,7 +315,9 @@ export default function ManagerDashboard() {
 
         // ── 新功能 5：老師進步量效能比較 ─────────────────────────────────
         // Compare earliest 50% vs latest 50% of exam scores per teacher
-        const { data: allTimeExams } = await supabase.from('exam_results').select('*').in('student_id', allStudentIds);
+        const { data: allTimeExams } = allStudentIds.length > 0
+            ? await supabase.from('exam_results').select('*').in('student_id', allStudentIds)
+            : { data: [] };
 
         const improvArr = processed.map(t => {
             const sIds = t.students?.map((s: any) => s.id) || [];
