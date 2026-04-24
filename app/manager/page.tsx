@@ -166,8 +166,8 @@ export default function ManagerDashboard() {
         // 4. 請假（只取部門學生，含時間篩選）
         let lq = supabase.from('leave_requests').select('*').eq('status', 'approved');
         if (deptStudentIds.length > 0) lq = lq.in('student_id', deptStudentIds);
-        if (from) lq = lq.gte('leave_date', from);
-        if (to) lq = lq.lte('leave_date', to);
+        if (from) lq = lq.gte('start_date', from);
+        if (to) lq = lq.lte('start_date', to);
         const { data: allLeaves } = deptStudentIds.length > 0 ? await lq : { data: [] };
 
         // 5. 班級容量（schedule_slots）
@@ -321,9 +321,9 @@ export default function ManagerDashboard() {
 
         // Monthly absence trend (last 6 months)
         const absMonthMap: Record<string, number> = {};
-        allTimeLeaves?.filter((l: any) => l.leave_date >= new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0])
+        allTimeLeaves?.filter((l: any) => l.start_date >= new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0])
             .forEach((l: any) => {
-                const month = l.leave_date?.slice(0, 7);
+                const month = l.start_date?.slice(0, 7);
                 if (month) absMonthMap[month] = (absMonthMap[month] || 0) + 1;
             });
         const absMonthArr = Object.entries(absMonthMap).sort(([a], [b]) => a.localeCompare(b)).map(([month, count]) => ({
