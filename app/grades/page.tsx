@@ -7,7 +7,7 @@ import { logAction } from '@/lib/logService';
 import { getEffectivePermissions } from '@/lib/permissions';
 
 const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
-const ALL_CLASSES = ['課後輔導班', ...ENGLISH_CLASSES];
+const ALL_CLASSES = ['課後輔導', ...ENGLISH_CLASSES];
 
 export default function GradesPage() {
     const router = useRouter();
@@ -85,18 +85,10 @@ export default function GradesPage() {
     }, [entryClass, entryDate, entryExamName, classStudents]);
 
     const fetchClassStudents = async (cls: string) => {
-        let searchTerm = cls;
-
-        // 🚨 關鍵修正：針對「課後輔導班」做模糊處理
-        // 這樣 "CEI-A, 課後輔導" 或 "課後輔導班" 通通都抓得到！
-        if (cls === '課後輔導班') {
-            searchTerm = '課後輔導';
-        }
-
         const { data } = await supabase
             .from('students')
             .select('id, chinese_name, grade')
-            .ilike('grade', `%${searchTerm}%`) // 使用修正後的關鍵字搜尋
+            .ilike('grade', `%${cls}%`)
             .order('chinese_name');
 
         if (data) setClassStudents(data);

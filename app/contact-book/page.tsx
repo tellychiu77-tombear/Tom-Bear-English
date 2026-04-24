@@ -67,7 +67,7 @@ export default function ContactBookPage() {
     const parseClassTags = (gradeString: string): string[] => {
         if (!gradeString) return ['待分班'];
         return gradeString.split(/[,，]/).map(s => s.trim()).filter(Boolean).map(tag => {
-            if (tag === '課後輔導' || tag === '課後') return '課後輔導班';
+            if (tag === '課後') return '課後輔導';
             if (tag === '未分類' || tag === '未分班') return '待分班';
             return tag;
         });
@@ -221,7 +221,7 @@ export default function ContactBookPage() {
             : students.filter((s: any) => {
                 if (!s.grade) return selectedClass === '待分班';
                 const tags = s.grade.split(/[,，]/).map((t: string) => t.trim()).filter(Boolean).map((tag: string) => {
-                    if (tag === '課後輔導' || tag === '課後') return '課後輔導班';
+                    if (tag === '課後') return '課後輔導';
                     if (tag === '未分類' || tag === '未分班') return '待分班';
                     return tag;
                 });
@@ -961,22 +961,4 @@ export default function ContactBookPage() {
                                                                     <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : isSaved ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
                                                                         {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : isSaved ? '✅ 已儲存（再次儲存）' : '💾 儲存'}
                                                                     </button>
-                                                                ) : !form.signature && (
-                                                                    <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
+                                       

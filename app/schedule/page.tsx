@@ -1195,25 +1195,4 @@ function SlotModal({ slot, setSlot, teachers, assignments, getEligibleTeachers, 
                     <button onClick={onSave} disabled={saving}
                         className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl transition disabled:opacity-50">
                         {saving ? '儲存中...' : '✅ 確認新增'}
-                    </button>
-                    <button onClick={onClose}
-                        className="px-5 py-3 bg-gray-100 text-gray-500 font-bold rounded-xl hover:bg-gray-200 transition">
-                        取消
-                    </button>
-                </div>
-            </div>
-        </Modal>
-    );
-}
-
-// ── Generic Modal Wrapper ─────────────────────────────────────────────────────
-function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
-    return (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            onClick={e => e.target === e.currentTarget && onClose()}>
-            <div className={`bg-white rounded-3xl shadow-2xl overflow-y-auto max-h-[90vh] ${wide ? 'w-full max-w-4xl' : 'w-full max-w-md'} p-6`}>
-                {children}
-            </div>
-        </div>
-    );
-}
+    
