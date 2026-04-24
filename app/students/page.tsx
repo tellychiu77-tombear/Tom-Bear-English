@@ -1031,4 +1031,26 @@ function TrendChart({ series, labels }: { series: { label: string; data: number[
     }
 
     return (
-        <div className="w-full overflo
+        <div className="w-full overflow-x-auto">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-24" preserveAspectRatio="none">
+                {/* Grid lines */}
+                {[1, 2, 3, 4, 5].map(v => {
+                    const y = H - ((v - minVal) / (maxVal - minVal)) * H;
+                    return <line key={v} x1={0} y1={y} x2={W} y2={y} stroke="#f3f4f6" strokeWidth="1" />;
+                })}
+                {series.map(s => (
+                    <path key={s.label} d={toPath(s.data)} fill="none" stroke={s.color} strokeWidth="2.5"
+                        strokeLinecap="round" strokeLinejoin="round" />
+                ))}
+                {/* Dots */}
+                {series.map(s =>
+                    s.data.map((v, i) => {
+                        const x = i * xStep;
+                        const y = H - ((v - minVal) / (maxVal - minVal)) * H;
+                        return <circle key={`${s.label}-${i}`} cx={x} cy={y} r="3" fill={s.color} />;
+                    })
+                )}
+            </svg>
+        </div>
+    );
+}
