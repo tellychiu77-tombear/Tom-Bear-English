@@ -69,6 +69,10 @@ export default function AdminPage() {
     const [editingChild, setEditingChild] = useState<any>(null);
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
 
+    // 分頁
+    const [staffPage, setStaffPage] = useState(0);
+    const [parentsPage, setParentsPage] = useState(0);
+
     // 職位權限設定 Tab
     const [roleConfigs, setRoleConfigs] = useState<Record<string, Record<string, boolean>>>({});
     const [selectedRoleConfigRole, setSelectedRoleConfigRole] = useState('admin');
@@ -76,6 +80,7 @@ export default function AdminPage() {
     const [savingRoleConfig, setSavingRoleConfig] = useState(false);
 
     useEffect(() => { checkAccess(); }, []);
+    useEffect(() => { setStaffPage(0); setParentsPage(0); }, [searchTerm]);
 
     async function checkAccess() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -333,6 +338,7 @@ export default function AdminPage() {
         );
     }
 
+    const PAGE_SIZE = 30;
     const staffRoles = ['teacher', 'english_director', 'care_director', 'director', 'admin', 'manager', 'pending'];
     const filteredStaff = users.filter(u =>
         staffRoles.includes(u.role) &&
@@ -347,6 +353,11 @@ export default function AdminPage() {
          (u.name || '').includes(searchTerm))
     );
     const pendingRequests = linkRequests.filter(r => r.status === 'pending');
+
+    const staffTotalPages = Math.ceil(filteredStaff.length / PAGE_SIZE);
+    const parentsTotalPages = Math.ceil(filteredParents.length / PAGE_SIZE);
+    const pagedStaff = filteredStaff.slice(staffPage * PAGE_SIZE, (staffPage + 1) * PAGE_SIZE);
+    const pagedParents = filteredParents.slice(parentsPage * PAGE_SIZE, (parentsPage + 1) * PAGE_SIZE);
 
     if (!accessChecked) return <div className="p-10 text-center font-bold text-gray-400">驗證中...</div>;
     if (!hasAccess) return null;
@@ -402,6 +413,7 @@ export default function AdminPage() {
 
                             {/* ── 老師/員工 Sub-tab ── */}
                             {userSubTab === 'staff' && (
+                                <>
                                 <table className="w-full text-left">
                                     <thead className="bg-gray-50 border-b">
                                         <tr>
@@ -412,7 +424,7 @@ export default function AdminPage() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredStaff.map(u => (
+                                        {pagedStaff.map(u => (
                                             <tr key={u.id} className="border-t hover:bg-gray-50">
                                                 <td className="p-4">
                                                     {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
@@ -443,6 +455,14 @@ export default function AdminPage() {
                                         ))}
                                     </tbody>
                                 </table>
+                                {staffTotalPages > 1 && (
+                                    <div className="flex justify-center items-center gap-2 py-3 border-t bg-gray-50">
+                                        <button onClick={() => setStaffPage(p => Math.max(0, p - 1))} disabled={staffPage === 0} className="px-3 py-1 rounded border text-sm font-bold disabled:opacity-40 hover:bg-white">← 上一頁</button>
+                                        <span className="text-sm text-gray-500 font-bold">{staffPage + 1} / {staffTotalPages}</span>
+                                        <button onClick={() => setStaffPage(p => Math.min(staffTotalPages - 1, p + 1))} disabled={staffPage >= staffTotalPages - 1} className="px-3 py-1 rounded border text-sm font-bold disabled:opacity-40 hover:bg-white">下一頁 →</button>
+                                    </div>
+                                )}
+                                </>
                             )}
 
                             {/* ── 家長 Sub-tab ── */}
@@ -497,7 +517,7 @@ export default function AdminPage() {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {filteredParents.map(u => (
+                                            {pagedParents.map(u => (
                                                 <tr key={u.id} className="border-t hover:bg-gray-50">
                                                     <td className="p-4">
                                                         {u.name && <div className="font-black text-sm text-gray-900">{u.name}</div>}
@@ -518,6 +538,13 @@ export default function AdminPage() {
                                             ))}
                                         </tbody>
                                     </table>
+                                    {parentsTotalPages > 1 && (
+                                        <div className="flex justify-center items-center gap-2 py-3 border-t bg-gray-50">
+                                            <button onClick={() => setParentsPage(p => Math.max(0, p - 1))} disabled={parentsPage === 0} className="px-3 py-1 rounded border text-sm font-bold disabled:opacity-40 hover:bg-white">← 上一頁</button>
+                                            <span className="text-sm text-gray-500 font-bold">{parentsPage + 1} / {parentsTotalPages}</span>
+                                            <button onClick={() => setParentsPage(p => Math.min(parentsTotalPages - 1, p + 1))} disabled={parentsPage >= parentsTotalPages - 1} className="px-3 py-1 rounded border text-sm font-bold disabled:opacity-40 hover:bg-white">下一頁 →</button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
