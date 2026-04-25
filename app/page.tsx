@@ -54,9 +54,11 @@ export default function DashboardPage() {
 
     useEffect(() => {
         init();
-        // 實時監聽
-        const channel = supabase.channel('dashboard_realtime')
-            .on('postgres_changes', { event: '*', schema: 'public' }, () => fetchCounts())
+        // 實時監聽（針對性表格監聽，比廣播式更可靠）
+        const channel = supabase.channel('dashboard_realtime_v2')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => fetchCounts())
+            .on('postgres_changes', { event: '*',      schema: 'public', table: 'leave_requests' },  () => fetchCounts())
+            .on('postgres_changes', { event: '*',      schema: 'public', table: 'pickup_requests' }, () => fetchCounts())
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [role]);
