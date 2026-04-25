@@ -55,10 +55,14 @@ export default function DashboardPage() {
     useEffect(() => {
         init();
         // 實時監聽（針對性表格監聽，比廣播式更可靠）
-        const channel = supabase.channel('dashboard_realtime_v2')
+        const channel = supabase.channel('dashboard_realtime_v3')
             .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => fetchCounts())
             .on('postgres_changes', { event: '*',      schema: 'public', table: 'leave_requests' },  () => fetchCounts())
             .on('postgres_changes', { event: '*',      schema: 'public', table: 'pickup_requests' }, () => fetchCounts())
+            // ✅ 監聽審核狀態：管理員審核通過時自動刷新，家長不需要手動重新整理
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users' }, (payload) => {
+                if (payload.new?.is_approved === true) { init(); }
+            })
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [role]);
