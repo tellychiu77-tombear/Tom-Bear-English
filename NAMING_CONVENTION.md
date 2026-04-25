@@ -63,6 +63,34 @@
 
 ---
 
+### `leave_requests` 表（請假申請）
+
+| 欄位名稱 | 型別 | 說明 | ⚠️ 禁止使用的錯誤寫法 |
+|---------|------|------|------------------|
+| `id` | uuid | — | — |
+| `student_id` | uuid | → students.id | — |
+| `parent_id` | uuid | → users.id | — |
+| `type` | text | 請假類型（病假 / 事假 / 其他） | — |
+| `start_date` | date | 開始日期 | ~~`leave_date`~~ |
+| `end_date` | date | 結束日期 | — |
+| `reason` | text | 請假原因 | — |
+| `status` | text | 狀態（pending / approved / rejected）| — |
+
+---
+
+### `exam_results` 表（考試成績）
+
+| 欄位名稱 | 型別 | 說明 |
+|---------|------|------|
+| `id` | uuid | — |
+| `student_id` | uuid | → students.id |
+| `exam_name` | text | 考試名稱（如「月考 1」） |
+| `exam_date` | date | 考試日期 |
+| `score` | int | 得分 |
+| `full_score` | int | 滿分（預設 100） |
+
+---
+
 ### `teacher_assignments` 表（老師負責設定）
 
 | 欄位名稱 | 型別 | 說明 |
@@ -162,4 +190,6 @@ supabase.from('students').select('class_name')
 | 2026-04-17 | `students(name)` → `students(chinese_name)` | dashboard/page.tsx |
 | 2026-04-17 | 新增排課系統相關表格 | supabase/schema.sql |
 | 2026-04-18 | admin modal 新增 name / teacher_type / available_days 欄位 | admin/page.tsx |
+| 2026-04-25 | `parent_phone_1/2` → `parent_phone` / `parent_2_phone`（students 表正確欄位）| onboarding/page.tsx |
+| 2026-04-25 | 全面掃描確認：leave_date 已全部改為 start_date、students.name 已全部改為 chinese_name | — |
 | 2026-04-18 | 用戶清單顯示 users.name，搜尋支援姓名 | admin/page.tsx |
