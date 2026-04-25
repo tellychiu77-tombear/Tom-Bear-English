@@ -339,8 +339,8 @@ export default function DashboardPage() {
                     {/* 公告欄：所有人可看 */}
                     <DashboardCard title="公告欄" icon="📢" color="bg-rose-500" onClick={() => router.push('/announcements')} desc="查看最新校園公告" />
 
-                    {/* 聯絡簿：家長或有 fillContactBook 權限者 */}
-                    {(role === 'parent' || permissions?.fillContactBook) && (
+                    {/* 聯絡簿：家長、行政或有 fillContactBook 權限者 */}
+                    {(role === 'parent' || role === 'admin' || permissions?.fillContactBook) && (
                         <Link href="/contact-book" className="block p-6 bg-white rounded-xl shadow-sm border border-yellow-100 hover:shadow-md transition duration-200">
                             <div className="flex items-center gap-4 mb-3">
                                 <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center text-xl">📒</div>

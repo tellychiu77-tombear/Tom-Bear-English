@@ -300,7 +300,7 @@ export default function PickupPage() {
                                         <div className="text-sm text-gray-600 font-bold mt-1">
                                             班級: {req.student?.grade}
                                             <span className="mx-2 text-gray-300">|</span>
-                                            家長: {req.parent?.name || req.parent?.email || '家長'}
+                                            家長: {req.parent?.name || (req.parent?.email ? req.parent.email.split('@')[0] : '家長')}
                                         </div>
                                     </div>
                                     <div className="flex flex-col gap-2">

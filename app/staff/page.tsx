@@ -89,8 +89,11 @@ export default function StaffManagementPage() {
     }
 
     const filteredUsers = users.filter(u =>
-        (u.email || '').toLowerCase().includes(searchEmail.toLowerCase()) ||
-        (u.name || '').toLowerCase().includes(searchEmail.toLowerCase())
+        u.role !== 'parent' &&
+        (
+            (u.email || '').toLowerCase().includes(searchEmail.toLowerCase()) ||
+            (u.name || '').toLowerCase().includes(searchEmail.toLowerCase())
+        )
     );
 
     if (loading) return <div className="p-10 text-center">載入員工名單中...</div>;
