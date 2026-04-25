@@ -957,9 +957,14 @@ function AssignmentModal({ teacher, allAssignments, pendingAssigns, setPendingAs
     onClose: () => void;
 }) {
     const [classInput, setClassInput] = useState('');
+    // Start with only assigned classes to avoid rendering 270+ empty checkboxes upfront
     const [classes, setClasses] = useState<string[]>(
-        Array.from(new Set([...PRESET_CLASSES, ...allAssignments.map(a => a.class_group), ...pendingAssigns.map(a => a.class_group)])).sort()
+        Array.from(new Set([...pendingAssigns.map(a => a.class_group), ...allAssignments.filter(a => a.teacher_id === teacher.id).map(a => a.class_group)])).sort()
     );
+
+    function loadAllPreset() {
+        setClasses(Array.from(new Set([...PRESET_CLASSES, ...allAssignments.map(a => a.class_group), ...pendingAssigns.map(a => a.class_group)])).sort());
+    }
 
     function addClass() {
         const v = classInput.trim().toUpperCase();
@@ -991,12 +996,15 @@ function AssignmentModal({ teacher, allAssignments, pendingAssigns, setPendingAs
             </div>
 
             {/* Add class */}
-            <div className="flex gap-2 mb-4">
+            <div className="flex gap-2 mb-2">
                 <input value={classInput} onChange={e => setClassInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && addClass()}
                     placeholder="輸入班級名稱（如 CEI-A）再按 Enter"
                     className="flex-1 px-3 py-2 border rounded-xl text-sm font-bold" />
                 <button onClick={addClass} className="px-4 py-2 bg-indigo-600 text-white font-black rounded-xl text-sm hover:bg-indigo-700">新增班級</button>
+                <button onClick={loadAllPreset} className="px-4 py-2 bg-gray-100 text-gray-600 font-black rounded-xl text-sm hover:bg-gray-200 transition whitespace-nowrap">
+                    展開全部班級
+                </button>
             </div>
 
             {classes.length === 0 && (

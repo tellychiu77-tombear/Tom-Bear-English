@@ -42,12 +42,15 @@ const SCHOOL_GRADE_OPTIONS = [
 
 // ── 主頁面 ────────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 30;
+
 export default function StudentsPage() {
     const router = useRouter();
     const [students, setStudents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterClass, setFilterClass] = useState('');
     const [canEditStudents, setCanEditStudents] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
 
     // 列表選中的學生 → 開啟 Profile Modal
     const [profileStudent, setProfileStudent] = useState<any>(null);
@@ -57,6 +60,9 @@ export default function StudentsPage() {
     const [addModalOpen, setAddModalOpen] = useState(false);
 
     useEffect(() => { checkPermissionAndFetch(); }, []);
+
+    // Reset to page 1 when filter changes
+    useEffect(() => { setCurrentPage(1); }, [filterClass]);
 
     async function checkPermissionAndFetch() {
         const { data: { session } } = await supabase.auth.getSession();
@@ -91,6 +97,9 @@ export default function StudentsPage() {
         : students;
 
     const uniqueClasses = Array.from(new Set(students.map(s => s.grade))).filter(Boolean).sort() as string[];
+
+    const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE));
+    const paginatedStudents = filteredStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
     if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
 
@@ -134,7 +143,7 @@ export default function StudentsPage() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
-                            {filteredStudents.map(s => (
+                            {paginatedStudents.map(s => (
                                 <tr key={s.id} className="hover:bg-indigo-50/30 transition cursor-pointer group"
                                     onClick={() => openProfile(s, 'basic')}>
                                     <td className="p-4">
@@ -212,6 +221,37 @@ export default function StudentsPage() {
                     )}
                 </div>
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="max-w-7xl mx-auto px-4 pb-4 flex items-center justify-between">
+                    <span className="text-xs text-gray-400 font-bold">
+                        顯示 {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredStudents.length)} 位，共 {filteredStudents.length} 位
+                    </span>
+                    <div className="flex items-center gap-1">
+                        <button
+                            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                            disabled={currentPage === 1}
+                            className="px-3 py-1.5 rounded-lg border text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                            ← 上一頁
+                        </button>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                            <button key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`w-8 h-8 rounded-lg text-xs font-black transition
+                                    ${page === currentPage ? 'bg-indigo-600 text-white shadow' : 'border text-gray-500 hover:bg-gray-100'}`}>
+                                {page}
+                            </button>
+                        ))}
+                        <button
+                            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                            disabled={currentPage === totalPages}
+                            className="px-3 py-1.5 rounded-lg border text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition">
+                            下一頁 →
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {/* Profile Modal */}
             {profileStudent && (
