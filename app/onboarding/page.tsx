@@ -64,7 +64,7 @@ export default function Onboarding() {
         let query = supabase
             .from('students')
             .select('id, chinese_name, english_name, grade, school_grade')
-            .or(`parent_phone_1.eq.${cleanPhone},parent_phone_2.eq.${cleanPhone}`);
+            .or(`parent_phone.eq.${cleanPhone},parent_2_phone.eq.${cleanPhone}`);
 
         if (chineseName.trim()) query = query.eq('chinese_name', chineseName.trim());
         if (englishName.trim()) query = query.ilike('english_name', englishName.trim());
