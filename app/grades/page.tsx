@@ -10,9 +10,6 @@ import {
     ResponsiveContainer, Cell
 } from 'recharts';
 
-const ENGLISH_CLASSES = Array.from({ length: 26 }, (_, i) => `CEI-${String.fromCharCode(65 + i)}`);
-const ALL_CLASSES = ['課後輔導', ...ENGLISH_CLASSES];
-
 const GRADE_BANDS = [
     { label: 'A (90-100)', min: 90, max: 100, color: '#22c55e' },
     { label: 'B (80-89)', min: 80, max: 89, color: '#3b82f6' },
@@ -94,7 +91,18 @@ export default function GradesPage() {
     const [selectedChild, setSelectedChild] = useState<string>('');
     const [childResults, setChildResults]   = useState<any[]>([]);
 
-    useEffect(() => { checkUser(); }, []);
+    // ============ Dynamic class list ============
+    const [classes, setClasses] = useState<string[]>([]);
+
+    useEffect(() => { checkUser(); fetchClasses(); }, []);
+
+    const fetchClasses = async () => {
+        const { data } = await supabase.from('students').select('grade').order('grade');
+        if (data) {
+            const unique = [...new Set(data.map((s: any) => s.grade).filter(Boolean))].sort();
+            setClasses(unique);
+        }
+    };
 
     const checkUser = async () => {
         const { data: { session } } = await supabase.auth.getSession();
@@ -445,7 +453,7 @@ export default function GradesPage() {
                                     className="w-full text-lg font-bold bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-xl p-3 outline-none transition"
                                     value={entryClass} onChange={e => setEntryClass(e.target.value)}>
                                     <option value="">-- 請選擇 --</option>
-                                    {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {classes.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
                             <div>
@@ -588,7 +596,7 @@ export default function GradesPage() {
                                 <select className="w-full font-bold text-gray-700 outline-none bg-transparent"
                                     value={historyClass} onChange={e => setHistoryClass(e.target.value)}>
                                     <option value="">所有班級</option>
-                                    {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {classes.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
                             <div className="flex-1 min-w-[180px] bg-white p-3 rounded-2xl border border-gray-200 flex items-center gap-2 shadow-sm">
@@ -707,7 +715,7 @@ export default function GradesPage() {
                                     className="w-full font-bold text-gray-700 bg-gray-50 border-2 border-transparent focus:border-indigo-500 rounded-xl p-3 outline-none transition"
                                     value={analyticsClass} onChange={e => setAnalyticsClass(e.target.value)}>
                                     <option value="">請選擇班級</option>
-                                    {ALL_CLASSES.map(c => <option key={c} value={c}>{c}</option>)}
+                                    {classes.map(c => <option key={c} value={c}>{c}</option>)}
                                 </select>
                             </div>
                             <div className="flex-1 min-w-[160px]">

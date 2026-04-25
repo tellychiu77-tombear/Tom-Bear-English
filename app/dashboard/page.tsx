@@ -36,7 +36,12 @@ export default function Dashboard() {
     useEffect(() => {
         const checkUser = async () => {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) router.push('/');
+            if (!session) { router.push('/'); return; }
+            const { data: userData } = await supabase.from('users').select('role').eq('id', session.user.id).single();
+            const allowed = ['teacher', 'admin', 'director', 'english_director', 'care_director'];
+            if (!userData || !allowed.includes(userData.role)) {
+                router.push('/'); return;
+            }
         };
         checkUser();
         fetchQueue();

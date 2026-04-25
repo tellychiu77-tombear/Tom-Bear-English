@@ -28,6 +28,8 @@ export default function AdminPage() {
     const [users, setUsers] = useState<any[]>([]);
     const [allStudents, setAllStudents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [accessChecked, setAccessChecked] = useState(false);
+    const [hasAccess, setHasAccess] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -71,16 +73,19 @@ export default function AdminPage() {
     const [editingRolePerms, setEditingRolePerms] = useState<Record<string, boolean>>({});
     const [savingRoleConfig, setSavingRoleConfig] = useState(false);
 
-    useEffect(() => { checkPermissionAndFetch(); }, []);
+    useEffect(() => { checkAccess(); }, []);
 
-    async function checkPermissionAndFetch() {
+    async function checkAccess() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
         const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
-        if (!userData || !['director', 'english_director', 'care_director', 'admin'].includes(userData.role)) {
+        const allowed = ['director', 'english_director', 'care_director', 'admin'];
+        if (!userData || !allowed.includes(userData.role)) {
             alert('⛔ 您沒有權限進入此頁面');
             router.push('/'); return;
         }
+        setHasAccess(true);
+        setAccessChecked(true);
         setCurrentUser(userData);
         fetchUsers();
         fetchRoleConfigs();
@@ -342,6 +347,8 @@ export default function AdminPage() {
     );
     const pendingRequests = linkRequests.filter(r => r.status === 'pending');
 
+    if (!accessChecked) return <div className="p-10 text-center font-bold text-gray-400">驗證中...</div>;
+    if (!hasAccess) return null;
     if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
 
     return (

@@ -6,6 +6,19 @@ import { useRouter } from 'next/navigation';
 
 // ===== 工具函數 =====
 
+function getRoleLabel(role: string, jobTitle?: string): string {
+    if (jobTitle) return jobTitle;
+    const map: Record<string, string> = {
+        parent: '家長',
+        teacher: '老師',
+        director: '主任',
+        english_director: '英文主任',
+        care_director: '安親主任',
+        admin: '行政人員',
+    };
+    return map[role] || '老師';
+}
+
 function relativeTime(dateStr: string): string {
     const d    = new Date(dateStr);
     const now  = new Date();
@@ -321,7 +334,7 @@ export default function ChatPage() {
                                                     <span className={`text-xs truncate max-w-[145px] ${contact.unread ? 'text-gray-700 font-semibold' : 'text-gray-400'}`}>
                                                         {last
                                                             ? last.text
-                                                            : (contact.job_title || (contact.role === 'parent' ? '家長' : '老師/主任'))}
+                                                            : getRoleLabel(contact.role, contact.job_title)}
                                                     </span>
                                                     {contact.unread > 0 && (
                                                         <span className="bg-indigo-600 text-white text-[11px] font-black min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center flex-shrink-0 ml-1">
@@ -354,7 +367,7 @@ export default function ChatPage() {
                                         {activeContact.name || activeContact.email}
                                     </div>
                                     <div className="text-xs text-gray-400 leading-tight">
-                                        {activeContact.job_title || (activeContact.role === 'parent' ? '家長' : '老師/主任')}
+                                        {getRoleLabel(activeContact.role, activeContact.job_title)}
                                     </div>
                                 </div>
                             </div>

@@ -17,6 +17,11 @@ export default function LeavePage() {
     // UI States
     const [searchTerm, setSearchTerm] = useState('');
     const [showForm, setShowForm] = useState(false);
+    const [toast, setToast] = useState<{msg: string, type: 'success'|'error'} | null>(null);
+    const showToast = (msg: string, type: 'success'|'error' = 'success') => {
+        setToast({ msg, type });
+        setTimeout(() => setToast(null), 3000);
+    };
     const [formData, setFormData] = useState({
         studentId: '',
         type: '病假',
@@ -77,7 +82,7 @@ export default function LeavePage() {
 
     const submitLeave = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!formData.reason) return alert('請填寫請假事由');
+        if (!formData.reason) return showToast('請填寫請假事由', 'error');
 
         const { error } = await supabase.from('leave_requests').insert({
             student_id: formData.studentId,
@@ -89,9 +94,9 @@ export default function LeavePage() {
         });
 
         if (error) {
-            alert('送出失敗: ' + error.message);
+            showToast('送出失敗: ' + error.message, 'error');
         } else {
-            alert('假單已送出！');
+            showToast('假單已送出！✅');
             setShowForm(false);
             setFormData(prev => ({ ...prev, reason: '' }));
             if (currentUser.role === 'parent') fetchParentData(currentUser.id);
@@ -114,7 +119,7 @@ export default function LeavePage() {
             .eq('id', id);
 
         if (error) {
-            alert('更新失敗');
+            showToast('更新失敗', 'error');
         } else {
             // 🟢 Audit Log
             const target = leaves.find(l => l.id === id);
@@ -328,6 +333,13 @@ export default function LeavePage() {
                     )}
                 </div>
             </div>
+
+            {/* Toast Notification */}
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold transition-all ${toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {toast.msg}
+                </div>
+            )}
 
             {/* Application Modal (Parent Only) */}
             {showForm && (
