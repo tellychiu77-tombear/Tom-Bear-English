@@ -76,16 +76,10 @@ export default function DashboardPage() {
         const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
 
         if (userData) {
-            // 審核判斷：is_approved=false → pending；role='pending'(未改) → 自動偵測並升級
-            if (userData.is_approved === false) {
+            // 審核判斷：role 仍是 'pending' → 尚未開通；role 已是正式角色 → 放行（不管 is_approved flag）
+            if (userData.role === 'pending' || userData.role == null) {
                 setRole('pending');
                 detectPendingRole(session.user.id);
-            } else if (userData.role === 'pending') {
-                // 管理員開通了 is_approved 但忘記改 role，自動修復：有子女→parent，否則→teacher
-                const { data: kids } = await supabase.from('students').select('id').eq('parent_id', session.user.id).limit(1);
-                const fixedRole = (kids && kids.length > 0) ? 'parent' : 'teacher';
-                await supabase.from('users').update({ role: fixedRole }).eq('id', session.user.id);
-                setRole(fixedRole);
             } else {
                 setRole(userData.role);
             }
