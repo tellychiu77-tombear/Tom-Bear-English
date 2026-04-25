@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
 const DEFAULT_FORM = {
     mood: 3,
@@ -20,6 +21,7 @@ const DEFAULT_FORM = {
 
 export default function ContactBookPage() {
     const router = useRouter();
+    const { toast, showToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [userRole, setUserRole] = useState<string>('');
@@ -261,7 +263,7 @@ export default function ContactBookPage() {
                 const unfilled = filteredStudents.filter(s => !savedStudentIds.has(s.id) && s.id !== student.id);
                 if (unfilled.length > 0) setDesktopStudentId(unfilled[0].id);
             }
-        } catch (e: any) { alert('❌ 儲存失敗: ' + e.message); }
+        } catch (e: any) { showToast('❌ 儲存失敗: ' + e.message, 'error'); }
     };
 
     const handleSign = async (student: any) => {
@@ -295,7 +297,7 @@ export default function ContactBookPage() {
             if (toInsert.length) await supabase.from('contact_books').insert(toInsert);
             for (const { id, ...d } of toUpdate) await supabase.from('contact_books').update(d).eq('id', id);
             setSavedStudentIds(new Set(filteredStudents.map(s => s.id)));
-        } catch (e: any) { alert('❌ 儲存失敗：' + e.message); }
+        } catch (e: any) { showToast('❌ 儲存失敗：' + e.message, 'error'); }
         setSavingAll(false);
     };
 
@@ -342,7 +344,7 @@ export default function ContactBookPage() {
                 targetIds.forEach(id => { if (id) next[id] = { ...next[id], photos: [...(next[id]?.photos || []), ...uploadedUrls] }; });
                 return next;
             });
-        } catch (err: any) { alert('❌ 上傳失敗: ' + err.message); }
+        } catch (err: any) { showToast('❌ 上傳失敗: ' + err.message, 'error'); }
         finally { if (fileInputRef.current) fileInputRef.current.value = ''; if (bulkFileInputRef.current) bulkFileInputRef.current.value = ''; setUploadingStudentId(null); }
     };
 
@@ -412,6 +414,11 @@ export default function ContactBookPage() {
 
     return (
         <div className="font-sans">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             <input type="file" multiple accept="image/*" ref={fileInputRef} className="hidden" onChange={e => handleFileChange(e, false)} />
             <input type="file" multiple accept="image/*" ref={bulkFileInputRef} className="hidden" onChange={e => handleFileChange(e, true)} />
 

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
 export default function StaffManagementPage() {
     const router = useRouter();
@@ -11,6 +12,7 @@ export default function StaffManagementPage() {
     const [classes, setClasses] = useState<any[]>([]);
     const [assignments, setAssignments] = useState<any[]>([]);
     const [searchEmail, setSearchEmail] = useState('');
+    const { toast, showToast } = useToast();
 
     useEffect(() => {
         checkPermissionAndFetch();
@@ -22,7 +24,6 @@ export default function StaffManagementPage() {
 
         const { data: me } = await supabase.from('users').select('role').eq('id', session.user.id).single();
         if (me?.role !== 'director') {
-            alert('權限不足：只有主管(Director)可以進入此頁面');
             router.push('/');
             return;
         }
@@ -51,10 +52,10 @@ export default function StaffManagementPage() {
         try {
             const { error } = await supabase.from('users').update({ role: newRole }).eq('id', userId);
             if (error) throw error;
-            alert('職位更新成功！');
+            showToast('職位更新成功！');
             setUsers(users.map(u => u.id === userId ? { ...u, role: newRole } : u));
         } catch (e: any) {
-            alert('更新失敗: ' + e.message);
+            showToast('更新失敗: ' + e.message, 'error');
         }
     }
 
@@ -62,7 +63,7 @@ export default function StaffManagementPage() {
         if (!className) return;
         try {
             const exists = assignments.find(a => a.teacher_id === teacherId && a.class_name === className);
-            if (exists) { alert('該老師已經負責此班級了'); return; }
+            if (exists) { showToast('該老師已經負責此班級了', 'info'); return; }
 
             const { data, error } = await supabase
                 .from('class_assignments')
@@ -73,7 +74,7 @@ export default function StaffManagementPage() {
             if (error) throw error;
             setAssignments([...assignments, data]);
         } catch (e: any) {
-            alert('指派失敗: ' + e.message);
+            showToast('指派失敗: ' + e.message, 'error');
         }
     }
 
@@ -84,7 +85,7 @@ export default function StaffManagementPage() {
             if (error) throw error;
             setAssignments(assignments.filter(a => a.id !== assignmentId));
         } catch (e: any) {
-            alert('移除失敗: ' + e.message);
+            showToast('移除失敗: ' + e.message, 'error');
         }
     }
 
@@ -100,6 +101,11 @@ export default function StaffManagementPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             <div className="max-w-6xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-black text-gray-800">👥 人事與班級管理</h1>

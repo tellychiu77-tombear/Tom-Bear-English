@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '@/lib/useToast';
 
 type Step = 'role' | 'info' | 'bind' | 'done';
 
 export default function Onboarding() {
     const router = useRouter();
+    const { toast, showToast } = useToast();
     const [loading, setLoading] = useState(false);
     const [step, setStep] = useState<Step>('role');
     const [applyRole, setApplyRole] = useState<'parent' | 'teacher'>('parent');
@@ -31,7 +33,7 @@ export default function Onboarding() {
     // Step 1 → Step 2：儲存基本資料
     async function handleSaveInfo(e: React.FormEvent) {
         e.preventDefault();
-        if (!fullName.trim()) return alert('請輸入姓名');
+        if (!fullName.trim()) { showToast('請輸入姓名', 'error'); return; }
         setLoading(true);
         const { error } = await supabase.from('users').upsert({
             id: session.user.id,
@@ -40,9 +42,9 @@ export default function Onboarding() {
             is_approved: applyRole === 'teacher' ? false : true,
         });
         setLoading(false);
-        if (error) return alert('更新失敗：' + error.message);
+        if (error) { showToast('更新失敗：' + error.message, 'error'); return; }
         if (applyRole === 'teacher') {
-            alert('申請已送出！待行政人員審核後即可使用。');
+            showToast('申請已送出！待行政人員審核後即可使用。');
             router.push('/');
         } else {
             setStep('bind');
@@ -52,8 +54,8 @@ export default function Onboarding() {
     // Step 3（家長）：比對學生
     async function handleBindSearch(e: React.FormEvent) {
         e.preventDefault();
-        if (!chineseName.trim() && !englishName.trim()) return alert('請至少填入孩子的中文姓名或英文名');
-        if (!phone.trim()) return alert('請先填入手機號碼');
+        if (!chineseName.trim() && !englishName.trim()) { showToast('請至少填入孩子的中文姓名或英文名', 'error'); return; }
+        if (!phone.trim()) { showToast('請先填入手機號碼', 'error'); return; }
         setLoading(true);
         setBindResult('idle');
 
@@ -91,13 +93,18 @@ export default function Onboarding() {
             status: 'pending',
         });
         setLoading(false);
-        if (error) return alert('送出失敗：' + error.message);
+        if (error) { showToast('送出失敗：' + error.message, 'error'); return; }
         setBindResult('submitted');
         setStep('done');
     }
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             <div className="bg-white max-w-lg w-full p-8 rounded-2xl shadow-2xl">
 
                 {/* Step 指示器 */}

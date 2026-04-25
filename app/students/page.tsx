@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '../../lib/permissions';
+import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
 // ── 常數 ──────────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,7 @@ export default function StudentsPage() {
 
     // 新增 Modal
     const [addModalOpen, setAddModalOpen] = useState(false);
+    const { toast, showToast } = useToast();
 
     useEffect(() => { checkPermissionAndFetch(); }, []);
 
@@ -71,7 +73,7 @@ export default function StudentsPage() {
         if (!userData) { router.push('/'); return; }
         const { data: roleConfigRow } = await supabase.from('role_configs').select('permissions').eq('role', userData.role).single();
         const perms = getEffectivePermissions(userData.role, roleConfigRow?.permissions ?? null, userData.extra_permissions ?? null);
-        if (!perms.viewAllStudents) { alert('⛔ 您沒有查看學生資料的權限'); router.push('/'); return; }
+        if (!perms.viewAllStudents) { router.push('/'); return; }
         setCanEditStudents(perms.editStudents);
         fetchStudents();
     }
@@ -105,6 +107,11 @@ export default function StudentsPage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             {/* Header */}
             <div className="bg-white border-b sticky top-0 z-10 shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
@@ -262,6 +269,7 @@ export default function StudentsPage() {
                     canEdit={canEditStudents}
                     onClose={() => setProfileStudent(null)}
                     onSaved={() => { fetchStudents(); }}
+                    showToast={showToast}
                 />
             )}
 
@@ -270,6 +278,7 @@ export default function StudentsPage() {
                 <AddStudentModal
                     onClose={() => setAddModalOpen(false)}
                     onSaved={fetchStudents}
+                    showToast={showToast}
                 />
             )}
         </div>
@@ -278,7 +287,7 @@ export default function StudentsPage() {
 
 // ── Student Profile Modal (3 tabs) ────────────────────────────────────────────
 
-function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose, onSaved }: any) {
+function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose, onSaved, showToast }: any) {
     // Basic info state
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [uploading, setUploading] = useState(false);
@@ -359,7 +368,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             if (error) throw error;
             const { data } = supabase.storage.from('contact_photos').getPublicUrl(fileName);
             setBasicForm(f => ({ ...f, photo_url: data.publicUrl }));
-        } catch (err: any) { alert('上傳失敗: ' + err.message); }
+        } catch (err: any) { showToast('上傳失敗: ' + err.message, 'error'); }
         finally { setUploading(false); }
     }
 
@@ -389,8 +398,8 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             }).eq('id', student.id);
             if (error) throw error;
             onSaved();
-            alert('✅ 基本資料已儲存');
-        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
+            showToast('✅ 基本資料已儲存');
+        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 
@@ -407,8 +416,8 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             }).eq('id', student.id);
             if (error) throw error;
             onSaved();
-            alert('✅ 學習檔案已儲存');
-        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
+            showToast('✅ 學習檔案已儲存');
+        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 
@@ -933,7 +942,7 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
 
 // ── Add Student Modal ─────────────────────────────────────────────────────────
 
-function AddStudentModal({ onClose, onSaved }: any) {
+function AddStudentModal({ onClose, onSaved, showToast }: any) {
     const [form, setForm] = useState({
         chinese_name: '', english_name: '', birthday: '',
         school_grade: '國小 一年級', english_class: 'CEI-A', is_after_school: false,
@@ -943,7 +952,7 @@ function AddStudentModal({ onClose, onSaved }: any) {
     const [saving, setSaving] = useState(false);
 
     async function handleSubmit() {
-        if (!form.chinese_name) return alert('請輸入中文姓名');
+        if (!form.chinese_name) { showToast('請輸入中文姓名', 'error'); return; }
         setSaving(true);
         try {
             let p1_id = null;
@@ -964,7 +973,7 @@ function AddStudentModal({ onClose, onSaved }: any) {
             });
             if (error) throw error;
             onSaved(); onClose();
-        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
+        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 

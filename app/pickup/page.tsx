@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '@/lib/useToast';
 
 export default function PickupPage() {
     const [role, setRole] = useState<string | null>(null);
@@ -12,6 +13,7 @@ export default function PickupPage() {
     const [queue, setQueue] = useState<any[]>([]);
     const [statusText, setStatusText] = useState('🔵 連線中...');
     const [audioEnabled, setAudioEnabled] = useState(false);
+    const { toast, showToast } = useToast();
 
     const router = useRouter();
 
@@ -185,8 +187,7 @@ export default function PickupPage() {
         });
 
         if (error) {
-            alert('❌ 呼叫失敗，請重試: ' + error.message);
-            // 失敗的話把按鈕變回來
+            showToast('❌ 呼叫失敗，請重試: ' + error.message, 'error');
             setMyChildren(prev => prev.map(c =>
                 c.id === studentId ? { ...c, pickupStatus: 'idle' } : c
             ));
@@ -201,7 +202,7 @@ export default function PickupPage() {
             .update({ status: newStatus })
             .eq('id', id);
 
-        if (error) alert('更新失敗');
+        if (error) showToast('更新失敗', 'error');
         // 老師端會透過 Realtime 自動更新清單，這裡不用手動 setQueue
     }
 
@@ -209,6 +210,11 @@ export default function PickupPage() {
 
     return (
         <div className="min-h-screen bg-yellow-50 p-4">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             <div className="max-w-2xl mx-auto">
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-black text-yellow-900 flex items-center gap-2">
