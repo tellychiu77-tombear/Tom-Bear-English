@@ -24,7 +24,6 @@ export default function SystemLogsPage() {
         // 嚴格檢查 Super Admin 權限
         const { data: user } = await supabase.from('users').select('is_super_admin').eq('id', session.user.id).single();
         if (!user || !user.is_super_admin) {
-            alert('⛔ 權限不足：只有最高管理員可查看日誌');
             router.push('/admin');
             return;
         }

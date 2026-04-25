@@ -7,6 +7,7 @@ import {
     PERMISSION_META, ALL_PERMISSION_KEYS, JOB_TITLE_PRESETS,
     HARDCODED_DEFAULTS, PermissionKey
 } from '../../lib/permissions';
+import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
 const ENGLISH_CLASS_OPTIONS = [
     { value: 'NONE', label: '❌ 無英文主修 (純課後輔導)' },
@@ -32,6 +33,7 @@ export default function AdminPage() {
     const [hasAccess, setHasAccess] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const { toast, showToast } = useToast();
 
     // Tab
     const [activeTab, setActiveTab] = useState<'users' | 'rolePerms'>('users');
@@ -81,7 +83,6 @@ export default function AdminPage() {
         const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
         const allowed = ['director', 'english_director', 'care_director', 'admin'];
         if (!userData || !allowed.includes(userData.role)) {
-            alert('⛔ 您沒有權限進入此頁面');
             router.push('/'); return;
         }
         setHasAccess(true);
@@ -96,7 +97,7 @@ export default function AdminPage() {
         setLoading(true);
         const { data: usersData, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
         const { data: studentsData } = await supabase.from('students').select('id, parent_id, parent_id_2, chinese_name, grade');
-        if (error) alert('讀取失敗');
+        if (error) showToast('讀取失敗', 'error');
         else { setUsers(usersData || []); setAllStudents(studentsData || []); }
         setLoading(false);
     }
@@ -118,8 +119,8 @@ export default function AdminPage() {
             await logAction('審核綁定申請', `批准 ${req.parent?.email} 綁定 ${req.student?.chinese_name}`);
             fetchLinkRequests();
             fetchUsers();
-            alert('✅ 已批准，學生已連結至家長帳號');
-        } catch (e: any) { alert('❌ ' + e.message); }
+            showToast('✅ 已批准，學生已連結至家長帳號');
+        } catch (e: any) { showToast('❌ ' + e.message, 'error'); }
     }
 
     async function handleRejectLinkRequest(req: any) {
@@ -189,10 +190,10 @@ export default function AdminPage() {
             const { error } = await supabase.from('users').update(updates).eq('id', editingUser.id);
             if (error) throw error;
             await logAction('更新用戶設定', `更新 ${editingUser.email} → 角色:${selectedRole}, 職稱:${editingJobTitle}`);
-            alert('✅ 設定已更新');
+            showToast('✅ 設定已更新');
             fetchUsers();
             setIsModalOpen(false);
-        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
+        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
     }
 
     function selectRoleConfigRole(role: string) {
@@ -210,13 +211,13 @@ export default function AdminPage() {
             if (error) throw error;
             setRoleConfigs(prev => ({ ...prev, [selectedRoleConfigRole]: editingRolePerms }));
             await logAction('修改職位權限', `修改 ${selectedRoleConfigRole} 的預設權限`);
-            alert('✅ 職位預設權限已儲存');
-        } catch (e: any) { alert('❌ 失敗: ' + e.message); }
+            showToast('✅ 職位預設權限已儲存');
+        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
         setSavingRoleConfig(false);
     }
 
     async function handleAddChild() {
-        if (!newChildData.chinese_name) return alert('請輸入姓名');
+        if (!newChildData.chinese_name) { showToast('請輸入姓名', 'info'); return; }
         try {
             let finalGrade = newChildData.english_class;
             if (finalGrade === 'NONE') finalGrade = newChildData.is_after_school ? '課後輔導' : '未分類';
@@ -230,7 +231,7 @@ export default function AdminPage() {
             setUserChildren([...userChildren, data[0]]);
             setNewChildData({ chinese_name: '', english_name: '', english_class: 'CEI-A', is_after_school: false });
             fetchUsers();
-        } catch (e: any) { alert('❌ ' + e.message); }
+        } catch (e: any) { showToast('❌ ' + e.message, 'error'); }
     }
 
     function openEditChild(child: any) {
@@ -259,7 +260,7 @@ export default function AdminPage() {
             setUserChildren(userChildren.map(c => c.id === editingChild.id ? { ...c, ...editingChild, grade: finalGrade } : c));
             setIsEditChildOpen(false);
             fetchUsers();
-        } catch (e: any) { alert('❌ ' + e.message); }
+        } catch (e: any) { showToast('❌ ' + e.message, 'error'); }
     }
 
     async function handleUnbindChild(id: string, name: string) {
@@ -273,7 +274,7 @@ export default function AdminPage() {
             await logAction('解除綁定', `解除 ${editingUser.email} 與 ${name}`);
             setUserChildren(userChildren.filter(c => c.id !== id));
             fetchUsers();
-        } catch (e: any) { alert('❌ ' + e.message); }
+        } catch (e: any) { showToast('❌ ' + e.message, 'error'); }
     }
 
     function toggleClass(cls: string) {
@@ -282,9 +283,9 @@ export default function AdminPage() {
 
     async function handleDeleteUser(id: string, email: string) {
         if (!confirm(`⚠️ 確定要刪除 ${email} 嗎？此動作無法復原。`)) return;
-        if (currentUser.id === id) return alert('❌ 您不能刪除自己的帳號');
+        if (currentUser.id === id) { showToast('❌ 您不能刪除自己的帳號', 'error'); return; }
         const { error } = await supabase.from('users').delete().eq('id', id);
-        if (error) alert('刪除失敗');
+        if (error) showToast('刪除失敗', 'error');
         else { await logAction('刪除用戶', `刪除使用者 ${email}`); fetchUsers(); }
     }
 
@@ -353,6 +354,11 @@ export default function AdminPage() {
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] p-4 md:p-6 font-sans">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             <div className="max-w-7xl mx-auto">
 
                 {/* Header */}

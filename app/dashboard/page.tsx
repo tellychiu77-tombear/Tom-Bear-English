@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '@/lib/useToast';
 
 export default function Dashboard() {
     const [queue, setQueue] = useState<any[]>([]);
@@ -9,6 +10,7 @@ export default function Dashboard() {
     const [newStudentName, setNewStudentName] = useState(''); // 用來存輸入框的文字
     const [isAdding, setIsAdding] = useState(false); // 防止按鈕被連點
     const router = useRouter();
+    const { toast, showToast } = useToast();
 
     // 1. 抓取資料
     const fetchQueue = async () => {
@@ -63,7 +65,7 @@ export default function Dashboard() {
             .update({ status: newStatus })
             .eq('id', id);
 
-        if (error) alert(`更新失敗: ${error.message}`);
+        if (error) showToast(`更新失敗: ${error.message}`, 'error');
         else fetchQueue();
     };
 
@@ -93,7 +95,7 @@ export default function Dashboard() {
             setNewStudentName('');
             fetchQueue(); // 這裡也可以不用呼叫，因為有 Realtime 監聽，但呼叫一下更保險
         } catch (error: any) {
-            alert('新增失敗: ' + error.message);
+            showToast('新增失敗: ' + error.message, 'error');
         } finally {
             setIsAdding(false);
         }
@@ -115,6 +117,11 @@ export default function Dashboard() {
 
     return (
         <div className="min-h-screen bg-gray-50 p-8 font-sans">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             {/* 頂部導航列 */}
             <div className="max-w-6xl mx-auto mb-8 flex items-center justify-between bg-white p-6 rounded-xl shadow-sm">
                 <h1 className="text-3xl font-bold text-gray-800 tracking-tight">

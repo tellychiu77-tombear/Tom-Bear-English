@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { useToast, TOAST_CLASSES } from '@/lib/useToast';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 type TeacherType = 'foreign' | 'external' | 'staff';
@@ -81,6 +82,7 @@ function buildClassGroups(slots: ScheduleSlot[], assignments: Assignment[]) {
 // ══════════════════════════════════════════════════════════════════════════
 export default function SchedulePage() {
     const router = useRouter();
+    const { toast, showToast } = useToast();
     const [loading, setLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
 
@@ -116,7 +118,6 @@ export default function SchedulePage() {
         if (!session) { router.push('/'); return; }
         const { data: user } = await supabase.from('users').select('*').eq('id', session.user.id).single();
         if (!user || !['director', 'manager', 'admin', 'english_director', 'care_director'].includes(user.role)) {
-            alert('⛔ 您沒有權限進入排課系統');
             router.push('/'); return;
         }
         setCurrentUser(user);
@@ -149,7 +150,7 @@ export default function SchedulePage() {
     }
 
     async function createTeacher() {
-        if (!newTeacher.name.trim()) { alert('請填寫老師姓名'); return; }
+        if (!newTeacher.name.trim()) { showToast('請填寫老師姓名', 'error'); return; }
         setSaving(true);
         try {
             const { createClient } = await import('@supabase/supabase-js');
@@ -165,7 +166,7 @@ export default function SchedulePage() {
                 password: placeholderPassword,
             });
             if (signUpError || !signUpData.user) {
-                alert('新增失敗(auth): ' + (signUpError?.message ?? '無法建立帳號'));
+                showToast('新增失敗(auth): ' + (signUpError?.message ?? '無法建立帳號'), 'error');
                 setSaving(false);
                 return;
             }
@@ -179,14 +180,14 @@ export default function SchedulePage() {
                 teacher_type: newTeacher.teacher_type || null,
                 available_days: newTeacher.available_days,
             });
-            if (error) { alert('新增失敗：' + error.message); }
+            if (error) { showToast('新增失敗：' + error.message, 'error'); }
             else {
                 setAddTeacherModal(false);
                 setNewTeacher({ name: '', teacher_type: 'staff', available_days: [] });
                 await fetchAll();
             }
-        } catch (e) {
-            alert('新增失敗：' + e.message);
+        } catch (e: any) {
+            showToast('新增失敗：' + e.message, 'error');
         }
         setSaving(false);
     }
@@ -214,7 +215,7 @@ export default function SchedulePage() {
     // ── Schedule Slot CRUD ──────────────────────────────────────────────
     async function saveSlot() {
         if (!addSlot.class_group || !addSlot.slot_type || !addSlot.day_of_week || !addSlot.start_time) {
-            alert('請填寫班級、課程類型、星期與開始時間');
+            showToast('請填寫班級、課程類型、星期與開始時間', 'error');
             return;
         }
         setSaving(true);
@@ -278,6 +279,11 @@ export default function SchedulePage() {
 
     return (
         <div className="min-h-screen bg-slate-50">
+            {toast && (
+                <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
+                    {toast.msg}
+                </div>
+            )}
             {/* Header */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
                 <div>
