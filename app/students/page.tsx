@@ -52,6 +52,8 @@ export default function StudentsPage() {
     const [filterClass, setFilterClass] = useState('');
     const [canEditStudents, setCanEditStudents] = useState(false);
     const [currentPage, setCurrentPage] = useState(1);
+    const [isTeacherView, setIsTeacherView] = useState(false);
+    const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
 
     // 列表選中的學生 → 開啟 Profile Modal
     const [profileStudent, setProfileStudent] = useState<any>(null);
@@ -69,21 +71,44 @@ export default function StudentsPage() {
     async function checkPermissionAndFetch() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
-        const { data: userData } = await supabase.from('users').select('role, extra_permissions').eq('id', session.user.id).single();
+        const { data: userData } = await supabase.from('users').select('id, role, extra_permissions').eq('id', session.user.id).single();
         if (!userData) { router.push('/'); return; }
+
+        if (userData.role === 'teacher') {
+            // 老師：查詢負責班級，只顯示自己班的學生
+            const { data: assignments } = await supabase
+                .from('teacher_assignments')
+                .select('class_group')
+                .eq('teacher_id', userData.id);
+            const classes = [...new Set((assignments || []).map((a: any) => a.class_group as string))];
+            setTeacherClasses(classes);
+            setIsTeacherView(true);
+            setCanEditStudents(false);
+            fetchStudents(classes);
+            return;
+        }
+
         const { data: roleConfigRow } = await supabase.from('role_configs').select('permissions').eq('role', userData.role).single();
         const perms = getEffectivePermissions(userData.role, roleConfigRow?.permissions ?? null, userData.extra_permissions ?? null);
         if (!perms.viewAllStudents) { router.push('/'); return; }
         setCanEditStudents(perms.editStudents);
-        fetchStudents();
+        fetchStudents([]);
     }
 
-    async function fetchStudents() {
+    async function fetchStudents(teacherClassFilter: string[] = []) {
         setLoading(true);
-        const { data, error } = await supabase
+        let query = supabase
             .from('students')
             .select(`*, parent:users!parent_id(email), parent2:users!parent_id_2(email)`)
             .order('grade').order('chinese_name');
+
+        if (teacherClassFilter.length > 0) {
+            // 用 OR 過濾：grade 欄位包含任一老師負責班級
+            const filterStr = teacherClassFilter.map(c => `grade.ilike.%${c}%`).join(',');
+            query = (query as any).or(filterStr);
+        }
+
+        const { data, error } = await query;
         if (error) console.error(error);
         else setStudents(data || []);
         setLoading(false);
@@ -110,6 +135,12 @@ export default function StudentsPage() {
             {toast && (
                 <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-lg text-white font-bold text-sm ${TOAST_CLASSES[toast.type]}`}>
                     {toast.msg}
+                </div>
+            )}
+            {/* 老師視角提示橫條 */}
+            {isTeacherView && (
+                <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-center text-sm font-bold text-blue-700">
+                    👩‍🏫 老師視角：僅顯示您負責班級（{teacherClasses.length > 0 ? teacherClasses.join('、') : '尚未設定班級'}）的學生
                 </div>
             )}
             {/* Header */}
