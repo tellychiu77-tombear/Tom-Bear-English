@@ -355,14 +355,14 @@ export default function DashboardPage() {
                         <DashboardCard title="親師對話" icon="💬" color="bg-blue-500" onClick={() => router.push('/chat')} badge={counts.unreadChats} desc="即時溝通無障礙" />
                     )}
 
-                    {/* 學生資料：家長看自己的孩子；有 viewAllStudents 者看全部 */}
-                    {(role === 'parent' || permissions?.viewAllStudents) && (
+                    {/* 學生資料：家長看自己的孩子；老師看自己班；有 viewAllStudents 者看全部 */}
+                    {(role === 'parent' || role === 'teacher' || permissions?.viewAllStudents) && (
                         <DashboardCard
                             title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
                             icon="📂"
                             color="bg-indigo-600"
                             onClick={() => router.push(role === 'parent' ? '/my-child' : '/students')}
-                            desc="查看詳細檔案"
+                            desc={role === 'teacher' ? '查看您負責班級的學生' : '查看詳細檔案'}
                         />
                     )}
 
