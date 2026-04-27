@@ -174,78 +174,86 @@ export default function DashboardPage() {
         // ✅ Issue #1：忘記密碼面板
         if (showForgotPw) {
             return (
-                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-blue-500 p-4">
-                    <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-sm animate-fade-in">
-                        {forgotSent ? (
-                            <div className="text-center">
-                                <div className="text-5xl mb-4">📧</div>
-                                <h2 className="text-xl font-bold text-gray-800 mb-2">重設信已寄出</h2>
-                                <p className="text-gray-500 text-sm mb-6">請到 <strong>{forgotEmail}</strong> 的信箱，點選連結設定新密碼。</p>
-                                <p className="text-xs text-gray-400 mb-6">（若未收到，請檢查垃圾郵件）</p>
-                                <button onClick={() => { setShowForgotPw(false); setForgotSent(false); setForgotEmail(''); }}
-                                    className="w-full py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition">
-                                    回到登入
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                <button onClick={() => setShowForgotPw(false)}
-                                    className="text-gray-400 hover:text-indigo-600 text-sm mb-6 flex items-center gap-1">
-                                    ← 回到登入
-                                </button>
-                                <h2 className="text-xl font-bold text-gray-800 mb-1">忘記密碼</h2>
-                                <p className="text-gray-500 text-sm mb-6">輸入您的電子郵件，我們會寄送密碼重設連結。</p>
-                                <form onSubmit={handleForgotPassword} className="space-y-4">
-                                    <div>
-                                        <label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label>
-                                        <input type="email" required
-                                            className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500"
-                                            placeholder="name@example.com"
-                                            value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} />
-                                    </div>
-                                    {forgotError && <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-600 text-sm">{forgotError}</div>}
-                                    <button type="submit" disabled={forgotLoading}
-                                        className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-                                        {forgotLoading ? '發送中...' : '發送重設連結'}
+                <div className="min-h-screen flex items-center justify-center bg-[#F5F7F5] p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+                        <div className="bg-[#1A4B2E] px-8 py-6 flex flex-col items-center">
+                            <img src="/logo.png" alt="Tom Bear English School" className="h-20 w-auto object-contain" />
+                        </div>
+                        <div className="p-8">
+                            {forgotSent ? (
+                                <div className="text-center">
+                                    <div className="text-5xl mb-4">📧</div>
+                                    <h2 className="text-xl font-bold text-[#1A4B2E] mb-2">重設信已寄出</h2>
+                                    <p className="text-gray-500 text-sm mb-6">請到 <strong>{forgotEmail}</strong> 的信箱，點選連結設定新密碼。</p>
+                                    <p className="text-xs text-gray-400 mb-6">（若未收到，請檢查垃圾郵件）</p>
+                                    <button onClick={() => { setShowForgotPw(false); setForgotSent(false); setForgotEmail(''); }}
+                                        className="w-full py-2 bg-[#1A4B2E] text-white font-bold rounded-xl hover:bg-[#163D24] transition">
+                                        回到登入
                                     </button>
-                                </form>
-                            </>
-                        )}
+                                </div>
+                            ) : (
+                                <>
+                                    <button onClick={() => setShowForgotPw(false)}
+                                        className="text-gray-400 hover:text-[#1A4B2E] text-sm mb-6 flex items-center gap-1">
+                                        ← 回到登入
+                                    </button>
+                                    <h2 className="text-xl font-bold text-[#1A4B2E] mb-1">忘記密碼</h2>
+                                    <p className="text-gray-500 text-sm mb-6">輸入您的電子郵件，我們會寄送密碼重設連結。</p>
+                                    <form onSubmit={handleForgotPassword} className="space-y-4">
+                                        <div>
+                                            <label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label>
+                                            <input type="email" required
+                                                className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-[#2D7A4A]"
+                                                placeholder="name@example.com"
+                                                value={forgotEmail} onChange={e => setForgotEmail(e.target.value)} />
+                                        </div>
+                                        {forgotError && <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm">{forgotError}</div>}
+                                        <button type="submit" disabled={forgotLoading}
+                                            className="w-full py-3 bg-[#1A4B2E] text-white font-bold rounded-xl hover:bg-[#163D24] disabled:opacity-50 transition">
+                                            {forgotLoading ? '發送中...' : '發送重設連結'}
+                                        </button>
+                                    </form>
+                                </>
+                            )}
+                        </div>
                     </div>
                 </div>
             );
         }
 
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-600 to-blue-500 p-4">
-                <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md animate-fade-in">
-                    <div className="text-center mb-8">
-                        <h1 className="text-3xl font-black text-gray-800 mb-2">🐻 Tom Bear</h1>
-                        <p className="text-gray-500">智慧補習班系統</p>
+            <div className="min-h-screen flex items-center justify-center bg-[#F5F7F5] p-4">
+                <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+                    <div className="bg-[#1A4B2E] px-8 py-6 flex flex-col items-center">
+                        <img src="/logo.png" alt="Tom Bear English School" className="h-24 w-auto object-contain" />
                     </div>
-                    <form onSubmit={handleLogin} className="space-y-4">
-                        {/* ✅ Issue #10：Email 改中文 */}
-                        <div><label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label><input name="email" type="email" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" /></div>
-                        <div>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="block text-sm font-bold text-gray-700">密碼</label>
-                                {/* ✅ Issue #1：忘記密碼按鈕 */}
-                                <button type="button" onClick={() => setShowForgotPw(true)}
-                                    className="text-xs text-indigo-500 hover:underline">忘記密碼？</button>
+                    <div className="p-8">
+                        <h2 className="text-xl font-bold text-[#1A4B2E] mb-1">歡迎回來</h2>
+                        <p className="text-gray-400 text-sm mb-6">請登入您的帳號</p>
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold text-gray-700 mb-1">電子郵件</label>
+                                <input name="email" type="email" required className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-[#2D7A4A]" />
                             </div>
-                            <input name="password" type="password" required className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-indigo-500" />
+                            <div>
+                                <div className="flex justify-between items-center mb-1">
+                                    <label className="block text-sm font-bold text-gray-700">密碼</label>
+                                    <button type="button" onClick={() => setShowForgotPw(true)}
+                                        className="text-xs text-[#2D7A4A] hover:underline">忘記密碼？</button>
+                                </div>
+                                <input name="password" type="password" required className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-[#2D7A4A]" />
+                            </div>
+                            {loginError && (
+                                <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-red-600 text-sm font-medium">❌ {loginError}</div>
+                            )}
+                            <button type="submit" disabled={loginLoading}
+                                className="w-full py-3 bg-[#1A4B2E] text-white font-bold rounded-xl hover:bg-[#163D24] disabled:opacity-50 transition">
+                                {loginLoading ? '處理中...' : '登入系統'}
+                            </button>
+                        </form>
+                        <div className="mt-5 text-center border-t border-gray-100 pt-5">
+                            <p className="text-gray-500 text-sm">還沒有帳號？ <button type="button" onClick={() => router.push('/register')} className="text-[#1A4B2E] font-bold hover:underline">立即註冊</button></p>
                         </div>
-                        {/* ✅ Issue #2：行內中文錯誤訊息 */}
-                        {loginError && (
-                            <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-600 text-sm font-medium">❌ {loginError}</div>
-                        )}
-                        <button type="submit" disabled={loginLoading}
-                            className="w-full py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition">
-                            {loginLoading ? '處理中...' : '登入系統'}
-                        </button>
-                    </form>
-                    <div className="mt-4 text-center">
-                        <p className="text-gray-500 text-sm">還沒有帳號？ <button type="button" onClick={() => router.push('/register')} className="text-indigo-600 font-bold hover:underline">立即註冊</button></p>
                     </div>
                 </div>
             </div>
@@ -287,31 +295,27 @@ export default function DashboardPage() {
 
     // 3. 已登入狀態
     return (
-        <div className="min-h-screen bg-gray-50 pb-10">
-            <div className="bg-white border-b sticky top-0 z-20 shadow-sm">
-                <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <span className="text-2xl">🐻</span>
-                        <div>
-                            <h1 className="font-bold text-gray-800">Tom Bear</h1>
-                            {/* ✅ 修正重點：使用 ROLE_MAP 來顯示正確的職稱 (如：行政人員) */}
-                            <div className="text-xs text-gray-500 flex items-center flex-wrap gap-1">
-                                Hi, <span className="font-bold text-gray-700">{userName}</span>
-                                <span className={`px-1.5 py-0.5 rounded text-white text-[10px] font-bold
-                                    ${role === 'parent' ? 'bg-green-500' :
-                                        role === 'teacher' ? 'bg-indigo-500' :
-                                            role === 'admin' ? 'bg-gray-700' : 'bg-amber-500'}`}>
-                                    {ROLE_MAP[role] || '使用者'}
+        <div className="min-h-screen bg-[#F5F7F5] pb-10">
+            <div className="bg-[#1A4B2E] sticky top-0 z-20 shadow-md">
+                <div className="max-w-6xl mx-auto px-4 py-2 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                        <img src="/logo.png" alt="Tom Bear" className="h-10 w-auto object-contain" />
+                        <div className="text-xs text-green-200 flex items-center flex-wrap gap-1">
+                            Hi, <span className="font-bold text-white">{userName}</span>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold
+                                ${role === 'parent' ? 'bg-green-300 text-green-900' :
+                                    role === 'teacher' ? 'bg-white/20 text-white' :
+                                        role === 'admin' ? 'bg-white/20 text-white' : 'bg-amber-400 text-amber-900'}`}>
+                                {ROLE_MAP[role] || '使用者'}
+                            </span>
+                            {jobTitle && (
+                                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/20 text-white">
+                                    {jobTitle}
                                 </span>
-                                {jobTitle && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">
-                                        {jobTitle}
-                                    </span>
-                                )}
-                            </div>
+                            )}
                         </div>
                     </div>
-                    <button onClick={handleLogout} className="text-sm text-gray-400 hover:text-red-500 font-bold px-2 py-1">登出</button>
+                    <button onClick={handleLogout} className="text-sm text-green-200 hover:text-white font-bold px-2 py-1 transition">登出</button>
                 </div>
             </div>
 
@@ -360,7 +364,7 @@ export default function DashboardPage() {
                         <DashboardCard
                             title={role === 'parent' ? '我的孩子' : '學生兵籍資料'}
                             icon="📂"
-                            color="bg-indigo-600"
+                            color="bg-[#1A4B2E]"
                             onClick={() => router.push(role === 'parent' ? '/my-child' : '/students')}
                             desc={role === 'teacher' ? '查看您負責班級的學生' : '查看詳細檔案'}
                         />
@@ -381,31 +385,31 @@ export default function DashboardPage() {
 
                     {/* 排課系統：有 viewManagerDashboard 者（主任/主管/行政可排課） */}
                     {(permissions?.viewManagerDashboard || role === 'admin') && (
-                        <DashboardCard title="排課系統" icon="🗓️" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
+                        <DashboardCard title="排課系統" icon="🗓️" color="bg-[#1A4B2E]" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
                     )}
 
-                    {/* 出缺席點名：老師、主任、管理員 */}
-                    {(role === 'teacher' || permissions?.viewAllStudents || ['director', 'english_director', 'care_director', 'admin', 'manager'].includes(role || '')) && (
-                        <DashboardCard title="出缺席點名" icon="📋" color="bg-[#E8695A]" onClick={() => router.push('/attendance')} desc="每日到課記錄・請假自動標記" />
+                    {/* 出缺席點名：權限控制 */}
+                    {permissions?.viewAttendance && (
+                        <DashboardCard title="出缺席點名" icon="📋" color="bg-[#1A4B2E]" onClick={() => router.push('/attendance')} desc="每日到課記錄・請假自動標記" />
                     )}
 
-                    {/* 課程進度：老師、家長、管理員 */}
-                    {(role === 'teacher' || role === 'parent' || permissions?.viewManagerDashboard || permissions?.manageUsers) && (
+                    {/* 課程進度：權限控制 */}
+                    {permissions?.viewProgress && (
                         <DashboardCard
                             title={role === 'parent' ? '課程進度查看' : '課程進度記錄'}
                             icon="📖"
-                            color="bg-rose-500"
+                            color="bg-[#1A4B2E]"
                             onClick={() => router.push('/progress')}
                             desc={role === 'parent' ? '查看孩子班級課程進度與作業' : '記錄每節課教學主題與作業'}
                         />
                     )}
 
-                    {/* 繳費紀錄：管理員角色或家長 */}
-                    {(['director', 'manager', 'admin', 'english_director', 'care_director'].includes(role || '') || role === 'parent') && (
+                    {/* 繳費紀錄：權限控制 */}
+                    {permissions?.viewPayments && (
                         <DashboardCard
                             title={role === 'parent' ? '繳費查詢' : '繳費紀錄'}
                             icon="💰"
-                            color="bg-[#E8695A]"
+                            color="bg-[#1A4B2E]"
                             onClick={() => router.push('/payment')}
                             desc={role === 'parent' ? '查看孩子繳費狀況' : '學費收款登錄・待繳查詢'}
                         />
@@ -425,7 +429,7 @@ function DashboardCard({ title, icon, color, onClick, badge = 0, desc }: any) {
     return (
         <button onClick={onClick} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-200 text-left relative overflow-hidden group w-full">
             <div className={`w-11 h-11 ${color} text-white rounded-xl flex items-center justify-center text-xl shadow-sm mb-3`}>{icon}</div>
-            <h3 className="font-bold text-gray-800 text-base mb-1 group-hover:text-indigo-600 transition-colors">{title}</h3>
+            <h3 className="font-bold text-gray-800 text-base mb-1 group-hover:text-[#1A4B2E] transition-colors">{title}</h3>
             <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
             {badge > 0 && (
                 <div className="absolute top-3 right-3 min-w-[22px] h-[22px] bg-red-500 text-white text-[11px] font-black px-1.5 rounded-full flex items-center justify-center shadow-sm">
