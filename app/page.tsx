@@ -176,10 +176,9 @@ export default function DashboardPage() {
             return (
                 <div className="min-h-screen flex items-center justify-center bg-[#F5F7F5] p-4">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
-                        <div className="bg-[#1A4B2E] px-8 py-6 flex flex-col items-center">
-                            <div className="bg-white rounded-xl p-2 shadow-sm">
-                                <img src="/logo.png" alt="Tom Bear English School" className="h-20 w-auto object-contain" />
-                            </div>
+                        <div className="pt-8 pb-5 px-8 flex flex-col items-center bg-white border-b border-gray-100">
+                            <img src="/logo.png" alt="Tom Bear English School" className="h-20 w-auto object-contain mb-3" />
+                            <h1 className="text-sm font-black text-[#1A4B2E] tracking-widest">湯貝爾英文學校</h1>
                         </div>
                         <div className="p-8">
                             {forgotSent ? (
@@ -226,12 +225,13 @@ export default function DashboardPage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#F5F7F5] p-4">
                 <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-                    <div className="bg-[#1A4B2E] px-8 py-6 flex flex-col items-center">
-                        <div className="bg-white rounded-xl p-2 shadow-sm">
-                            <img src="/logo.png" alt="Tom Bear English School" className="h-24 w-auto object-contain" />
-                        </div>
+                    {/* 品牌區：白底讓深綠 logo 完全顯色 */}
+                    <div className="pt-10 pb-6 px-8 flex flex-col items-center bg-white border-b border-gray-100">
+                        <img src="/logo.png" alt="Tom Bear English School" className="h-28 w-auto object-contain mb-4" />
+                        <h1 className="text-lg font-black text-[#1A4B2E] tracking-widest">湯貝爾英文學校</h1>
+                        <p className="text-xs text-[#2D7A4A] tracking-wider mt-0.5">TOM BEAR ENGLISH SCHOOL</p>
                     </div>
-                    <div className="p-8">
+                    <div className="p-8 pt-7">
                         <h2 className="text-xl font-bold text-[#1A4B2E] mb-1">歡迎回來</h2>
                         <p className="text-gray-400 text-sm mb-6">請登入您的帳號</p>
                         <form onSubmit={handleLogin} className="space-y-4">
