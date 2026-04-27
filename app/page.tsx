@@ -379,9 +379,25 @@ export default function DashboardPage() {
                         <DashboardCard title="部門戰情室" icon="💼" color="bg-cyan-600" onClick={() => router.push('/manager')} desc="查看績效與部門數據" />
                     )}
 
-                    {/* 排課系統：有 viewManagerDashboard 者（主任/主管可排課） */}
-                    {permissions?.viewManagerDashboard && (
-                        <DashboardCard title="排課系統" icon="📋" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
+                    {/* 排課系統：有 viewManagerDashboard 者（主任/主管/行政可排課） */}
+                    {(permissions?.viewManagerDashboard || role === 'admin') && (
+                        <DashboardCard title="排課系統" icon="🗓️" color="bg-indigo-600" onClick={() => router.push('/schedule')} desc="管理課表・老師負責設定" />
+                    )}
+
+                    {/* 出缺席點名：老師、主任、管理員 */}
+                    {(role === 'teacher' || permissions?.viewAllStudents || ['director', 'english_director', 'care_director', 'admin', 'manager'].includes(role || '')) && (
+                        <DashboardCard title="出缺席點名" icon="📋" color="bg-[#E8695A]" onClick={() => router.push('/attendance')} desc="每日到課記錄・請假自動標記" />
+                    )}
+
+                    {/* 課程進度：老師、家長、管理員 */}
+                    {(role === 'teacher' || role === 'parent' || permissions?.viewManagerDashboard || permissions?.manageUsers) && (
+                        <DashboardCard
+                            title={role === 'parent' ? '課程進度查看' : '課程進度記錄'}
+                            icon="📖"
+                            color="bg-rose-500"
+                            onClick={() => router.push('/progress')}
+                            desc={role === 'parent' ? '查看孩子班級課程進度與作業' : '記錄每節課教學主題與作業'}
+                        />
                     )}
 
                     {/* 人事管理：有 manageUsers 者 */}
