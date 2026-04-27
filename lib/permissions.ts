@@ -131,7 +131,10 @@ export function getEffectivePermissions(
     return { ...HARDCODED_DEFAULTS['parent'] };
   }
 
-  const defaults = roleConfig ?? HARDCODED_DEFAULTS[role] ?? HARDCODED_DEFAULTS['parent'];
+  // 三層 merge：硬編碼預設 → DB role_configs（僅覆蓋已有的 key）→ 個人覆蓋
+  // 這樣新增 permission key 時，舊 DB role_configs 不會讓新 key 變成 false
+  const hardcoded = HARDCODED_DEFAULTS[role] ?? HARDCODED_DEFAULTS['parent'];
+  const defaults = roleConfig ? { ...hardcoded, ...roleConfig } : hardcoded;
   const result = {} as Record<PermissionKey, boolean>;
 
   for (const key of ALL_PERMISSION_KEYS) {
