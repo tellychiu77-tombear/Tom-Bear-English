@@ -400,6 +400,17 @@ export default function DashboardPage() {
                         />
                     )}
 
+                    {/* 繳費紀錄：管理員角色或家長 */}
+                    {(['director', 'manager', 'admin', 'english_director', 'care_director'].includes(role || '') || role === 'parent') && (
+                        <DashboardCard
+                            title={role === 'parent' ? '繳費查詢' : '繳費紀錄'}
+                            icon="💰"
+                            color="bg-[#E8695A]"
+                            onClick={() => router.push('/payment')}
+                            desc={role === 'parent' ? '查看孩子繳費狀況' : '學費收款登錄・待繳查詢'}
+                        />
+                    )}
+
                     {/* 人事管理：有 manageUsers 者 */}
                     {permissions?.manageUsers && (
                         <DashboardCard title="人事管理" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
