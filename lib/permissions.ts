@@ -18,7 +18,10 @@ export type PermissionKey =
   | 'viewPickupQueue'       // 接送戰情室（老師端）
   | 'viewManagerDashboard'  // 部門戰情室
   | 'manageUsers'           // 人事管理
-  | 'chatWithParents';      // 親師對話
+  | 'chatWithParents'       // 親師對話
+  | 'viewAttendance'        // 出缺席點名
+  | 'viewProgress'          // 課程進度追蹤
+  | 'viewPayments';         // 繳費紀錄
 
 export const PERMISSION_META: Record<PermissionKey, { label: string; icon: string }> = {
   manageAnnouncements:  { label: '發布/編輯公告', icon: '📢' },
@@ -32,6 +35,9 @@ export const PERMISSION_META: Record<PermissionKey, { label: string; icon: strin
   viewManagerDashboard: { label: '部門戰情室',    icon: '💼' },
   manageUsers:          { label: '人事管理',      icon: '👤' },
   chatWithParents:      { label: '親師對話',      icon: '💬' },
+  viewAttendance:       { label: '出缺席點名',    icon: '📋' },
+  viewProgress:         { label: '課程進度追蹤',  icon: '📖' },
+  viewPayments:         { label: '繳費紀錄',      icon: '💰' },
 };
 
 export const ALL_PERMISSION_KEYS = Object.keys(PERMISSION_META) as PermissionKey[];
@@ -50,52 +56,60 @@ export const JOB_TITLE_PRESETS: Record<string, string[]> = {
 // 程式碼內建預設（DB 讀不到時的最終備用）
 export const HARDCODED_DEFAULTS: Record<string, Record<PermissionKey, boolean>> = {
   director: {
-    manageAnnouncements: true, viewAllStudents: true, editStudents: true,
-    approveLeave: true, viewGrades: true, editGrades: true,
-    fillContactBook: true, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: true, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: true,  editStudents: true,
+    approveLeave: true,  viewGrades: true,  editGrades: true,
+    fillContactBook: true,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: true,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: true,
   },
   english_director: {
-    manageAnnouncements: true, viewAllStudents: true, editStudents: true,
-    approveLeave: true, viewGrades: true, editGrades: true,
-    fillContactBook: true, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: true, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: true,  editStudents: true,
+    approveLeave: true,  viewGrades: true,  editGrades: true,
+    fillContactBook: true,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: true,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: true,
   },
   care_director: {
-    manageAnnouncements: true, viewAllStudents: true, editStudents: true,
-    approveLeave: true, viewGrades: true, editGrades: true,
-    fillContactBook: true, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: true, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: true,  editStudents: true,
+    approveLeave: true,  viewGrades: true,  editGrades: true,
+    fillContactBook: true,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: true,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: true,
   },
   admin: {
-    manageAnnouncements: true, viewAllStudents: true, editStudents: false,
-    approveLeave: true, viewGrades: true, editGrades: false,
-    fillContactBook: false, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: true, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: true,  editStudents: false,
+    approveLeave: true,  viewGrades: true,  editGrades: false,
+    fillContactBook: false,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: true,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: true,
   },
   admin_staff: {
-    manageAnnouncements: false, viewAllStudents: true, editStudents: false,
-    approveLeave: false, viewGrades: true, editGrades: false,
-    fillContactBook: false, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: false, chatWithParents: true,
+    manageAnnouncements: false,  viewAllStudents: true,  editStudents: false,
+    approveLeave: false,  viewGrades: true,  editGrades: false,
+    fillContactBook: false,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: false,  chatWithParents: true,
+    viewAttendance: false,  viewProgress: false,  viewPayments: false,
   },
   teacher: {
-    manageAnnouncements: true, viewAllStudents: false, editStudents: false,
-    approveLeave: true, viewGrades: true, editGrades: true,
-    fillContactBook: true, viewPickupQueue: true, viewManagerDashboard: false,
-    manageUsers: false, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: false,  editStudents: false,
+    approveLeave: true,  viewGrades: true,  editGrades: true,
+    fillContactBook: true,  viewPickupQueue: true,  viewManagerDashboard: false,
+    manageUsers: false,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: false,
   },
   manager: {
-    manageAnnouncements: true, viewAllStudents: true, editStudents: true,
-    approveLeave: true, viewGrades: true, editGrades: true,
-    fillContactBook: true, viewPickupQueue: true, viewManagerDashboard: true,
-    manageUsers: true, chatWithParents: true,
+    manageAnnouncements: true,  viewAllStudents: true,  editStudents: true,
+    approveLeave: true,  viewGrades: true,  editGrades: true,
+    fillContactBook: true,  viewPickupQueue: true,  viewManagerDashboard: true,
+    manageUsers: true,  chatWithParents: true,
+    viewAttendance: true,  viewProgress: true,  viewPayments: true,
   },
   parent: {
-    manageAnnouncements: false, viewAllStudents: false, editStudents: false,
-    approveLeave: false, viewGrades: false, editGrades: false,
-    fillContactBook: false, viewPickupQueue: false, viewManagerDashboard: false,
-    manageUsers: false, chatWithParents: true,
+    manageAnnouncements: false,  viewAllStudents: false,  editStudents: false,
+    approveLeave: false,  viewGrades: false,  editGrades: false,
+    fillContactBook: false,  viewPickupQueue: false,  viewManagerDashboard: false,
+    manageUsers: false,  chatWithParents: true,
+    viewAttendance: false,  viewProgress: true,  viewPayments: true,
   },
 };
 
