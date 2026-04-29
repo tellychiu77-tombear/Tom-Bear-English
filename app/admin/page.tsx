@@ -384,6 +384,40 @@ export default function AdminPage() {
                     </div>
                 </div>
 
+                {/* 🔔 待審核帳號橫幅 */}
+                {(() => {
+                    const pendingUsers = users.filter(u => u.role === 'pending');
+                    if (pendingUsers.length === 0) return null;
+                    return (
+                        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-5">
+                            <div className="flex items-center gap-2 mb-3">
+                                <span className="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse shrink-0" />
+                                <p className="text-sm font-bold text-orange-800">有 {pendingUsers.length} 個帳號等待審核開通</p>
+                            </div>
+                            <div className="space-y-2">
+                                {pendingUsers.map(u => (
+                                    <div key={u.id} className="bg-white border border-orange-100 rounded-lg px-4 py-2.5 flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-bold text-orange-700 shrink-0">
+                                            {(u.name || u.email || '?')[0].toUpperCase()}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-bold text-gray-800">{u.name || '未填姓名'}</p>
+                                            <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                                        </div>
+                                        <button
+                                            onClick={() => { setEditingUser(u); setSelectedRole('teacher'); setSelectedRoleConfigRole(''); setEditingJobTitle(u.job_title || ''); setIsApproved(true); setIsModalOpen(true); }}
+                                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white shrink-0"
+                                            style={{ backgroundColor: '#1A4B2E' }}
+                                        >
+                                            審核開通
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })()}
+
                 {/* Tab Bar + Content */}
                 <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
                     <div className="flex border-b">

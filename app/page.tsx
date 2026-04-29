@@ -49,6 +49,7 @@ export default function DashboardPage() {
 
     // 計數器狀態
     const [counts, setCounts] = useState({ pickup: 0, leaves: 0, unreadChats: 0 });
+    const [pendingCounts, setPendingCounts] = useState({ users: 0, bindings: 0 });
     const [permissions, setPermissions] = useState<PermissionsMap | null>(null);
     const router = useRouter();
 
@@ -62,7 +63,9 @@ export default function DashboardPage() {
             // ✅ 監聽審核狀態：管理員審核通過時自動刷新，家長不需要手動重新整理
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'users' }, (payload) => {
                 if (payload.new?.is_approved === true) { init(); }
+                fetchPendingCounts();
             })
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'users' }, () => fetchPendingCounts())
             .subscribe();
         return () => { supabase.removeChannel(channel); };
     }, [role]);
@@ -101,6 +104,9 @@ export default function DashboardPage() {
             setPermissions(effectivePerms);
 
             fetchCounts(session.user.id, userData.role);
+            if (['director', 'manager', 'admin', 'english_director', 'care_director'].includes(userData.role)) {
+                fetchPendingCounts();
+            }
         } else {
             setRole('pending');
         }
@@ -132,6 +138,12 @@ export default function DashboardPage() {
             pickupCount = pCount || 0;
         }
         setCounts({ unreadChats: chatCount || 0, leaves: leaveCount, pickup: pickupCount });
+    }
+
+    async function fetchPendingCounts() {
+        const { count: uCount } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'pending');
+        const { count: bCount } = await supabase.from('parent_student_links').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+        setPendingCounts({ users: uCount || 0, bindings: bCount || 0 });
     }
 
     // ✅ Issue #2：移除 alert()，改為行內中文錯誤
@@ -326,11 +338,61 @@ export default function DashboardPage() {
                 </div>
             </div>
 
-            <div className="max-w-6xl mx-auto p-4 space-y-6">
+            <div className="max-w-6xl mx-auto p-4 space-y-4">
+                {/* 🔔 管理員：待審核帳號提示條 */}
+                {permissions?.manageUsers && (pendingCounts.users > 0 || pendingCounts.bindings > 0) && (
+                    <div
+                        onClick={() => router.push('/admin')}
+                        className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-orange-100 transition"
+                    >
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-400 shrink-0 animate-pulse" />
+                        <p className="text-sm text-orange-800 flex-1">
+                            {pendingCounts.users > 0 && <span>有 <strong>{pendingCounts.users} 個帳號</strong>等待審核開通</span>}
+                            {pendingCounts.users > 0 && pendingCounts.bindings > 0 && <span>，</span>}
+                            {pendingCounts.bindings > 0 && <span><strong>{pendingCounts.bindings} 件</strong>家長綁定申請待處理</span>}
+                        </p>
+                        <span className="text-sm font-bold text-orange-600 shrink-0">前往審核 →</span>
+                    </div>
+                )}
+
+                {/* 🚌 接送緊急提示 */}
                 {counts.pickup > 0 && role !== 'parent' && (
                     <div onClick={() => router.push('/pickup')} className="bg-red-500 text-white p-4 rounded-xl shadow-lg flex justify-between items-center cursor-pointer animate-pulse">
                         <div className="font-bold">🚌 目前有 {counts.pickup} 位學生等待接送！</div>
                         <div className="bg-white/20 px-3 py-1 rounded text-sm font-bold">查看</div>
+                    </div>
+                )}
+
+                {/* 待處理事項（管理員專屬） */}
+                {permissions?.manageUsers && (pendingCounts.users > 0 || pendingCounts.bindings > 0 || counts.leaves > 0 || counts.unreadChats > 0) && (
+                    <div>
+                        <p className="text-xs font-bold text-gray-400 mb-2 tracking-wider uppercase">待處理事項</p>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {pendingCounts.users > 0 && (
+                                <button onClick={() => router.push('/admin')} className="bg-white border-l-[3px] border-orange-400 rounded-xl p-3 text-left hover:bg-orange-50 transition">
+                                    <p className="text-xl font-black text-orange-600">{pendingCounts.users}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">帳號待審核</p>
+                                </button>
+                            )}
+                            {pendingCounts.bindings > 0 && (
+                                <button onClick={() => router.push('/admin')} className="bg-white border-l-[3px] border-blue-400 rounded-xl p-3 text-left hover:bg-blue-50 transition">
+                                    <p className="text-xl font-black text-blue-600">{pendingCounts.bindings}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">綁定申請</p>
+                                </button>
+                            )}
+                            {counts.unreadChats > 0 && (
+                                <button onClick={() => router.push('/chat')} className="bg-white border-l-[3px] border-red-400 rounded-xl p-3 text-left hover:bg-red-50 transition">
+                                    <p className="text-xl font-black text-red-500">{counts.unreadChats}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">未讀訊息</p>
+                                </button>
+                            )}
+                            {counts.leaves > 0 && (
+                                <button onClick={() => router.push('/leave')} className="bg-white border-l-[3px] border-teal-400 rounded-xl p-3 text-left hover:bg-teal-50 transition">
+                                    <p className="text-xl font-black text-teal-600">{counts.leaves}</p>
+                                    <p className="text-xs text-gray-500 mt-0.5">待審假單</p>
+                                </button>
+                            )}
+                        </div>
                     </div>
                 )}
 
@@ -424,7 +486,10 @@ export default function DashboardPage() {
 
                     {/* 人事管理：有 manageUsers 者 */}
                     {permissions?.manageUsers && (
-                        <DashboardCard title="人事管理" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級" />
+                        <DashboardCard title="人事管理" icon="👥" color="bg-gray-700" onClick={() => router.push('/admin')} desc="設定師資與班級"
+                            badge={pendingCounts.users + pendingCounts.bindings}
+                            badgeColor="bg-orange-400"
+                        />
                     )}
                 </div>
             </div>
@@ -432,14 +497,14 @@ export default function DashboardPage() {
     );
 }
 
-function DashboardCard({ title, icon, color, onClick, badge = 0, desc }: any) {
+function DashboardCard({ title, icon, color, onClick, badge = 0, badgeColor = 'bg-red-500', desc }: any) {
     return (
         <button onClick={onClick} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-200 text-left relative overflow-hidden group w-full">
             <div className={`w-11 h-11 ${color} text-white rounded-xl flex items-center justify-center text-xl shadow-sm mb-3`}>{icon}</div>
             <h3 className="font-bold text-gray-800 text-base mb-1 group-hover:text-[#1A4B2E] transition-colors">{title}</h3>
             <p className="text-xs text-gray-400 leading-relaxed">{desc}</p>
             {badge > 0 && (
-                <div className="absolute top-3 right-3 min-w-[22px] h-[22px] bg-red-500 text-white text-[11px] font-black px-1.5 rounded-full flex items-center justify-center shadow-sm">
+                <div className={`absolute top-3 right-3 min-w-[22px] h-[22px] ${badgeColor} text-white text-[11px] font-black px-1.5 rounded-full flex items-center justify-center shadow-sm`}>
                     {badge > 99 ? '99+' : badge}
                 </div>
             )}
