@@ -487,7 +487,7 @@ export default function PaymentPage() {
                                         <span>📋 批次新增繳費</span>
                                         <button onClick={() => setShowBatchForm(false)} className="bg-white/20 hover:bg-white/30 rounded-full w-7 h-7 flex items-center justify-center text-sm">✕</button>
                                     </div>
-                                    <div className="p-5 space-y-4">
+                                    <div className="p-5 space-y-4 overflow-y-auto max-h-[calc(100vh-8rem)]">
                                         {/* Step 1: 選班級 */}
                                         <div>
                                             <label className="block text-xs font-bold text-gray-600 mb-1">① 選擇班級</label>
