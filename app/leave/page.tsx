@@ -147,6 +147,12 @@ export default function LeavePage() {
     if (loading) return <div className="p-10 text-center text-gray-500 animate-pulse">載入資料中...</div>;
 
     const isStaff = currentUser?.role !== 'parent';
+    const adminRoles = ['admin', 'director', 'english_director', 'care_director', 'manager'];
+    const isAdmin = adminRoles.includes(currentUser?.role || '');
+
+    // Badge label based on role
+    const staffBadgeLabel = isAdmin ? 'ADMIN' : '老師';
+    const staffBadgeColor = isAdmin ? 'bg-blue-600 shadow-blue-200' : 'bg-indigo-500 shadow-indigo-200';
 
     return (
         <div className="min-h-screen bg-gray-50 p-4 md:p-8 font-sans">
@@ -158,7 +164,7 @@ export default function LeavePage() {
                         <h1 className="text-3xl font-black text-gray-800 tracking-tight flex items-center gap-3">
                             📅 請假管理中心
                             {isStaff ? (
-                                <span className="bg-blue-600 text-white text-xs px-2 py-1 rounded-full tracking-wider font-bold shadow-blue-200 shadow-lg">ADMIN</span>
+                                <span className={`${staffBadgeColor} text-white text-xs px-2 py-1 rounded-full tracking-wider font-bold shadow-lg`}>{staffBadgeLabel}</span>
                             ) : (
                                 <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full tracking-wider font-bold shadow-green-200 shadow-lg">PARENT</span>
                             )}
