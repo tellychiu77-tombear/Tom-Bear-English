@@ -2,40 +2,29 @@ import { supabase } from '@/lib/supabaseClient';
 
 /**
  * 記錄系統操作日誌 (Audit Log)
- * @param action 動作名稱 (e.g., '刪除學生', '修改成績')
- * @param details 詳細內容 (e.g., '移除了學生：王小明', '將分數從 60 改為 80')
+ * 寫入 system_logs 表，供監控日誌頁面查閱
  */
 export async function logAction(action: string, details: string) {
     try {
-        // 1. 取得當前使用者
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session) return; // 沒登入就不記 (或記為系統自動)
+        if (!session) return;
 
-        // 2. 取得使用者姓名（從 users 表）
-        let userName = session.user.email;
+        let operatorEmail = session.user.email ?? '未知帳號';
         const { data: profile } = await supabase
             .from('users')
-            .select('name')
+            .select('name, email')
             .eq('id', session.user.id)
             .single();
+        if (profile?.name) operatorEmail = `${profile.name} (${profile.email ?? ''})`;
+        else if (profile?.email) operatorEmail = profile.email;
 
-        if (profile) {
-            userName = profile.name || session.user.email;
-        }
-
-        // 3. 寫入 Logs
-        const { error } = await supabase.from('audit_logs').insert({
+        await supabase.from('system_logs').insert({
+            operator_email: operatorEmail,
             action,
             details,
-            user_id: session.user.id,
-            user_name: userName,
-            created_at: new Date().toISOString()
         });
-
-        if (error) {
-            console.error('Failed to write audit log:', error);
-        }
     } catch (err) {
-        console.error('Error in logAction:', err);
+        // 日誌失敗不影響主流程
+        console.error('logAction error:', err);
     }
 }
