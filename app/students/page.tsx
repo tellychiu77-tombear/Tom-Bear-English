@@ -6,29 +6,29 @@ import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '../../lib/permissions';
 import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
-// ── 常數 ──────────────────────────────────────────────────────────────────────
+// ââ å¸¸æ¸ ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 const LEVEL_OPTIONS = [
     "Let's Go 1", "Let's Go 2", "Let's Go 3",
     "Let's Go 4", "Let's Go 5", "Let's Go 6",
     'Smart Choice 1', 'Smart Choice 2', 'Smart Choice 3+',
-    'Beginner', '待評估'
+    'Beginner', 'å¾è©ä¼°'
 ];
 
 const STRENGTH_TAGS = [
-    '自然發音', '字彙量豐富', '閱讀理解強', '口語表達佳',
-    '主動參與', '文法掌握好', '聽力佳', '書寫工整',
-    '學習動機高', '記憶力好', '上課專注', '喜歡閱讀'
+    'èªç¶ç¼é³', 'å­å½éè±å¯', 'é±è®çè§£å¼·', 'å£èªè¡¨éä½³',
+    'ä¸»ååè', 'ææ³ææ¡å¥½', 'è½åä½³', 'æ¸å¯«å·¥æ´',
+    'å­¸ç¿åæ©é«', 'è¨æ¶åå¥½', 'ä¸èª²å°æ³¨', 'åæ­¡é±è®'
 ];
 
 const IMPROVEMENT_TAGS = [
-    '發音需加強', '字彙量不足', '閱讀需加強', '口語需練習',
-    '較被動', '文法錯誤多', '聽力需加強', '書寫需加強',
-    '注意力不集中', '作業完成率低', '容易分心', '情緒管理需加強'
+    'ç¼é³éå å¼·', 'å­å½éä¸è¶³', 'é±è®éå å¼·', 'å£èªéç·´ç¿',
+    'è¼è¢«å', 'ææ³é¯èª¤å¤', 'è½åéå å¼·', 'æ¸å¯«éå å¼·',
+    'æ³¨æåä¸éä¸­', 'ä½æ¥­å®æçä½', 'å®¹æåå¿', 'æç·ç®¡çéå å¼·'
 ];
 
 const ENGLISH_CLASS_OPTIONS = [
-    { value: 'NONE', label: '❌ 無英文主修 (純安親/課輔)' },
+    { value: 'NONE', label: 'â ç¡è±æä¸»ä¿® (ç´å®è¦ª/èª²è¼)' },
     ...Array.from({ length: 26 }, (_, i) => ({
         value: `CEI-${String.fromCharCode(65 + i)}`,
         label: `CEI-${String.fromCharCode(65 + i)}`
@@ -36,12 +36,12 @@ const ENGLISH_CLASS_OPTIONS = [
 ];
 
 const SCHOOL_GRADE_OPTIONS = [
-    '國小 一年級', '國小 二年級', '國小 三年級',
-    '國小 四年級', '國小 五年級', '國小 六年級',
-    '國中 七年級', '國中 八年級', '國中 九年級'
+    'åå° ä¸å¹´ç´', 'åå° äºå¹´ç´', 'åå° ä¸å¹´ç´',
+    'åå° åå¹´ç´', 'åå° äºå¹´ç´', 'åå° å­å¹´ç´',
+    'åä¸­ ä¸å¹´ç´', 'åä¸­ å«å¹´ç´', 'åä¸­ ä¹å¹´ç´'
 ];
 
-// ── 主頁面 ────────────────────────────────────────────────────────────────────
+// ââ ä¸»é é¢ ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 const PAGE_SIZE = 30;
 
@@ -54,12 +54,13 @@ export default function StudentsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [isTeacherView, setIsTeacherView] = useState(false);
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
+    const [noClassTeacher, setNoClassTeacher] = useState(false);
 
-    // 列表選中的學生 → 開啟 Profile Modal
+    // åè¡¨é¸ä¸­çå­¸ç â éå Profile Modal
     const [profileStudent, setProfileStudent] = useState<any>(null);
     const [profileTab, setProfileTab] = useState<'basic' | 'learning' | 'analytics'>('basic');
 
-    // 新增 Modal
+    // æ°å¢ Modal
     const [addModalOpen, setAddModalOpen] = useState(false);
     const { toast, showToast } = useToast();
 
@@ -75,7 +76,7 @@ export default function StudentsPage() {
         if (!userData) { router.push('/'); return; }
 
         if (userData.role === 'teacher') {
-            // 老師：查詢負責班級，只顯示自己班的學生
+            // èå¸«ï¼æ¥è©¢è² è²¬ç­ç´ï¼åªé¡¯ç¤ºèªå·±ç­çå­¸ç
             const { data: assignments } = await supabase
                 .from('teacher_assignments')
                 .select('class_group')
@@ -84,6 +85,12 @@ export default function StudentsPage() {
             setTeacherClasses(classes);
             setIsTeacherView(true);
             setCanEditStudents(false);
+            if (classes.length === 0) {
+                // å°æªåéç­ç´çèå¸«ï¼ä¸é¡¯ç¤ºå­¸çï¼é¡¯ç¤ºæç¤ºè¨æ¯
+                setNoClassTeacher(true);
+                setLoading(false);
+                return;
+            }
             fetchStudents(classes);
             return;
         }
@@ -103,7 +110,7 @@ export default function StudentsPage() {
             .order('grade').order('chinese_name');
 
         if (teacherClassFilter.length > 0) {
-            // 用 OR 過濾：grade 欄位包含任一老師負責班級
+            // ç¨ OR éæ¿¾ï¼grade æ¬ä½åå«ä»»ä¸èå¸«è² è²¬ç­ç´
             const filterStr = teacherClassFilter.map(c => `grade.ilike.%${c}%`).join(',');
             query = (query as any).or(filterStr);
         }
@@ -128,7 +135,18 @@ export default function StudentsPage() {
     const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE));
     const paginatedStudents = filteredStudents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-    if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
+    if (loading) return <div className="p-10 text-center font-bold text-gray-400">è¼å¥ä¸­...</div>;
+
+    if (noClassTeacher) return (
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <div className="text-6xl">ð«</div>
+            <h2 className="text-2xl font-black text-gray-700">å°æªè¢«åéç­ç´</h2>
+            <p className="text-gray-500 font-medium max-w-sm">æ¨ç®åæ²æè² è²¬çç­ç´ï¼è«è¯çµ¡ç®¡çå¡çºæ¨è¨­å®ç­ç´ææ´¾å¾ï¼åæ¥çå­¸çè³æã</p>
+            <button onClick={() => router.push('/')} className="mt-2 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition">
+                è¿åé¦é 
+            </button>
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -137,30 +155,30 @@ export default function StudentsPage() {
                     {toast.msg}
                 </div>
             )}
-            {/* 老師視角提示橫條 */}
-            {isTeacherView && (
+            {/* èå¸«è¦è§æç¤ºæ©«æ¢ */}
+            {isTeacherView && !noClassTeacher && (
                 <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-center text-sm font-bold text-blue-700">
-                    👩‍🏫 老師視角：僅顯示您負責班級（{teacherClasses.length > 0 ? teacherClasses.join('、') : '尚未設定班級'}）的學生
+                    ð©âð« èå¸«è¦è§ï¼åé¡¯ç¤ºæ¨è² è²¬ç­ç´ï¼{teacherClasses.join('ã')}ï¼çå­¸ç
                 </div>
             )}
             {/* Header */}
             <div className="bg-white border-b sticky top-0 z-10 shadow-sm">
                 <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-600 font-bold text-sm">← 首頁</button>
-                        <h1 className="text-xl font-black text-gray-800">📂 學生資料庫</h1>
-                        <span className="text-xs text-gray-400 font-bold bg-gray-100 px-2 py-0.5 rounded-full">{filteredStudents.length} 位</span>
+                        <button onClick={() => router.push('/')} className="text-gray-400 hover:text-gray-600 font-bold text-sm">â é¦é </button>
+                        <h1 className="text-xl font-black text-gray-800">ð å­¸çè³æåº«</h1>
+                        <span className="text-xs text-gray-400 font-bold bg-gray-100 px-2 py-0.5 rounded-full">{filteredStudents.length} ä½</span>
                     </div>
                     <div className="flex gap-2">
                         <select value={filterClass} onChange={e => setFilterClass(e.target.value)}
                             className="p-2 border border-gray-200 rounded-lg font-bold text-sm text-gray-700 outline-none bg-white">
-                            <option value="">🏫 全部班級</option>
+                            <option value="">ð« å¨é¨ç­ç´</option>
                             {uniqueClasses.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
                         {canEditStudents && (
                             <button onClick={() => setAddModalOpen(true)}
                                 className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-indigo-700 transition">
-                                + 新增學生
+                                + æ°å¢å­¸ç
                             </button>
                         )}
                     </div>
@@ -173,11 +191,11 @@ export default function StudentsPage() {
                     <table className="w-full text-left">
                         <thead className="bg-gray-50 border-b border-gray-100">
                             <tr>
-                                <th className="p-4 text-xs font-black text-gray-400 uppercase">學生</th>
-                                <th className="p-4 text-xs font-black text-gray-400 uppercase">班級 / 程度</th>
-                                <th className="p-4 text-xs font-black text-gray-400 uppercase">家長狀態</th>
-                                <th className="p-4 text-xs font-black text-gray-400 uppercase">學習標籤</th>
-                                <th className="p-4 text-right text-xs font-black text-gray-400 uppercase">操作</th>
+                                <th className="p-4 text-xs font-black text-gray-400 uppercase">å­¸ç</th>
+                                <th className="p-4 text-xs font-black text-gray-400 uppercase">ç­ç´ / ç¨åº¦</th>
+                                <th className="p-4 text-xs font-black text-gray-400 uppercase">å®¶é·çæ</th>
+                                <th className="p-4 text-xs font-black text-gray-400 uppercase">å­¸ç¿æ¨ç±¤</th>
+                                <th className="p-4 text-right text-xs font-black text-gray-400 uppercase">æä½</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-50">
@@ -195,7 +213,7 @@ export default function StudentsPage() {
                                             )}
                                             <div>
                                                 <div className="font-bold text-gray-800">{s.chinese_name}</div>
-                                                <div className="text-xs text-gray-400">{s.english_name || '未設英文名'}</div>
+                                                <div className="text-xs text-gray-400">{s.english_name || 'æªè¨­è±æå'}</div>
                                             </div>
                                         </div>
                                     </td>
@@ -203,51 +221,51 @@ export default function StudentsPage() {
                                         <div className="flex flex-col gap-1">
                                             {s.grade && s.grade.split(',').map((g: string, i: number) => (
                                                 <span key={i} className={`px-2 py-0.5 rounded text-[11px] font-black border inline-block w-fit
-                                                    ${g.includes('課後輔導') ? 'bg-orange-50 text-orange-600 border-orange-100'
+                                                    ${g.includes('èª²å¾è¼å°') ? 'bg-orange-50 text-orange-600 border-orange-100'
                                                         : g.includes('CEI') ? 'bg-indigo-50 text-indigo-600 border-indigo-100'
                                                             : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
                                                     {g.trim()}
                                                 </span>
                                             ))}
                                             {s.level && (
-                                                <span className="text-xs text-purple-600 font-bold">📚 {s.level}</span>
+                                                <span className="text-xs text-purple-600 font-bold">ð {s.level}</span>
                                             )}
                                         </div>
                                     </td>
                                     <td className="p-4">
                                         {s.parent
-                                            ? <span className="text-green-600 text-xs font-bold">✅ 已綁定</span>
-                                            : <span className="text-gray-300 text-xs font-bold">❌ 未綁定</span>
+                                            ? <span className="text-green-600 text-xs font-bold">â å·²ç¶å®</span>
+                                            : <span className="text-gray-300 text-xs font-bold">â æªç¶å®</span>
                                         }
                                     </td>
                                     <td className="p-4">
                                         <div className="flex flex-wrap gap-1">
                                             {(s.strength_tags || []).slice(0, 2).map((t: string) => (
-                                                <span key={t} className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">✦ {t}</span>
+                                                <span key={t} className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">â¦ {t}</span>
                                             ))}
                                             {(s.improvement_tags || []).slice(0, 1).map((t: string) => (
-                                                <span key={t} className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">△ {t}</span>
+                                                <span key={t} className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">â³ {t}</span>
                                             ))}
                                             {((s.strength_tags || []).length + (s.improvement_tags || []).length) > 3 && (
                                                 <span className="text-[10px] text-gray-400 font-bold">+{((s.strength_tags || []).length + (s.improvement_tags || []).length) - 3}</span>
                                             )}
                                             {!(s.strength_tags?.length) && !(s.improvement_tags?.length) && (
-                                                <span className="text-[10px] text-gray-300">尚未設定</span>
+                                                <span className="text-[10px] text-gray-300">å°æªè¨­å®</span>
                                             )}
                                         </div>
                                     </td>
                                     <td className="p-4 text-right" onClick={e => e.stopPropagation()}>
                                         <button onClick={() => openProfile(s, 'analytics')}
                                             className="text-purple-500 hover:bg-purple-50 px-2 py-1 rounded font-bold text-xs transition mr-1">
-                                            📊
+                                            ð
                                         </button>
                                         <button onClick={() => openProfile(s, 'learning')}
                                             className="text-teal-500 hover:bg-teal-50 px-2 py-1 rounded font-bold text-xs transition mr-1">
-                                            📚
+                                            ð
                                         </button>
                                         <button onClick={() => openProfile(s, 'basic')}
                                             className="text-indigo-600 hover:bg-indigo-50 px-3 py-1 rounded font-bold text-xs transition">
-                                            {canEditStudents ? '編輯' : '查看'}
+                                            {canEditStudents ? 'ç·¨è¼¯' : 'æ¥ç'}
                                         </button>
                                     </td>
                                 </tr>
@@ -255,7 +273,7 @@ export default function StudentsPage() {
                         </tbody>
                     </table>
                     {filteredStudents.length === 0 && (
-                        <div className="p-16 text-center text-gray-300 font-bold">尚無學生資料</div>
+                        <div className="p-16 text-center text-gray-300 font-bold">å°ç¡å­¸çè³æ</div>
                     )}
                 </div>
             </div>
@@ -264,14 +282,14 @@ export default function StudentsPage() {
             {totalPages > 1 && (
                 <div className="max-w-7xl mx-auto px-4 pb-4 flex items-center justify-between">
                     <span className="text-xs text-gray-400 font-bold">
-                        顯示 {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filteredStudents.length)} 位，共 {filteredStudents.length} 位
+                        é¡¯ç¤º {(currentPage - 1) * PAGE_SIZE + 1}â{Math.min(currentPage * PAGE_SIZE, filteredStudents.length)} ä½ï¼å± {filteredStudents.length} ä½
                     </span>
                     <div className="flex items-center gap-1">
                         <button
                             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                             disabled={currentPage === 1}
                             className="px-3 py-1.5 rounded-lg border text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition">
-                            ← 上一頁
+                            â ä¸ä¸é 
                         </button>
                         {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
                             <button key={page}
@@ -285,7 +303,7 @@ export default function StudentsPage() {
                             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                             disabled={currentPage === totalPages}
                             className="px-3 py-1.5 rounded-lg border text-sm font-bold text-gray-600 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition">
-                            下一頁 →
+                            ä¸ä¸é  â
                         </button>
                     </div>
                 </div>
@@ -316,7 +334,7 @@ export default function StudentsPage() {
     );
 }
 
-// ── Student Profile Modal (3 tabs) ────────────────────────────────────────────
+// ââ Student Profile Modal (3 tabs) ââââââââââââââââââââââââââââââââââââââââââââ
 
 function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose, onSaved, showToast }: any) {
     // Basic info state
@@ -326,17 +344,17 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
 
     function parseGradeToForm(fullGrade: string) {
         if (!fullGrade) return { eng: 'CEI-A', after: false };
-        const hasAfterSchool = fullGrade.includes('課後輔導');
-        let engClass = fullGrade.replace(', 課後輔導', '').replace('課後輔導', '').trim();
+        const hasAfterSchool = fullGrade.includes('èª²å¾è¼å°');
+        let engClass = fullGrade.replace(', èª²å¾è¼å°', '').replace('èª²å¾è¼å°', '').trim();
         if (engClass.endsWith(',')) engClass = engClass.slice(0, -1).trim();
-        if (!engClass || engClass === '未分類') engClass = 'NONE';
+        if (!engClass || engClass === 'æªåé¡') engClass = 'NONE';
         return { eng: engClass || 'CEI-A', after: hasAfterSchool };
     }
 
     function combineFormToGrade(eng: string, after: boolean) {
-        if (eng === 'NONE' && after) return '課後輔導';
-        if (eng === 'NONE' && !after) return '未分類';
-        if (after) return `${eng}, 課後輔導`;
+        if (eng === 'NONE' && after) return 'èª²å¾è¼å°';
+        if (eng === 'NONE' && !after) return 'æªåé¡';
+        if (after) return `${eng}, èª²å¾è¼å°`;
         return eng;
     }
 
@@ -346,7 +364,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
         chinese_name: student.chinese_name || '',
         english_name: student.english_name || '',
         birthday: student.birthday || '',
-        school_grade: student.school_grade || '國小 一年級',
+        school_grade: student.school_grade || 'åå° ä¸å¹´ç´',
         english_class: initEng,
         is_after_school: initAfter,
         parent_email: student.parent?.email || '',
@@ -355,7 +373,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
         parent_2_email: student.parent2?.email || '',
         parent_2_relationship: student.parent_2_relationship || '',
         parent_2_phone: student.parent_2_phone || '',
-        pickup_method: student.pickup_method || '家長接送',
+        pickup_method: student.pickup_method || 'å®¶é·æ¥é',
         allergies: student.allergies || '',
         special_needs: student.special_needs || '',
         internal_note: student.internal_note || '',
@@ -399,7 +417,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             if (error) throw error;
             const { data } = supabase.storage.from('contact_photos').getPublicUrl(fileName);
             setBasicForm(f => ({ ...f, photo_url: data.publicUrl }));
-        } catch (err: any) { showToast('上傳失敗: ' + err.message, 'error'); }
+        } catch (err: any) { showToast('ä¸å³å¤±æ: ' + err.message, 'error'); }
         finally { setUploading(false); }
     }
 
@@ -429,8 +447,8 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             }).eq('id', student.id);
             if (error) throw error;
             onSaved();
-            showToast('✅ 基本資料已儲存');
-        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
+            showToast('â åºæ¬è³æå·²å²å­');
+        } catch (e: any) { showToast('â å¤±æ: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 
@@ -447,8 +465,8 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
             }).eq('id', student.id);
             if (error) throw error;
             onSaved();
-            showToast('✅ 學習檔案已儲存');
-        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
+            showToast('â å­¸ç¿æªæ¡å·²å²å­');
+        } catch (e: any) { showToast('â å¤±æ: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 
@@ -460,9 +478,9 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
     }
 
     const TABS = [
-        { id: 'basic', label: '📋 基本資料' },
-        { id: 'learning', label: '📚 學習檔案' },
-        { id: 'analytics', label: '📊 學習表現' }
+        { id: 'basic', label: 'ð åºæ¬è³æ' },
+        { id: 'learning', label: 'ð å­¸ç¿æªæ¡' },
+        { id: 'analytics', label: 'ð å­¸ç¿è¡¨ç¾' }
     ];
 
     return (
@@ -480,10 +498,10 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                         )}
                         <div>
                             <h2 className="font-black text-gray-800 text-lg">{student.chinese_name}</h2>
-                            <p className="text-xs text-gray-400">{student.english_name} · {student.school_grade}</p>
+                            <p className="text-xs text-gray-400">{student.english_name} Â· {student.school_grade}</p>
                         </div>
                     </div>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-500">✕</button>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-500">â</button>
                 </div>
 
                 {/* Tabs */}
@@ -502,10 +520,10 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                 {/* Tab Content */}
                 <div className="flex-1 overflow-y-auto">
 
-                    {/* ── Tab 1: 基本資料 ── */}
+                    {/* ââ Tab 1: åºæ¬è³æ ââ */}
                     {activeTab === 'basic' && (
                         <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-                            {/* 左：照片 + 姓名 */}
+                            {/* å·¦ï¼ç§ç + å§å */}
                             <div className="space-y-4">
                                 <div className="flex flex-col items-center">
                                     <div onClick={() => canEdit && fileInputRef.current?.click()}
@@ -513,33 +531,33 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                         {basicForm.photo_url
                                             ? <img src={basicForm.photo_url} className="w-full h-full object-cover" />
                                             : <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-                                                <span className="text-3xl">📷</span>
-                                                <span className="text-xs font-bold mt-1">上傳照片</span>
+                                                <span className="text-3xl">ð·</span>
+                                                <span className="text-xs font-bold mt-1">ä¸å³ç§ç</span>
                                             </div>}
-                                        {canEdit && <div className="absolute inset-0 bg-black/30 flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition">更換</div>}
+                                        {canEdit && <div className="absolute inset-0 bg-black/30 flex items-center justify-center text-white text-xs font-bold opacity-0 group-hover:opacity-100 transition">æ´æ</div>}
                                     </div>
                                     <input type="file" ref={fileInputRef} className="hidden" onChange={handlePhotoUpload} accept="image/*" />
-                                    {uploading && <span className="text-xs text-indigo-500 mt-1 font-bold">上傳中...</span>}
+                                    {uploading && <span className="text-xs text-indigo-500 mt-1 font-bold">ä¸å³ä¸­...</span>}
                                 </div>
-                                <Field label="中文姓名 *" value={basicForm.chinese_name} onChange={v => setBasicForm(f => ({ ...f, chinese_name: v }))} disabled={!canEdit} />
-                                <Field label="英文姓名" value={basicForm.english_name} onChange={v => setBasicForm(f => ({ ...f, english_name: v }))} disabled={!canEdit} />
-                                <Field label="生日" type="date" value={basicForm.birthday} onChange={v => setBasicForm(f => ({ ...f, birthday: v }))} disabled={!canEdit} />
+                                <Field label="ä¸­æå§å *" value={basicForm.chinese_name} onChange={v => setBasicForm(f => ({ ...f, chinese_name: v }))} disabled={!canEdit} />
+                                <Field label="è±æå§å" value={basicForm.english_name} onChange={v => setBasicForm(f => ({ ...f, english_name: v }))} disabled={!canEdit} />
+                                <Field label="çæ¥" type="date" value={basicForm.birthday} onChange={v => setBasicForm(f => ({ ...f, birthday: v }))} disabled={!canEdit} />
                             </div>
 
-                            {/* 中：班級 + 家長 */}
+                            {/* ä¸­ï¼ç­ç´ + å®¶é· */}
                             <div className="space-y-4">
                                 <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
-                                    <h3 className="text-xs font-black text-indigo-700 mb-3 uppercase">🎓 班級設定</h3>
+                                    <h3 className="text-xs font-black text-indigo-700 mb-3 uppercase">ð ç­ç´è¨­å®</h3>
                                     <div className="space-y-2">
                                         <div>
-                                            <label className="text-xs font-bold text-indigo-400 ml-1">學校年級</label>
+                                            <label className="text-xs font-bold text-indigo-400 ml-1">å­¸æ ¡å¹´ç´</label>
                                             <select value={basicForm.school_grade} onChange={e => setBasicForm(f => ({ ...f, school_grade: e.target.value }))}
                                                 disabled={!canEdit} className="w-full p-2 border rounded-lg font-bold text-sm bg-white disabled:bg-gray-50">
                                                 {SCHOOL_GRADE_OPTIONS.map(opt => <option key={opt}>{opt}</option>)}
                                             </select>
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-indigo-400 ml-1">英文主修班級</label>
+                                            <label className="text-xs font-bold text-indigo-400 ml-1">è±æä¸»ä¿®ç­ç´</label>
                                             <select value={basicForm.english_class} onChange={e => setBasicForm(f => ({ ...f, english_class: e.target.value }))}
                                                 disabled={!canEdit} className="w-full p-2 border rounded-lg font-bold text-sm bg-white disabled:bg-gray-50">
                                                 {ENGLISH_CLASS_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -549,38 +567,38 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                             <input type="checkbox" checked={basicForm.is_after_school}
                                                 onChange={e => setBasicForm(f => ({ ...f, is_after_school: e.target.checked }))}
                                                 disabled={!canEdit} className="w-4 h-4 accent-indigo-600" />
-                                            <span className="text-sm font-bold text-gray-700">參加課後輔導</span>
+                                            <span className="text-sm font-bold text-gray-700">åå èª²å¾è¼å°</span>
                                         </label>
                                     </div>
                                 </div>
 
                                 <div>
-                                    <h3 className="text-xs font-black text-gray-400 mb-2 uppercase">📞 家長聯繫</h3>
+                                    <h3 className="text-xs font-black text-gray-400 mb-2 uppercase">ð å®¶é·è¯ç¹«</h3>
                                     <div className="space-y-2">
                                         <div className="p-3 border rounded-xl bg-gray-50 space-y-2">
-                                            <p className="text-xs font-bold text-gray-500">主要照顧者</p>
-                                            <input type="email" placeholder="家長 Email" value={basicForm.parent_email}
+                                            <p className="text-xs font-bold text-gray-500">ä¸»è¦ç§é¡§è</p>
+                                            <input type="email" placeholder="å®¶é· Email" value={basicForm.parent_email}
                                                 onChange={e => setBasicForm(f => ({ ...f, parent_email: e.target.value }))}
                                                 disabled={!canEdit} className="w-full p-2 border rounded-lg text-sm font-bold bg-white disabled:bg-gray-50" />
                                             <div className="flex gap-2">
-                                                <input type="text" placeholder="稱謂" value={basicForm.parent_relationship}
+                                                <input type="text" placeholder="ç¨±è¬" value={basicForm.parent_relationship}
                                                     onChange={e => setBasicForm(f => ({ ...f, parent_relationship: e.target.value }))}
                                                     disabled={!canEdit} className="w-1/3 p-2 border rounded-lg text-sm bg-white disabled:bg-gray-50" />
-                                                <input type="text" placeholder="電話" value={basicForm.parent_phone}
+                                                <input type="text" placeholder="é»è©±" value={basicForm.parent_phone}
                                                     onChange={e => setBasicForm(f => ({ ...f, parent_phone: e.target.value }))}
                                                     disabled={!canEdit} className="w-2/3 p-2 border rounded-lg text-sm bg-white disabled:bg-gray-50" />
                                             </div>
                                         </div>
                                         <div className="p-3 border rounded-xl bg-gray-50 space-y-2 border-dashed">
-                                            <p className="text-xs font-bold text-gray-400">第二位家長 (選填)</p>
+                                            <p className="text-xs font-bold text-gray-400">ç¬¬äºä½å®¶é· (é¸å¡«)</p>
                                             <input type="email" placeholder="Email" value={basicForm.parent_2_email}
                                                 onChange={e => setBasicForm(f => ({ ...f, parent_2_email: e.target.value }))}
                                                 disabled={!canEdit} className="w-full p-2 border rounded-lg text-sm font-bold bg-white disabled:bg-gray-50" />
                                             <div className="flex gap-2">
-                                                <input type="text" placeholder="稱謂" value={basicForm.parent_2_relationship}
+                                                <input type="text" placeholder="ç¨±è¬" value={basicForm.parent_2_relationship}
                                                     onChange={e => setBasicForm(f => ({ ...f, parent_2_relationship: e.target.value }))}
                                                     disabled={!canEdit} className="w-1/3 p-2 border rounded-lg text-sm bg-white disabled:bg-gray-50" />
-                                                <input type="text" placeholder="電話" value={basicForm.parent_2_phone}
+                                                <input type="text" placeholder="é»è©±" value={basicForm.parent_2_phone}
                                                     onChange={e => setBasicForm(f => ({ ...f, parent_2_phone: e.target.value }))}
                                                     disabled={!canEdit} className="w-2/3 p-2 border rounded-lg text-sm bg-white disabled:bg-gray-50" />
                                             </div>
@@ -589,87 +607,87 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                 </div>
                             </div>
 
-                            {/* 右：備註 */}
+                            {/* å³ï¼åè¨» */}
                             <div className="space-y-4">
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 ml-1">放學接送方式</label>
+                                    <label className="text-xs font-bold text-gray-500 ml-1">æ¾å­¸æ¥éæ¹å¼</label>
                                     <select value={basicForm.pickup_method} onChange={e => setBasicForm(f => ({ ...f, pickup_method: e.target.value }))}
                                         disabled={!canEdit} className="w-full p-2.5 border rounded-xl font-bold text-sm mt-1 bg-gray-50 disabled:bg-gray-100">
-                                        <option>🚗 家長接送</option>
-                                        <option>🚶 自行回家</option>
-                                        <option>🚌 安親班接送</option>
+                                        <option>ð å®¶é·æ¥é</option>
+                                        <option>ð¶ èªè¡åå®¶</option>
+                                        <option>ð å®è¦ªç­æ¥é</option>
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 ml-1">❤️ 過敏 / 健康備註</label>
+                                    <label className="text-xs font-bold text-gray-500 ml-1">â¤ï¸ éæ / å¥åº·åè¨»</label>
                                     <textarea rows={3} value={basicForm.allergies}
                                         onChange={e => setBasicForm(f => ({ ...f, allergies: e.target.value }))}
-                                        disabled={!canEdit} placeholder="例如：花生過敏、蠶豆症..."
+                                        disabled={!canEdit} placeholder="ä¾å¦ï¼è±çéæãè ¶è±ç..."
                                         className="w-full p-3 border rounded-xl text-sm font-bold resize-none mt-1 bg-red-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 ml-1">特殊照護需求</label>
+                                    <label className="text-xs font-bold text-gray-500 ml-1">ç¹æ®ç§è­·éæ±</label>
                                     <textarea rows={2} value={basicForm.special_needs}
                                         onChange={e => setBasicForm(f => ({ ...f, special_needs: e.target.value }))}
-                                        disabled={!canEdit} placeholder="例如：需協助餵藥..."
+                                        disabled={!canEdit} placeholder="ä¾å¦ï¼éåå©é¤µè¥..."
                                         className="w-full p-3 border rounded-xl text-sm font-bold resize-none mt-1 bg-gray-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                 </div>
                                 <div>
-                                    <label className="text-xs font-bold text-gray-500 ml-1">🔒 內部備註 (家長不可見)</label>
+                                    <label className="text-xs font-bold text-gray-500 ml-1">ð å§é¨åè¨» (å®¶é·ä¸å¯è¦)</label>
                                     <textarea rows={3} value={basicForm.internal_note}
                                         onChange={e => setBasicForm(f => ({ ...f, internal_note: e.target.value }))}
-                                        disabled={!canEdit} placeholder="例如：個性活潑、注意與同學互動..."
+                                        disabled={!canEdit} placeholder="ä¾å¦ï¼åæ§æ´»æ½ãæ³¨æèåå­¸äºå..."
                                         className="w-full p-3 border rounded-xl text-sm font-bold resize-none mt-1 bg-yellow-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* ── Tab 2: 學習檔案 ── */}
+                    {/* ââ Tab 2: å­¸ç¿æªæ¡ ââ */}
                     {activeTab === 'learning' && (
                         <div className="p-6 space-y-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                {/* 左：基礎學習資訊 */}
+                                {/* å·¦ï¼åºç¤å­¸ç¿è³è¨ */}
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">📚 英文程度</label>
+                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">ð è±æç¨åº¦</label>
                                         <select value={learningForm.level} onChange={e => setLearningForm(f => ({ ...f, level: e.target.value }))}
                                             disabled={!canEdit}
                                             className="w-full p-3 border rounded-xl font-bold text-sm mt-1 bg-purple-50 focus:bg-white outline-none disabled:bg-gray-50">
-                                            <option value="">— 尚未設定 —</option>
+                                            <option value="">â å°æªè¨­å® â</option>
                                             {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">📅 入學日期</label>
-                                        <input type="date" value={learningForm.join_date}
+                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">ð å¥å­¸æ¥æ</label>
+                                          nput type="date" value={learningForm.join_date}
                                             onChange={e => setLearningForm(f => ({ ...f, join_date: e.target.value }))}
                                             disabled={!canEdit}
                                             className="w-full p-3 border rounded-xl font-bold text-sm mt-1 bg-gray-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">🎯 學習目標</label>
+                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">ð¯ å­¸ç¿ç®æ¨</label>
                                         <textarea rows={4} value={learningForm.learning_goal}
                                             onChange={e => setLearningForm(f => ({ ...f, learning_goal: e.target.value }))}
-                                            disabled={!canEdit} placeholder="例如：半年內完成 Let's Go 2、提升口語表達..."
+                                            disabled={!canEdit} placeholder="ä¾å¦ï¼åå¹´å§å®æ Let's Go 2ãæåå£èªè¡¨é..."
                                             className="w-full p-3 border rounded-xl text-sm font-bold resize-none mt-1 bg-teal-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                     </div>
                                     <div>
-                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">🔒 老師總評 (內部)</label>
+                                        <label className="text-xs font-black text-gray-500 ml-1 uppercase">ð èå¸«ç¸½è© (å§é¨)</label>
                                         <textarea rows={4} value={learningForm.teacher_assessment}
                                             onChange={e => setLearningForm(f => ({ ...f, teacher_assessment: e.target.value }))}
-                                            disabled={!canEdit} placeholder="整體學習評估、個性特質、建議..."
+                                            disabled={!canEdit} placeholder="æ´é«å­¸ç¿è©ä¼°ãåæ§ç¹è³ªãå»ºè­°..."
                                             className="w-full p-3 border rounded-xl text-sm font-bold resize-none mt-1 bg-yellow-50 focus:bg-white outline-none disabled:bg-gray-50" />
                                     </div>
                                 </div>
 
-                                {/* 右：標籤 */}
+                                {/* å³ï¼æ¨ç±¤ */}
                                 <div className="space-y-4">
-                                    {/* 優勢標籤 */}
+                                    {/* åªå¢æ¨ç±¤ */}
                                     <div className="bg-green-50 rounded-xl p-4 border border-green-100">
-                                        <h3 className="text-sm font-black text-green-700 mb-3">✦ 優勢標籤</h3>
+                                        <h3 className="text-sm font-black text-green-700 mb-3">â¦ åªå¢æ¨ç±¤</h3>
                                         <div className="flex flex-wrap gap-2">
-                                            {/* 預設標籤 */}
+                                            {/* é è¨­æ¨ç±¤ */}
                                             {STRENGTH_TAGS.map(tag => (
                                                 <button key={tag} onClick={() => canEdit && toggleTag('strength_tags', tag)}
                                                     className={`px-3 py-1.5 rounded-full text-xs font-bold border transition
@@ -680,7 +698,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     {tag}
                                                 </button>
                                             ))}
-                                            {/* 自訂標籤 (不在預設清單中的) */}
+                                            {/* èªè¨æ¨ç±¤ (ä¸å¨é è¨­æ¸å®ä¸­ç) */}
                                             {learningForm.strength_tags
                                                 .filter((t: string) => !STRENGTH_TAGS.includes(t))
                                                 .map((tag: string) => (
@@ -688,12 +706,12 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                         {tag}
                                                         {canEdit && (
                                                             <button onClick={() => removeTag('strength_tags', tag)}
-                                                                className="ml-0.5 hover:text-green-200 transition font-black">×</button>
+                                                                className="ml-0.5 hover:text-green-200 transition font-black">Ã</button>
                                                         )}
                                                     </span>
                                                 ))}
                                         </div>
-                                        {/* 自訂輸入框 */}
+                                        {/* èªè¨è¼¸å¥æ¡ */}
                                         {canEdit && (
                                             <div className="flex gap-2 mt-3">
                                                 <input
@@ -701,21 +719,21 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     value={customStrengthInput}
                                                     onChange={e => setCustomStrengthInput(e.target.value)}
                                                     onKeyDown={e => e.key === 'Enter' && addCustomTag('strength_tags', customStrengthInput, () => setCustomStrengthInput(''))}
-                                                    placeholder="自訂標籤，按 Enter 新增..."
+                                                    placeholder="èªè¨æ¨ç±¤ï¼æ Enter æ°å¢..."
                                                     className="flex-1 px-3 py-1.5 text-xs border border-green-200 rounded-full bg-white outline-none focus:ring-2 focus:ring-green-300 font-bold text-green-700 placeholder-green-300"
                                                 />
                                                 <button
                                                     onClick={() => addCustomTag('strength_tags', customStrengthInput, () => setCustomStrengthInput(''))}
                                                     className="px-3 py-1.5 bg-green-500 text-white text-xs font-black rounded-full hover:bg-green-600 transition">
-                                                    ＋
+                                                    ï¼
                                                 </button>
                                             </div>
                                         )}
                                     </div>
 
-                                    {/* 待加強標籤 */}
+                                    {/* å¾å å¼·æ¨ç±¤ */}
                                     <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
-                                        <h3 className="text-sm font-black text-amber-700 mb-3">△ 待加強標籤</h3>
+                                        <h3 className="text-sm font-black text-amber-700 mb-3">â³ å¾å å¼·æ¨ç±¤</h3>
                                         <div className="flex flex-wrap gap-2">
                                             {IMPROVEMENT_TAGS.map(tag => (
                                                 <button key={tag} onClick={() => canEdit && toggleTag('improvement_tags', tag)}
@@ -727,7 +745,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     {tag}
                                                 </button>
                                             ))}
-                                            {/* 自訂標籤 */}
+                                            {/* èªè¨æ¨ç±¤ */}
                                             {learningForm.improvement_tags
                                                 .filter((t: string) => !IMPROVEMENT_TAGS.includes(t))
                                                 .map((tag: string) => (
@@ -735,7 +753,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                         {tag}
                                                         {canEdit && (
                                                             <button onClick={() => removeTag('improvement_tags', tag)}
-                                                                className="ml-0.5 hover:text-amber-200 transition font-black">×</button>
+                                                                className="ml-0.5 hover:text-amber-200 transition font-black">Ã</button>
                                                         )}
                                                     </span>
                                                 ))}
@@ -747,13 +765,13 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                                                     value={customImprovementInput}
                                                     onChange={e => setCustomImprovementInput(e.target.value)}
                                                     onKeyDown={e => e.key === 'Enter' && addCustomTag('improvement_tags', customImprovementInput, () => setCustomImprovementInput(''))}
-                                                    placeholder="自訂標籤，按 Enter 新增..."
+                                                    placeholder="èªè¨æ¨ç±¤ï¼æ Enter æ°å¢..."
                                                     className="flex-1 px-3 py-1.5 text-xs border border-amber-200 rounded-full bg-white outline-none focus:ring-2 focus:ring-amber-300 font-bold text-amber-700 placeholder-amber-300"
                                                 />
                                                 <button
                                                     onClick={() => addCustomTag('improvement_tags', customImprovementInput, () => setCustomImprovementInput(''))}
                                                     className="px-3 py-1.5 bg-amber-500 text-white text-xs font-black rounded-full hover:bg-amber-600 transition">
-                                                    ＋
+                                                    ï¼
                                                 </button>
                                             </div>
                                         )}
@@ -763,7 +781,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                         </div>
                     )}
 
-                    {/* ── Tab 3: 學習表現 ── */}
+                    {/* ââ Tab 3: å­¸ç¿è¡¨ç¾ ââ */}
                     {activeTab === 'analytics' && (
                         <AnalyticsTab studentId={student.id} studentName={student.chinese_name} />
                     )}
@@ -774,14 +792,14 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                     <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex gap-3 flex-shrink-0">
                         <button onClick={onClose}
                             className="flex-1 py-2.5 rounded-xl font-bold text-gray-500 bg-white border hover:bg-gray-50 transition text-sm">
-                            關閉
+                            éé
                         </button>
                         {canEdit && (
                             <button
                                 onClick={activeTab === 'basic' ? saveBasic : saveLearning}
                                 disabled={saving}
                                 className="flex-1 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition text-sm disabled:opacity-60">
-                                {saving ? '儲存中...' : '💾 儲存修改'}
+                                {saving ? 'å²å­ä¸­...' : 'ð¾ å²å­ä¿®æ¹'}
                             </button>
                         )}
                     </div>
@@ -790,7 +808,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
                     <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex-shrink-0">
                         <button onClick={onClose}
                             className="w-full py-2.5 rounded-xl font-bold text-gray-500 bg-white border hover:bg-gray-50 transition text-sm">
-                            關閉
+                            éé
                         </button>
                     </div>
                 )}
@@ -799,7 +817,7 @@ function StudentProfileModal({ student, activeTab, onTabChange, canEdit, onClose
     );
 }
 
-// ── Analytics Tab ─────────────────────────────────────────────────────────────
+// ââ Analytics Tab âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 function AnalyticsTab({ studentId, studentName }: { studentId: string; studentName: string }) {
     const [records, setRecords] = useState<any[]>([]);
@@ -815,14 +833,14 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
             .then(({ data }) => { setRecords(data || []); setLoading(false); });
     }, [studentId]);
 
-    if (loading) return <div className="p-10 text-center text-gray-400 font-bold">分析中...</div>;
+    if (loading) return <div className="p-10 text-center text-gray-400 font-bold">åæä¸­...</div>;
 
     if (records.length === 0) {
         return (
             <div className="p-10 text-center text-gray-300">
-                <div className="text-5xl mb-3">📊</div>
-                <p className="font-bold text-gray-400">近 90 天尚無聯絡簿紀錄</p>
-                <p className="text-xs text-gray-300 mt-1">老師填寫聯絡簿後，這裡會顯示學習趨勢分析</p>
+                <div className="text-5xl mb-3">ð</div>
+                <p className="font-bold text-gray-400">è¿ 90 å¤©å°ç¡è¯çµ¡ç°¿ç´é</p>
+                <p className="text-xs text-gray-300 mt-1">èå¸«å¡«å¯«è¯çµ¡ç°¿å¾ï¼éè£¡æé¡¯ç¤ºå­¸ç¿è¶¨å¢åæ</p>
             </div>
         );
     }
@@ -835,7 +853,7 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
     const weeklyMap: Record<string, { focus: number[]; participation: number[]; expression: number[]; mood: number[] }> = {};
     for (const r of presentRecords) {
         const d = new Date(r.date);
-        const week = `W${Math.ceil((d.getDate()) / 7)}-${d.getMonth() + 1}月`;
+        const week = `W${Math.ceil((d.getDate()) / 7)}-${d.getMonth() + 1}æ`;
         if (!weeklyMap[week]) weeklyMap[week] = { focus: [], participation: [], expression: [], mood: [] };
         if (r.focus) weeklyMap[week].focus.push(r.focus);
         if (r.participation) weeklyMap[week].participation.push(r.participation);
@@ -868,55 +886,55 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
 
     // Risk flags
     const risks: { level: string; msg: string; icon: string }[] = [];
-    if (attendancePct < 70) risks.push({ level: 'high', msg: `出席率僅 ${attendancePct}%，可能影響學習連貫性`, icon: '🔴' });
-    else if (attendancePct < 85) risks.push({ level: 'medium', msg: `出席率 ${attendancePct}%，略低於建議標準`, icon: '🟡' });
+    if (attendancePct < 70) risks.push({ level: 'high', msg: `åºå¸­çå ${attendancePct}%ï¼å¯è½å½±é¿å­¸ç¿é£è²«æ§`, icon: 'ð´' });
+    else if (attendancePct < 85) risks.push({ level: 'medium', msg: `åºå¸­ç ${attendancePct}%ï¼ç¥ä½æ¼å»ºè­°æ¨æº`, icon: 'ð¡' });
 
     let consecutive = 0, maxConsecutive = 0;
     for (const r of presentRecords) {
         if (r.focus && r.focus <= 2) { consecutive++; maxConsecutive = Math.max(maxConsecutive, consecutive); }
         else consecutive = 0;
     }
-    if (maxConsecutive >= 3) risks.push({ level: 'medium', msg: `曾連續 ${maxConsecutive} 次專注度偏低`, icon: '🟡' });
+    if (maxConsecutive >= 3) risks.push({ level: 'medium', msg: `æ¾é£çº ${maxConsecutive} æ¬¡å°æ³¨åº¦åä½`, icon: 'ð¡' });
 
     const unsignedCount = presentRecords.filter(r => !r.parent_signature).length;
     const unsignedPct = presentRecords.length > 0 ? Math.round((unsignedCount / presentRecords.length) * 100) : 0;
-    if (unsignedPct > 50) risks.push({ level: 'low', msg: `家長簽名率僅 ${100 - unsignedPct}%，溝通頻率偏低`, icon: '🟡' });
+    if (unsignedPct > 50) risks.push({ level: 'low', msg: `å®¶é·ç°½åçå ${100 - unsignedPct}%ï¼æºéé »çåä½`, icon: 'ð¡' });
 
-    if (risks.length === 0) risks.push({ level: 'ok', msg: '目前無異常，學習狀況良好 👍', icon: '🟢' });
+    if (risks.length === 0) risks.push({ level: 'ok', msg: 'ç®åç¡ç°å¸¸ï¼å­¸ç¿çæ³è¯å¥½ ð', icon: 'ð¢' });
 
     return (
         <div className="p-6 space-y-6">
-            {/* 頂部摘要 */}
+            {/* é é¨æè¦ */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard label="出席率" value={`${attendancePct}%`} sub={`${presentRecords.length}/${totalDays} 天`}
+                <StatCard label="åºå¸­ç" value={`${attendancePct}%`} sub={`${presentRecords.length}/${totalDays} å¤©`}
                     color={attendancePct >= 85 ? 'text-green-600' : attendancePct >= 70 ? 'text-amber-500' : 'text-red-500'} />
-                <StatCard label="平均專注度" value={avgFocus > 0 ? avgFocus.toFixed(1) : '—'} sub="滿分 5 顆星" color="text-indigo-600" />
-                <StatCard label="平均互動性" value={avgParticipation > 0 ? avgParticipation.toFixed(1) : '—'} sub="課堂互動" color="text-purple-600" />
-                <StatCard label="整體趨勢"
-                    value={trend === 0 ? '—' : trend > 0 ? `↑ +${trend.toFixed(1)}` : `↓ ${trend.toFixed(1)}`}
-                    sub={trend > 0.2 ? '持續進步中' : trend < -0.2 ? '需要關注' : '穩定維持'}
+                <StatCard label="å¹³åå°æ³¨åº¦" value={avgFocus > 0 ? avgFocus.toFixed(1) : 'â'} sub="æ»¿å 5 é¡æ" color="text-indigo-600" />
+                <StatCard label="å¹³åäºåæ§" value={avgParticipation > 0 ? avgParticipation.toFixed(1) : 'â'} sub="èª²å äºå" color="text-purple-600" />
+                <StatCard label="æ´é«è¶¨å¢"
+                    value={trend === 0 ? 'â' : trend > 0 ? `â +${trend.toFixed(1)}` : `â ${trend.toFixed(1)}`}
+                    sub={trend > 0.2 ? 'æçºé²æ­¥ä¸­' : trend < -0.2 ? 'éè¦éæ³¨' : 'ç©©å®ç¶­æ'}
                     color={trend > 0.2 ? 'text-green-600' : trend < -0.2 ? 'text-red-500' : 'text-gray-500'} />
             </div>
 
-            {/* 趨勢圖 */}
+            {/* è¶¨å¢å */}
             {weeks.length >= 2 && (
                 <div className="bg-white border rounded-xl p-4">
-                    <h3 className="text-sm font-black text-gray-700 mb-4">📈 近期學習趨勢 (週平均)</h3>
+                    <h3 className="text-sm font-black text-gray-700 mb-4">ð è¿æå­¸ç¿è¶¨å¢ (é±å¹³å)</h3>
                     <div className="flex items-end gap-6">
                         <div className="flex-1">
                             <TrendChart
                                 series={[
-                                    { label: '專注度', data: weeklyFocus, color: '#6366f1' },
-                                    { label: '課堂互動', data: weeklyParticipation, color: '#10b981' },
-                                    { label: '主動表達', data: weeklyExpression, color: '#f59e0b' }
+                                    { label: 'å°æ³¨åº¦', data: weeklyFocus, color: '#6366f1' },
+                                    { label: 'èª²å äºå', data: weeklyParticipation, color: '#10b981' },
+                                    { label: 'ä¸»åè¡¨é', data: weeklyExpression, color: '#f59e0b' }
                                 ]}
                                 labels={weeks}
                             />
                         </div>
                         <div className="flex flex-col gap-2 text-xs font-bold shrink-0">
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block rounded" /> 專注度</span>
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" /> 課堂互動</span>
-                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-400 inline-block rounded" /> 主動表達</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block rounded" /> å°æ³¨åº¦</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-emerald-500 inline-block rounded" /> èª²å äºå</span>
+                            <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-400 inline-block rounded" /> ä¸»åè¡¨é</span>
                         </div>
                     </div>
                     <div className="flex gap-2 mt-2 overflow-x-auto">
@@ -927,9 +945,9 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
                 </div>
             )}
 
-            {/* 風險預警 */}
+            {/* é¢¨éªé è­¦ */}
             <div className="bg-white border rounded-xl p-4">
-                <h3 className="text-sm font-black text-gray-700 mb-3">⚠️ 學習預警</h3>
+                <h3 className="text-sm font-black text-gray-700 mb-3">â ï¸ å­¸ç¿é è­¦</h3>
                 <div className="space-y-2">
                     {risks.map((r, i) => (
                         <div key={i} className={`flex items-start gap-2 p-3 rounded-lg text-sm font-bold
@@ -944,46 +962,46 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
                 </div>
             </div>
 
-            {/* 近期紀錄快覽 */}
+            {/* è¿æç´éå¿«è¦½ */}
             <div className="bg-white border rounded-xl p-4">
-                <h3 className="text-sm font-black text-gray-700 mb-3">📋 最近 10 次紀錄</h3>
+                <h3 className="text-sm font-black text-gray-700 mb-3">ð æè¿ 10 æ¬¡ç´é</h3>
                 <div className="space-y-1">
                     {[...records].reverse().slice(0, 10).map((r, i) => (
                         <div key={i} className="flex items-center gap-3 py-1.5 border-b border-gray-50 last:border-0">
                             <span className="text-xs text-gray-400 font-bold w-20 shrink-0">{r.date}</span>
                             {r.is_absent
-                                ? <span className="text-xs text-red-400 font-bold">缺席</span>
+                                ? <span className="text-xs text-red-400 font-bold">ç¼ºå¸­</span>
                                 : <>
                                     <MiniStars n={r.mood} color="text-yellow-400" />
                                     <span className="text-xs text-gray-300">|</span>
                                     <MiniStars n={r.focus} color="text-indigo-400" />
                                     <span className="text-xs text-gray-300">|</span>
                                     <MiniStars n={r.participation} color="text-emerald-400" />
-                                    {r.parent_signature && <span className="text-[10px] text-green-500 font-bold ml-auto">✍️ 已簽</span>}
+                                    {r.parent_signature && <span className="text-[10px] text-green-500 font-bold ml-auto">âï¸ å·²ç°½</span>}
                                 </>
                             }
                         </div>
                     ))}
                 </div>
-                <p className="text-[10px] text-gray-300 mt-2">⭐ 心情 | 🔵 專注 | 🟢 互動</p>
+                <p className="text-[10px] text-gray-300 mt-2">â­ å¿æ | ðµ å°æ³¨ | ð¢ äºå</p>
             </div>
         </div>
     );
 }
 
-// ── Add Student Modal ─────────────────────────────────────────────────────────
+// ââ Add Student Modal âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 function AddStudentModal({ onClose, onSaved, showToast }: any) {
     const [form, setForm] = useState({
         chinese_name: '', english_name: '', birthday: '',
-        school_grade: '國小 一年級', english_class: 'CEI-A', is_after_school: false,
+        school_grade: 'åå° ä¸å¹´ç´', english_class: 'CEI-A', is_after_school: false,
         parent_email: '', parent_relationship: '', parent_phone: '',
-        allergies: '', pickup_method: '家長接送'
+        allergies: '', pickup_method: 'å®¶é·æ¥é'
     });
     const [saving, setSaving] = useState(false);
 
     async function handleSubmit() {
-        if (!form.chinese_name) { showToast('請輸入中文姓名', 'error'); return; }
+        if (!form.chinese_name) { showToast('è«è¼¸å¥ä¸­æå§å', 'error'); return; }
         setSaving(true);
         try {
             let p1_id = null;
@@ -991,9 +1009,9 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
                 const { data } = await supabase.from('users').select('id').eq('email', form.parent_email).single();
                 if (data) p1_id = data.id;
             }
-            const grade = form.english_class === 'NONE' && form.is_after_school ? '課後輔導'
-                : form.english_class === 'NONE' ? '未分類'
-                    : form.is_after_school ? `${form.english_class}, 課後輔導`
+            const grade = form.english_class === 'NONE' && form.is_after_school ? 'èª²å¾è¼å°'
+                : form.english_class === 'NONE' ? 'æªåé¡'
+                    : form.is_after_school ? `${form.english_class}, èª²å¾è¼å°`
                         : form.english_class;
             const { error } = await supabase.from('students').insert({
                 chinese_name: form.chinese_name, english_name: form.english_name,
@@ -1004,7 +1022,7 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
             });
             if (error) throw error;
             onSaved(); onClose();
-        } catch (e: any) { showToast('❌ 失敗: ' + e.message, 'error'); }
+        } catch (e: any) { showToast('â å¤±æ: ' + e.message, 'error'); }
         finally { setSaving(false); }
     }
 
@@ -1012,18 +1030,18 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-6">
                 <div className="flex justify-between items-center mb-5 pb-3 border-b">
-                    <h2 className="text-xl font-black text-gray-800">➕ 新增學生</h2>
-                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-500">✕</button>
+                    <h2 className="text-xl font-black text-gray-800">â æ°å¢å­¸ç</h2>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center font-bold text-gray-500">â</button>
                 </div>
                 <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
-                        <Field label="中文姓名 *" value={form.chinese_name} onChange={v => setForm(f => ({ ...f, chinese_name: v }))} />
-                        <Field label="英文姓名" value={form.english_name} onChange={v => setForm(f => ({ ...f, english_name: v }))} />
+                        <Field label="ä¸­æå§å *" value={form.chinese_name} onChange={v => setForm(f => ({ ...f, chinese_name: v }))} />
+                        <Field label="è±æå§å" value={form.english_name} onChange={v => setForm(f => ({ ...f, english_name: v }))} />
                     </div>
                     <div className="grid grid-cols-2 gap-3">
-                        <Field label="生日" type="date" value={form.birthday} onChange={v => setForm(f => ({ ...f, birthday: v }))} />
+                        <Field label="çæ¥" type="date" value={form.birthday} onChange={v => setForm(f => ({ ...f, birthday: v }))} />
                         <div>
-                            <label className="text-xs font-bold text-gray-400 ml-1">學校年級</label>
+                            <label className="text-xs font-bold text-gray-400 ml-1">å­¸æ ¡å¹´ç´</label>
                             <select value={form.school_grade} onChange={e => setForm(f => ({ ...f, school_grade: e.target.value }))}
                                 className="w-full p-2.5 border rounded-xl text-sm font-bold mt-1 bg-gray-50">
                                 {SCHOOL_GRADE_OPTIONS.map(o => <option key={o}>{o}</option>)}
@@ -1032,7 +1050,7 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <label className="text-xs font-bold text-gray-400 ml-1">英文班級</label>
+                            <label className="text-xs font-bold text-gray-400 ml-1">è±æç­ç´</label>
                             <select value={form.english_class} onChange={e => setForm(f => ({ ...f, english_class: e.target.value }))}
                                 className="w-full p-2.5 border rounded-xl text-sm font-bold mt-1 bg-gray-50">
                                 {ENGLISH_CLASS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1041,24 +1059,24 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
                         <div className="flex items-end pb-1">
                             <label className="flex items-center gap-2 cursor-pointer p-2.5 border rounded-xl w-full bg-gray-50">
                                 <input type="checkbox" checked={form.is_after_school} onChange={e => setForm(f => ({ ...f, is_after_school: e.target.checked }))} className="w-4 h-4 accent-indigo-600" />
-                                <span className="text-sm font-bold text-gray-700">課後輔導</span>
+                                <span className="text-sm font-bold text-gray-700">èª²å¾è¼å°</span>
                             </label>
                         </div>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-xl border">
-                        <p className="text-xs font-bold text-gray-500 mb-2">📞 主要照顧者</p>
-                        <Field label="家長 Email" type="email" value={form.parent_email} onChange={v => setForm(f => ({ ...f, parent_email: v }))} />
+                        <p className="text-xs font-bold text-gray-500 mb-2">ð ä¸»è¦ç§é¡§è</p>
+                        <Field label="å®¶é· Email" type="email" value={form.parent_email} onChange={v => setForm(f => ({ ...f, parent_email: v }))} />
                         <div className="grid grid-cols-2 gap-2 mt-2">
-                            <Field label="稱謂" value={form.parent_relationship} onChange={v => setForm(f => ({ ...f, parent_relationship: v }))} />
-                            <Field label="電話" value={form.parent_phone} onChange={v => setForm(f => ({ ...f, parent_phone: v }))} />
+                            <Field label="ç¨±è¬" value={form.parent_relationship} onChange={v => setForm(f => ({ ...f, parent_relationship: v }))} />
+                            <Field label="é»è©±" value={form.parent_phone} onChange={v => setForm(f => ({ ...f, parent_phone: v }))} />
                         </div>
                     </div>
                 </div>
                 <div className="flex gap-3 mt-5 pt-4 border-t">
-                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition text-sm">取消</button>
+                    <button onClick={onClose} className="flex-1 py-2.5 rounded-xl font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 transition text-sm">åæ¶</button>
                     <button onClick={handleSubmit} disabled={saving}
                         className="flex-1 py-2.5 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition text-sm disabled:opacity-60">
-                        {saving ? '新增中...' : '確認新增'}
+                        {saving ? 'æ°å¢ä¸­...' : 'ç¢ºèªæ°å¢'}
                     </button>
                 </div>
             </div>
@@ -1066,7 +1084,7 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
     );
 }
 
-// ── 小工具元件 ─────────────────────────────────────────────────────────────────
+// ââ å°å·¥å·åä»¶ âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 function Field({ label, value, onChange, type = 'text', disabled = false }: any) {
     return (
@@ -1091,7 +1109,7 @@ function StatCard({ label, value, sub, color }: any) {
 function MiniStars({ n, color }: { n: number; color: string }) {
     return (
         <span className={`text-xs ${color}`}>
-            {'★'.repeat(Math.round(n || 0))}{'☆'.repeat(5 - Math.round(n || 0))}
+            {'â'.repeat(Math.round(n || 0))}{'â'.repeat(5 - Math.round(n || 0))}
         </span>
     );
 }
