@@ -85,25 +85,30 @@ export default function RegisterPage() {
             if (hasEmptyName) { setErrorMsg('⚠️ 請填寫所有學生的姓名'); setLoading(false); return; }
         }
 
-        const { error: signUpError } = await supabase.auth.signUp({ email, password });
+        // ✅ 修正：直接用 signUp 回傳的 user，而非 getUser()
+        // getUser() 在 email 驗證開啟時可能回傳舊的登入者或 null，導致 pending 記錄寫入失敗
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
         if (signUpError) {
-            // ✅ Issue #2 延伸：中文化錯誤訊息
             setErrorMsg('❌ ' + getChineseRegisterError(signUpError.message));
             setLoading(false);
             return;
         }
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const user = signUpData?.user;
         if (user) {
-            // 寫入 users 表（含 phone）
-            await supabase.from('users').upsert({
+            // 寫入 users 表，強制 role='pending', is_approved=false
+            const { error: upsertError } = await supabase.from('users').upsert({
                 id: user.id,
                 email,
                 name: fullName,
                 phone,
                 role: 'pending',
                 is_approved: false
-            });
+            }, { onConflict: 'id' });
+
+            if (upsertError) {
+                console.error('users upsert error:', upsertError);
+            }
 
             // 家長：建立子女資料
             if (role === 'parent') {
@@ -119,8 +124,10 @@ export default function RegisterPage() {
                 await supabase.from('students').insert(studentsToInsert);
             }
 
-            // ✅ 不用 alert，直接導向首頁（會顯示審核等待畫面）
             router.push('/');
+        } else {
+            // email 驗證流程：user 尚未建立 session，顯示提示
+            setErrorMsg('📧 註冊申請已送出，請確認您的電子郵件後再登入。');
         }
         setLoading(false);
     };
