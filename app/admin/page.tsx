@@ -37,7 +37,7 @@ export default function AdminPage() {
 
     // Tab
     const [activeTab, setActiveTab] = useState<'users' | 'rolePerms'>('users');
-    const [userSubTab, setUserSubTab] = useState<'staff' | 'parents'>('staff');
+    const [userSubTab, setUserSubTab] = useState<'staff' | 'parents' | 'pending'>('staff');
 
     // 綁定申請
     const [linkRequests, setLinkRequests] = useState<any[]>([]);
@@ -339,7 +339,9 @@ export default function AdminPage() {
     }
 
     const PAGE_SIZE = 30;
-    const staffRoles = ['teacher', 'english_director', 'care_director', 'director', 'admin', 'manager', 'pending'];
+    const pendingUsers = users.filter(u => u.role === 'pending');
+    const totalPendingCount = pendingUsers.length + pendingRequests.length;
+    const staffRoles = ['teacher', 'english_director', 'care_director', 'director', 'admin', 'manager'];
     const filteredStaff = users.filter(u =>
         staffRoles.includes(u.role) &&
         ((u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -384,39 +386,19 @@ export default function AdminPage() {
                     </div>
                 </div>
 
-                {/* 🔔 待審核帳號橫幅 */}
-                {(() => {
-                    const pendingUsers = users.filter(u => u.role === 'pending');
-                    if (pendingUsers.length === 0) return null;
-                    return (
-                        <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-5">
-                            <div className="flex items-center gap-2 mb-3">
-                                <span className="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse shrink-0" />
-                                <p className="text-sm font-bold text-orange-800">有 {pendingUsers.length} 個帳號等待審核開通</p>
-                            </div>
-                            <div className="space-y-2">
-                                {pendingUsers.map(u => (
-                                    <div key={u.id} className="bg-white border border-orange-100 rounded-lg px-4 py-2.5 flex items-center gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center text-xs font-bold text-orange-700 shrink-0">
-                                            {(u.name || u.email || '?')[0].toUpperCase()}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm font-bold text-gray-800">{u.name || '未填姓名'}</p>
-                                            <p className="text-xs text-gray-400 truncate">{u.email}</p>
-                                        </div>
-                                        <button
-                                            onClick={() => { setEditingUser(u); setSelectedRole('teacher'); setSelectedRoleConfigRole(''); setEditingJobTitle(u.job_title || ''); setIsApproved(true); setIsModalOpen(true); }}
-                                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-white shrink-0"
-                                            style={{ backgroundColor: '#1A4B2E' }}
-                                        >
-                                            審核開通
-                                        </button>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    );
-                })()}
+                {/* 🔔 待審核提示橫幅 */}
+                {totalPendingCount > 0 && (
+                    <button onClick={() => { setActiveTab('users'); setUserSubTab('pending'); }}
+                        className="w-full bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-5 flex items-center gap-3 hover:bg-orange-100 transition text-left">
+                        <span className="w-2.5 h-2.5 rounded-full bg-orange-400 animate-pulse shrink-0" />
+                        <p className="text-sm font-bold text-orange-800 flex-1">
+                            有 <strong>{totalPendingCount}</strong> 件待審核事項
+                            {pendingUsers.length > 0 && <span className="ml-1 text-orange-600">（{pendingUsers.length} 個新帳號）</span>}
+                            {pendingRequests.length > 0 && <span className="ml-1 text-orange-600">（{pendingRequests.length} 件綁定申請）</span>}
+                        </p>
+                        <span className="text-xs font-bold text-orange-500 shrink-0">前往審核 →</span>
+                    </button>
+                )}
 
                 {/* Tab Bar + Content */}
                 <div className="bg-white rounded-2xl shadow-sm border overflow-hidden">
@@ -441,7 +423,12 @@ export default function AdminPage() {
                                 </button>
                                 <button onClick={() => setUserSubTab('parents')} className={`px-5 py-2.5 text-sm font-bold rounded-t-lg transition ${userSubTab === 'parents' ? 'bg-white border border-b-white border-gray-200 text-indigo-600 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}>
                                     👪 家長 <span className="ml-1.5 text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded-full">{filteredParents.length}</span>
-                                    {pendingRequests.length > 0 && <span className="ml-1 text-xs bg-red-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">{pendingRequests.length}</span>}
+                                </button>
+                                <button onClick={() => setUserSubTab('pending')} className={`px-5 py-2.5 text-sm font-bold rounded-t-lg transition ${userSubTab === 'pending' ? 'bg-white border border-b-white border-gray-200 text-orange-600 -mb-px' : 'text-gray-500 hover:text-gray-700'}`}>
+                                    ⏳ 待審核
+                                    {totalPendingCount > 0 && (
+                                        <span className="ml-1.5 text-xs bg-orange-500 text-white px-1.5 py-0.5 rounded-full animate-pulse">{totalPendingCount}</span>
+                                    )}
                                 </button>
                             </div>
 
@@ -502,45 +489,6 @@ export default function AdminPage() {
                             {/* ── 家長 Sub-tab ── */}
                             {userSubTab === 'parents' && (
                                 <div>
-                                    {/* 待審核綁定申請 */}
-                                    {pendingRequests.length > 0 && (
-                                        <div className="p-4 border-b bg-amber-50">
-                                            <h3 className="font-black text-amber-800 text-sm mb-3">🔔 待審核綁定申請（{pendingRequests.length} 件）</h3>
-                                            <div className="space-y-3">
-                                                {pendingRequests.map(req => (
-                                                    <div key={req.id} className="bg-white rounded-xl border border-amber-200 p-4 flex flex-col md:flex-row md:items-center gap-4">
-                                                        <div className="flex-1 space-y-1">
-                                                            <div className="font-bold text-sm text-gray-800">
-                                                                👤 {req.parent?.name || req.parent?.email}
-                                                                <span className="text-gray-400 font-normal text-xs ml-2">{req.parent?.email}</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 text-xs">
-                                                                <span className="text-gray-500">申請綁定：</span>
-                                                                <span className="font-bold text-gray-700">{req.submitted_chinese_name} {req.submitted_english_name}</span>
-                                                                <span className="text-gray-400">（電話：{req.submitted_phone}）</span>
-                                                            </div>
-                                                            {req.student ? (
-                                                                <div className="flex items-center gap-2 text-xs">
-                                                                    <span className="text-green-600 font-bold">✅ 系統比對到：</span>
-                                                                    <span className="font-bold text-gray-800">{req.student.chinese_name} {req.student.english_name}</span>
-                                                                    <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded">{req.student.grade}</span>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="text-xs text-orange-600 font-bold">⚠️ 系統未自動比對到學生，需手動確認</div>
-                                                            )}
-                                                        </div>
-                                                        <div className="flex gap-2 flex-shrink-0">
-                                                            {req.matched_student_id && (
-                                                                <button onClick={() => handleApproveLinkRequest(req)} className="bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-700 transition">✅ 確認綁定</button>
-                                                            )}
-                                                            <button onClick={() => handleRejectLinkRequest(req)} className="bg-white text-red-500 text-xs font-bold px-4 py-2 rounded-lg border border-red-200 hover:bg-red-50 transition">❌ 退回</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
                                     {/* 家長清單 */}
                                     <table className="w-full text-left">
                                         <thead className="bg-gray-50 border-b">
@@ -578,6 +526,103 @@ export default function AdminPage() {
                                             <span className="text-sm text-gray-500 font-bold">{parentsPage + 1} / {parentsTotalPages}</span>
                                             <button onClick={() => setParentsPage(p => Math.min(parentsTotalPages - 1, p + 1))} disabled={parentsPage >= parentsTotalPages - 1} className="px-3 py-1 rounded border text-sm font-bold disabled:opacity-40 hover:bg-white">下一頁 →</button>
                                         </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* ── 待審核 Sub-tab ── */}
+                            {userSubTab === 'pending' && (
+                                <div className="p-5 space-y-6">
+                                    {totalPendingCount === 0 ? (
+                                        <div className="py-16 text-center">
+                                            <div className="text-5xl mb-3 opacity-30">✅</div>
+                                            <p className="text-sm font-bold text-gray-400">目前沒有待審核事項</p>
+                                            <p className="text-xs text-gray-300 mt-1">所有帳號與綁定申請已處理完畢</p>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {/* 新帳號審核 */}
+                                            {pendingUsers.length > 0 && (
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <h3 className="text-sm font-black text-gray-700">🆕 新帳號審核</h3>
+                                                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">{pendingUsers.length} 個等待開通</span>
+                                                    </div>
+                                                    <div className="space-y-3">
+                                                        {pendingUsers.map(u => (
+                                                            <div key={u.id} className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-4">
+                                                                <div className="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-sm font-black text-orange-700 shrink-0">
+                                                                    {(u.name || u.email || '?')[0].toUpperCase()}
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="font-bold text-gray-800">{u.name || <span className="text-gray-400 italic">未填姓名</span>}</p>
+                                                                    <p className="text-xs text-gray-500 truncate">{u.email}</p>
+                                                                    <p className="text-[10px] text-gray-400 mt-0.5">申請時間：{new Date(u.created_at).toLocaleString('zh-TW')}</p>
+                                                                </div>
+                                                                <div className="flex gap-2 shrink-0">
+                                                                    <button
+                                                                        onClick={() => openEditModal(u)}
+                                                                        className="text-xs font-bold px-4 py-2 rounded-lg text-white transition hover:opacity-90"
+                                                                        style={{ backgroundColor: '#1A4B2E' }}
+                                                                    >
+                                                                        ⚙️ 審核開通
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDeleteUser(u.id, u.email)}
+                                                                        className="text-xs font-bold px-3 py-2 rounded-lg text-red-500 border border-red-200 hover:bg-red-50 transition"
+                                                                    >
+                                                                        拒絕
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 家長綁定申請 */}
+                                            {pendingRequests.length > 0 && (
+                                                <div>
+                                                    <div className="flex items-center gap-2 mb-3">
+                                                        <h3 className="text-sm font-black text-gray-700">🔗 家長綁定申請</h3>
+                                                        <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">{pendingRequests.length} 件待審核</span>
+                                                    </div>
+                                                    <div className="space-y-3">
+                                                        {pendingRequests.map(req => (
+                                                            <div key={req.id} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-4">
+                                                                <div className="flex-1 space-y-1.5">
+                                                                    <div className="font-bold text-sm text-gray-800">
+                                                                        👤 {req.parent?.name || req.parent?.email}
+                                                                        <span className="text-gray-400 font-normal text-xs ml-2">{req.parent?.email}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2 text-xs">
+                                                                        <span className="text-gray-500">申請綁定：</span>
+                                                                        <span className="font-bold text-gray-700">{req.submitted_chinese_name} {req.submitted_english_name}</span>
+                                                                        <span className="text-gray-400">（電話：{req.submitted_phone}）</span>
+                                                                    </div>
+                                                                    {req.student ? (
+                                                                        <div className="flex items-center gap-2 text-xs">
+                                                                            <span className="text-green-600 font-bold">✅ 系統比對到：</span>
+                                                                            <span className="font-bold text-gray-800">{req.student.chinese_name} {req.student.english_name}</span>
+                                                                            <span className="bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded">{req.student.grade}</span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <div className="text-xs text-orange-600 font-bold">⚠️ 未自動比對到學生，請手動確認</div>
+                                                                    )}
+                                                                    <p className="text-[10px] text-gray-400">申請時間：{new Date(req.created_at).toLocaleString('zh-TW')}</p>
+                                                                </div>
+                                                                <div className="flex gap-2 shrink-0">
+                                                                    {req.matched_student_id && (
+                                                                        <button onClick={() => handleApproveLinkRequest(req)} className="bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-700 transition">✅ 確認綁定</button>
+                                                                    )}
+                                                                    <button onClick={() => handleRejectLinkRequest(req)} className="bg-white text-red-500 text-xs font-bold px-4 py-2 rounded-lg border border-red-200 hover:bg-red-50 transition">❌ 退回</button>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </>
                                     )}
                                 </div>
                             )}
