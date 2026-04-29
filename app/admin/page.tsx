@@ -339,6 +339,7 @@ export default function AdminPage() {
     }
 
     const PAGE_SIZE = 30;
+    const pendingRequests = linkRequests.filter(r => r.status === 'pending');
     const pendingUsers = users.filter(u => u.role === 'pending');
     const totalPendingCount = pendingUsers.length + pendingRequests.length;
     const staffRoles = ['teacher', 'english_director', 'care_director', 'director', 'admin', 'manager'];
@@ -354,7 +355,6 @@ export default function AdminPage() {
         ((u.email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
          (u.name || '').includes(searchTerm))
     );
-    const pendingRequests = linkRequests.filter(r => r.status === 'pending');
 
     const staffTotalPages = Math.ceil(filteredStaff.length / PAGE_SIZE);
     const parentsTotalPages = Math.ceil(filteredParents.length / PAGE_SIZE);
