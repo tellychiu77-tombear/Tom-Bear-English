@@ -79,8 +79,9 @@ export default function DashboardPage() {
         const { data: userData } = await supabase.from('users').select('*').eq('id', session.user.id).single();
 
         if (userData) {
-            // 審核判斷：role 仍是 'pending' → 尚未開通；role 已是正式角色 → 放行（不管 is_approved flag）
-            if (userData.role === 'pending' || userData.role == null) {
+            // 審核判斷：role='pending' 或 is_approved=false → 顯示等待審核畫面
+            // 雙重保險：即使 role 被意外設成非 pending，is_approved=false 仍會阻擋
+            if (userData.role === 'pending' || userData.role == null || userData.is_approved === false) {
                 setRole('pending');
                 detectPendingRole(session.user.id);
             } else {

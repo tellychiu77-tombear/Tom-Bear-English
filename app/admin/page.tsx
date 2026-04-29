@@ -561,7 +561,7 @@ export default function AdminPage() {
                                                                 </div>
                                                                 <div className="flex gap-2 shrink-0">
                                                                     <button
-                                                                        onClick={() => openEditModal(u)}
+                                                                        onClick={() => { openEditModal(u); setIsApproved(true); }}
                                                                         className="text-xs font-bold px-4 py-2 rounded-lg text-white transition hover:opacity-90"
                                                                         style={{ backgroundColor: '#1A4B2E' }}
                                                                     >
