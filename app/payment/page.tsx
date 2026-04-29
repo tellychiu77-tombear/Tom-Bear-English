@@ -108,6 +108,17 @@ export default function PaymentPage() {
     const [studentSearch, setStudentSearch] = useState('');
     const [showStudentDropdown, setShowStudentDropdown] = useState(false);
 
+    // Batch add state
+    const [showBatchForm, setShowBatchForm] = useState(false);
+    const [batchClass, setBatchClass] = useState('');
+    const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
+    const [batchForm, setBatchForm] = useState({
+        item: '學費', item_custom: '', amount: '',
+        paid_date: new Date().toISOString().split('T')[0],
+        payment_method: 'cash', status: 'paid', note: '',
+    });
+    const [batchLoading, setBatchLoading] = useState(false);
+
     // Toast
     const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
     const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -216,6 +227,37 @@ export default function PaymentPage() {
         setFormLoading(false);
     }
 
+    async function handleBatchSave() {
+        if (batchSelected.size === 0) return showToast('請至少選擇一位學生', 'error');
+        const amountNum = parseFloat(batchForm.amount);
+        if (isNaN(amountNum) || amountNum <= 0) return showToast('請輸入有效金額', 'error');
+        const itemFinal = batchForm.item === '其他' && batchForm.item_custom.trim()
+            ? batchForm.item_custom.trim() : batchForm.item;
+        setBatchLoading(true);
+        const rows = Array.from(batchSelected).map(sid => ({
+            student_id: sid,
+            item: itemFinal,
+            amount: amountNum,
+            paid_date: batchForm.paid_date,
+            payment_method: batchForm.payment_method,
+            status: batchForm.status,
+            note: batchForm.note.trim() || null,
+            recorded_by: currentUser?.id ?? null,
+        }));
+        const { error } = await supabase.from('payment_records').insert(rows);
+        if (error) {
+            showToast('批次新增失敗: ' + error.message, 'error');
+        } else {
+            showToast(`已為 ${batchSelected.size} 位學生新增繳費紀錄 ✓`);
+            setShowBatchForm(false);
+            setBatchSelected(new Set());
+            setBatchClass('');
+            setBatchForm({ item: '學費', item_custom: '', amount: '', paid_date: new Date().toISOString().split('T')[0], payment_method: 'cash', status: 'paid', note: '' });
+            await fetchAdminData(currentUser?.id);
+        }
+        setBatchLoading(false);
+    }
+
     async function handleDelete(id: string) {
         if (!confirm('確定刪除此繳費紀錄？此操作無法復原。')) return;
         const { error } = await supabase.from('payment_records').delete().eq('id', id);
@@ -283,6 +325,10 @@ export default function PaymentPage() {
         s.grade.includes(studentSearch)
     );
 
+    // Batch: unique classes & students in selected class
+    const allClasses = Array.from(new Set(students.map(s => s.grade).filter(Boolean))).sort();
+    const batchClassStudents = batchClass ? students.filter(s => s.grade === batchClass) : [];
+
     if (loading) return (
         <div className="min-h-screen flex items-center justify-center bg-gray-50">
             <LoadingSpinner />
@@ -349,13 +395,22 @@ export default function PaymentPage() {
                                         {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                                     </select>
                                 </div>
-                                <button
-                                    onClick={() => { setEditingId(null); resetForm(); setShowForm(true); }}
-                                    className="px-4 py-2 text-white text-sm font-bold rounded-xl shadow-sm transition hover:opacity-90 shrink-0"
-                                    style={{ backgroundColor: BRAND }}
-                                >
-                                    + 新增繳費紀錄
-                                </button>
+                                <div className="flex gap-2 shrink-0">
+                                    <button
+                                        onClick={() => { setShowBatchForm(true); setShowForm(false); setEditingId(null); resetForm(); }}
+                                        className="px-4 py-2 text-sm font-bold rounded-xl shadow-sm transition hover:opacity-90 border-2"
+                                        style={{ borderColor: BRAND, color: BRAND, backgroundColor: 'white' }}
+                                    >
+                                        📋 批次新增
+                                    </button>
+                                    <button
+                                        onClick={() => { setEditingId(null); resetForm(); setShowForm(true); setShowBatchForm(false); }}
+                                        className="px-4 py-2 text-white text-sm font-bold rounded-xl shadow-sm transition hover:opacity-90"
+                                        style={{ backgroundColor: BRAND }}
+                                    >
+                                        + 新增繳費紀錄
+                                    </button>
+                                </div>
                             </div>
 
                             {/* Record cards */}
@@ -423,8 +478,134 @@ export default function PaymentPage() {
                             </div>
                         </div>
 
-                        {/* Right: Form */}
+                        {/* Right: Form / Batch */}
                         <div className="lg:w-80 shrink-0">
+                            {/* === 批次新增面板 === */}
+                            {showBatchForm && (
+                                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden sticky top-20">
+                                    <div className="p-4 text-white font-black text-base flex justify-between items-center" style={{ backgroundColor: BRAND }}>
+                                        <span>📋 批次新增繳費</span>
+                                        <button onClick={() => setShowBatchForm(false)} className="bg-white/20 hover:bg-white/30 rounded-full w-7 h-7 flex items-center justify-center text-sm">✕</button>
+                                    </div>
+                                    <div className="p-5 space-y-4">
+                                        {/* Step 1: 選班級 */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">① 選擇班級</label>
+                                            <select
+                                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2"
+                                                value={batchClass}
+                                                onChange={e => {
+                                                    const cls = e.target.value;
+                                                    setBatchClass(cls);
+                                                    const ids = students.filter(s => s.grade === cls).map(s => s.id);
+                                                    setBatchSelected(new Set(ids));
+                                                }}
+                                            >
+                                                <option value="">-- 選擇班級 --</option>
+                                                {allClasses.map(c => <option key={c} value={c}>{c}</option>)}
+                                            </select>
+                                        </div>
+
+                                        {/* Step 2: 學生清單 */}
+                                        {batchClass && (
+                                            <div>
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <label className="text-xs font-bold text-gray-600">② 選擇學生（{batchSelected.size}/{batchClassStudents.length}）</label>
+                                                    <button
+                                                        type="button"
+                                                        className="text-xs font-bold"
+                                                        style={{ color: BRAND }}
+                                                        onClick={() => {
+                                                            if (batchSelected.size === batchClassStudents.length) {
+                                                                setBatchSelected(new Set());
+                                                            } else {
+                                                                setBatchSelected(new Set(batchClassStudents.map(s => s.id)));
+                                                            }
+                                                        }}
+                                                    >
+                                                        {batchSelected.size === batchClassStudents.length ? '全部取消' : '全選'}
+                                                    </button>
+                                                </div>
+                                                <div className="border border-gray-100 rounded-xl overflow-hidden max-h-44 overflow-y-auto">
+                                                    {batchClassStudents.map(s => (
+                                                        <label key={s.id} className="flex items-center gap-3 px-3 py-2.5 hover:bg-gray-50 cursor-pointer border-b border-gray-50 last:border-0">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={batchSelected.has(s.id)}
+                                                                onChange={e => {
+                                                                    const next = new Set(batchSelected);
+                                                                    if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                                                                    setBatchSelected(next);
+                                                                }}
+                                                                className="w-4 h-4 accent-current"
+                                                                style={{ accentColor: BRAND }}
+                                                            />
+                                                            <span className="text-sm font-bold text-gray-800">{s.chinese_name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Step 3: 費用設定 */}
+                                        <div>
+                                            <label className="block text-xs font-bold text-gray-600 mb-1">③ 費用設定</label>
+                                            <div className="space-y-3 border border-gray-100 rounded-xl p-3">
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">項目</label>
+                                                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" value={batchForm.item} onChange={e => setBatchForm(f => ({ ...f, item: e.target.value }))}>
+                                                        {ITEM_OPTIONS.map(o => <option key={o} value={o}>{o}</option>)}
+                                                    </select>
+                                                    {batchForm.item === '其他' && (
+                                                        <input type="text" placeholder="項目名稱..." className="w-full mt-2 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" value={batchForm.item_custom} onChange={e => setBatchForm(f => ({ ...f, item_custom: e.target.value }))} />
+                                                    )}
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">金額 (NT$)</label>
+                                                    <input type="number" min="0" placeholder="0" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" value={batchForm.amount} onChange={e => setBatchForm(f => ({ ...f, amount: e.target.value }))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">繳費日期</label>
+                                                    <input type="date" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" value={batchForm.paid_date} onChange={e => setBatchForm(f => ({ ...f, paid_date: e.target.value }))} />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">付款方式</label>
+                                                    <div className="flex gap-2">
+                                                        {METHOD_OPTIONS.map(m => (
+                                                            <button key={m.value} type="button" onClick={() => setBatchForm(f => ({ ...f, payment_method: m.value }))}
+                                                                className="flex-1 py-1.5 text-xs font-bold rounded-lg border transition"
+                                                                style={batchForm.payment_method === m.value ? { backgroundColor: BRAND, borderColor: BRAND, color: 'white' } : { borderColor: '#e5e7eb', color: '#6b7280' }}>
+                                                                {m.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">狀態</label>
+                                                    <select className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none" value={batchForm.status} onChange={e => setBatchForm(f => ({ ...f, status: e.target.value }))}>
+                                                        {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs text-gray-500 mb-1">備注（選填）</label>
+                                                    <textarea rows={2} placeholder="補充說明..." className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none resize-none" value={batchForm.note} onChange={e => setBatchForm(f => ({ ...f, note: e.target.value }))} />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            disabled={batchLoading || batchSelected.size === 0 || !batchForm.amount}
+                                            onClick={handleBatchSave}
+                                            className="w-full py-3 text-white font-black rounded-xl transition hover:opacity-90 disabled:opacity-50"
+                                            style={{ backgroundColor: BRAND }}
+                                        >
+                                            {batchLoading ? '處理中...' : `為 ${batchSelected.size} 位學生新增`}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {showForm ? (
                                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden sticky top-20">
                                     <div
@@ -458,7 +639,7 @@ export default function PaymentPage() {
                                             {formData.student_id && (
                                                 <div className="absolute right-3 top-7 text-green-500 text-xs font-bold">✓</div>
                                             )}
-                                            {showStudentDropdown && studentSearch && (
+                                            {showStudentDropdown && (
                                                 <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                                                     {filteredStudents.length === 0 ? (
                                                         <div className="px-3 py-2 text-xs text-gray-400">找不到學生</div>
