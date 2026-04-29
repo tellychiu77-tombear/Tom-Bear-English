@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
+import { logAction } from '@/lib/logService';
 
 const BRAND = '#E8695A';
 
@@ -218,6 +219,11 @@ export default function PaymentPage() {
         if (error) {
             showToast('儲存失敗: ' + error.message, 'error');
         } else {
+            const studentName = students.find(s => s.id === formData.student_id)?.chinese_name ?? formData.student_id;
+            await logAction(
+                editingId ? '修改繳費紀錄' : '新增繳費紀錄',
+                `${studentName}｜${itemFinal}｜NT$${amountNum}｜${formData.status}`
+            );
             showToast(editingId ? '已更新繳費紀錄' : '繳費紀錄已新增');
             setShowForm(false);
             setEditingId(null);
@@ -248,6 +254,8 @@ export default function PaymentPage() {
         if (error) {
             showToast('批次新增失敗: ' + error.message, 'error');
         } else {
+            const names = Array.from(batchSelected).map(id => students.find(s => s.id === id)?.chinese_name ?? id).join('、');
+            await logAction('批次新增繳費', `${batchSelected.size} 位學生｜${itemFinal}｜NT$${amountNum}｜班級：${batchClass}｜${names}`);
             showToast(`已為 ${batchSelected.size} 位學生新增繳費紀錄 ✓`);
             setShowBatchForm(false);
             setBatchSelected(new Set());
@@ -260,9 +268,11 @@ export default function PaymentPage() {
 
     async function handleDelete(id: string) {
         if (!confirm('確定刪除此繳費紀錄？此操作無法復原。')) return;
+        const rec = records.find(r => r.id === id);
         const { error } = await supabase.from('payment_records').delete().eq('id', id);
         if (error) showToast('刪除失敗', 'error');
         else {
+            await logAction('刪除繳費紀錄', `${rec?.student?.chinese_name ?? '未知'}｜${rec?.item}｜NT$${rec?.amount}`);
             showToast('已刪除');
             setRecords(prev => prev.filter(r => r.id !== id));
             if (editingId === id) { setShowForm(false); setEditingId(null); resetForm(); }

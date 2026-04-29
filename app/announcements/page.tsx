@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '../../lib/permissions';
+import { logAction } from '../../lib/logService';
 
 function relativeTime(dateStr: string) {
     const now = new Date();
@@ -121,6 +122,7 @@ export default function AnnouncementsPage() {
         setSaving(false);
         if (error) { showToast('error', '儲存失敗，請稍後再試'); return; }
         showToast('success', editingId ? '公告已更新' : '公告已發布');
+        await logAction(editingId ? '編輯公告' : '發布公告', `標題：${formData.title}，對象：${formData.target_audience}`);
         setIsModalOpen(false);
         setEditingId(null);
         setFormData({ title: '', content: '', target_audience: 'all', is_pinned: false });
@@ -128,10 +130,12 @@ export default function AnnouncementsPage() {
     };
 
     const handleDelete = async (id: string) => {
+        const ann = announcements.find(a => a.id === id);
         const { error } = await supabase.from('announcements').delete().eq('id', id);
         setConfirmDeleteId(null);
         if (error) { showToast('error', '刪除失敗'); return; }
         showToast('success', '公告已刪除');
+        await logAction('刪除公告', `標題：${ann?.title ?? id}`);
         setAnnouncements(prev => prev.filter(a => a.id !== id));
     };
 
