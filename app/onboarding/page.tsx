@@ -35,19 +35,21 @@ export default function Onboarding() {
         e.preventDefault();
         if (!fullName.trim()) { showToast('請輸入姓名', 'error'); return; }
         setLoading(true);
+        // ✅ 修正：所有身分一律設 pending + is_approved=false，等管理員審核
+        // 舊版對家長直接設 role:'parent' + is_approved:true，完全繞過審核機制
         const { error } = await supabase.from('users').upsert({
             id: session.user.id,
             name: fullName.trim(),
-            role: applyRole === 'teacher' ? 'pending' : 'parent',
-            is_approved: applyRole === 'teacher' ? false : true,
-        });
+            role: 'pending',
+            is_approved: false,
+        }, { onConflict: 'id' });
         setLoading(false);
         if (error) { showToast('更新失敗：' + error.message, 'error'); return; }
-        if (applyRole === 'teacher') {
+        if (applyRole === 'parent') {
+            setStep('bind');
+        } else {
             showToast('申請已送出！待行政人員審核後即可使用。');
             router.push('/');
-        } else {
-            setStep('bind');
         }
     }
 
@@ -247,8 +249,8 @@ export default function Onboarding() {
                         </h1>
                         <p className="text-gray-500 text-sm leading-relaxed">
                             {bindResult === 'submitted'
-                                ? '您的綁定申請已送出，管理員審核後即完成連結。通常在 1 個工作天內完成。'
-                                : '您的帳號已完成設定。'}
+                                ? '您的申請已送出，管理員審核帳號與綁定後即可使用。通常在 1 個工作天內完成。'
+                                : '您的資料已送出，請等待管理員審核開通帳號後即可登入使用。'}
                         </p>
                         <button type="button" onClick={() => router.push('/')} className="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition">
                             前往首頁 →
