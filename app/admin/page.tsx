@@ -549,33 +549,58 @@ export default function AdminPage() {
                                                         <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-bold">{pendingUsers.length} 個等待開通</span>
                                                     </div>
                                                     <div className="space-y-3">
-                                                        {pendingUsers.map(u => (
-                                                            <div key={u.id} className="bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 flex items-center gap-4">
-                                                                <div className="w-10 h-10 rounded-full bg-orange-200 flex items-center justify-center text-sm font-black text-orange-700 shrink-0">
-                                                                    {(u.name || u.email || '?')[0].toUpperCase()}
-                                                                </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="font-bold text-gray-800">{u.name || <span className="text-gray-400 italic">未填姓名</span>}</p>
-                                                                    <p className="text-xs text-gray-500 truncate">{u.email}</p>
-                                                                    <p className="text-[10px] text-gray-400 mt-0.5">申請時間：{new Date(u.created_at).toLocaleString('zh-TW')}</p>
-                                                                </div>
-                                                                <div className="flex gap-2 shrink-0">
-                                                                    <button
-                                                                        onClick={() => { openEditModal(u); setIsApproved(true); }}
-                                                                        className="text-xs font-bold px-4 py-2 rounded-lg text-white transition hover:opacity-90"
-                                                                        style={{ backgroundColor: '#1A4B2E' }}
-                                                                    >
-                                                                        ⚙️ 審核開通
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeleteUser(u.id, u.email)}
-                                                                        className="text-xs font-bold px-3 py-2 rounded-lg text-red-500 border border-red-200 hover:bg-red-50 transition"
-                                                                    >
-                                                                        拒絕
-                                                                    </button>
+                                                        {pendingUsers.map(u => {
+                                                            const isTeacher = u.pending_role === 'teacher';
+                                                            return (
+                                                            <div key={u.id} className="bg-white border border-orange-200 rounded-xl p-4">
+                                                                <div className="flex items-start gap-4">
+                                                                    {/* Avatar + 身分 badge */}
+                                                                    <div className="shrink-0 flex flex-col items-center gap-1.5">
+                                                                        <div className="w-11 h-11 rounded-full flex items-center justify-center text-base font-black shrink-0"
+                                                                            style={{ backgroundColor: isTeacher ? '#EBF4EE' : '#EFF6FF', color: isTeacher ? '#1A4B2E' : '#1D4ED8' }}>
+                                                                            {(u.name || u.email || '?')[0].toUpperCase()}
+                                                                        </div>
+                                                                        <span className="text-[10px] font-black px-2 py-0.5 rounded-full"
+                                                                            style={{ backgroundColor: isTeacher ? '#EBF4EE' : '#EFF6FF', color: isTeacher ? '#1A4B2E' : '#1D4ED8' }}>
+                                                                            {isTeacher ? '👩‍🏫 員工' : '👪 家長'}
+                                                                        </span>
+                                                                    </div>
+                                                                    {/* 詳細資訊 */}
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                                                                            <p className="font-black text-gray-800 text-sm">
+                                                                                {u.name || <span className="text-gray-400 italic font-normal">未填姓名</span>}
+                                                                            </p>
+                                                                        </div>
+                                                                        <p className="text-xs text-gray-500">{u.email}</p>
+                                                                        {u.phone && <p className="text-xs text-gray-500 mt-0.5">📞 {u.phone}</p>}
+                                                                        <p className="text-[10px] text-gray-400 mt-1">申請時間：{new Date(u.created_at).toLocaleString('zh-TW')}</p>
+                                                                    </div>
+                                                                    {/* 操作按鈕 */}
+                                                                    <div className="flex flex-col gap-2 shrink-0">
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                openEditModal(u);
+                                                                                setIsApproved(true);
+                                                                                // 自動帶入申請的角色
+                                                                                setSelectedRole(u.pending_role === 'teacher' ? 'teacher' : 'parent');
+                                                                            }}
+                                                                            className="text-xs font-bold px-4 py-2 rounded-lg text-white transition hover:opacity-90 whitespace-nowrap"
+                                                                            style={{ backgroundColor: '#1A4B2E' }}
+                                                                        >
+                                                                            ⚙️ 審核開通
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => handleDeleteUser(u.id, u.email)}
+                                                                            className="text-xs font-bold px-3 py-1.5 rounded-lg text-red-500 border border-red-200 hover:bg-red-50 transition whitespace-nowrap"
+                                                                        >
+                                                                            ✕ 拒絕
+                                                                        </button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             )}

@@ -40,8 +40,10 @@ export default function Onboarding() {
         const { error } = await supabase.from('users').upsert({
             id: session.user.id,
             name: fullName.trim(),
+            phone: phone.trim() || null,
             role: 'pending',
             is_approved: false,
+            pending_role: applyRole,
         }, { onConflict: 'id' });
         setLoading(false);
         if (error) { showToast('更新失敗：' + error.message, 'error'); return; }

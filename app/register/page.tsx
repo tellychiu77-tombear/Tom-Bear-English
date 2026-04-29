@@ -97,13 +97,15 @@ export default function RegisterPage() {
         const user = signUpData?.user;
         if (user) {
             // 寫入 users 表，強制 role='pending', is_approved=false
+            // pending_role 記錄使用者申請的身分（parent/teacher），供管理員審核時參考
             const { error: upsertError } = await supabase.from('users').upsert({
                 id: user.id,
                 email,
                 name: fullName,
                 phone,
                 role: 'pending',
-                is_approved: false
+                is_approved: false,
+                pending_role: role,
             }, { onConflict: 'id' });
 
             if (upsertError) {
