@@ -85,15 +85,19 @@ END $$;
 
 
 -- Step 5: Drop old columns
--- ⚠️ 注意：執行此步驟前，建議先手動 SELECT 一個學生確認 primary/secondary 欄位有正確 backfill
--- 例：SELECT id, chinese_name, parent_phone, parent_phone_1, primary_contact_phone FROM students LIMIT 5;
-ALTER TABLE public.students
-  DROP COLUMN IF EXISTS parent_phone,
-  DROP COLUMN IF EXISTS parent_phone_1,
-  DROP COLUMN IF EXISTS parent_phone_2,
-  DROP COLUMN IF EXISTS parent_2_phone,
-  DROP COLUMN IF EXISTS parent_relationship,
-  DROP COLUMN IF EXISTS parent_2_relationship;
+-- ⚠️ 2026-07-02 稽核修正：舊欄位的 DROP 延後到 migration 014。
+-- 原因：前端（onboarding 綁定／my-child／students 頁）仍讀寫 parent_phone 系列欄位，
+-- 在此直接 DROP 會讓家長綁定流程立刻中斷。
+-- 順序：程式碼切換到 primary/secondary_contact_phone → 014 重跑 backfill → 014 DROP。
+--
+-- （原 Step 5 DROP 已移至 20260702_014_cleanup_legacy_columns.sql）
+-- ALTER TABLE public.students
+--   DROP COLUMN IF EXISTS parent_phone,
+--   DROP COLUMN IF EXISTS parent_phone_1,
+--   DROP COLUMN IF EXISTS parent_phone_2,
+--   DROP COLUMN IF EXISTS parent_2_phone,
+--   DROP COLUMN IF EXISTS parent_relationship,
+--   DROP COLUMN IF EXISTS parent_2_relationship;
 
 
 -- Step 6: Add comments documenting the new structure
@@ -115,7 +119,4 @@ COMMENT ON COLUMN public.students.secondary_contact_relationship IS
 -- ==========================================================================
 -- 若 005 跑壞需 rollback：
 -- 1. 還原原 4 個欄位 + 2 個 relationship 欄位（schema 重建）
--- 2. UPDATE 把 primary_contact_phone 寫回 parent_phone_1
--- 3. DROP 新欄位
--- 完整 SQL 略，建議用 PITR 還原到本 migration 套用之前。
--- ==========================================================================
+-- 2. UPDATE 把 p

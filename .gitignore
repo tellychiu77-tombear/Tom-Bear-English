@@ -34,3 +34,16 @@ ts-debug.log*
 # private research notes (Telly personal, never public, see docs/week0-tech-decisions.md)
 /private-research
 
+
+# 真實個資 seed（146 位學生姓名＋家長電話）— 絕不進版本庫
+# 假資料範本請用 supabase/seed_students.example.sql
+supabase/seed_students.sql
+supabase/seed_*_real*.sql
+*.trash_*
+.trash_*
+
+# git 歷史備份 bundle（含清理前的個資歷史，勿上傳）
+*.bundle
+
+# 舊 git 資料夾殘骸（同步層幽靈目錄，可整個刪除）
+.git.old/

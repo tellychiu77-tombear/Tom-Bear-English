@@ -1,5 +1,22 @@
 # 湯貝爾 APP 封測前全面掃描報告（2026-07-02）
 
+> ## ✅ 2026-07-06 更新：第二輪修正已完成
+>
+> 本報告第二、三節的重大問題已於 7/6 處理完畢（git commit `d2c400b`）：
+>
+> - **R1 RLS 角色隔離**：新增 `supabase/migrations/20260702_012_role_level_rls_and_fixes.sql` —— 家長只能讀寫自己小孩、稽核表防滅證、role_configs 鎖定、DB 層防提權 trigger、唯一鍵、FK CASCADE 修正、RPC 收斂，全部包含在內。**尚未套用到資料庫** —— 需要你依 `supabase/migrations/README.md` 在 preview branch 演練後套用（012 檔尾附驗收清單）。
+> - **R2 Auth Hook 致命 bug**：文件已修正（claim 改 `user_role`）；且 012 改為直接查 users 表判斷角色，Hook 沒設好也不影響隔離。
+> - **R3 學生個資**：`seed_students.sql` 已從本機 git 全部歷史清除（檔案本體保留在資料夾、已 gitignore）。**GitHub 端仍需你 force-push 或刪除重建**，步驟見 `scripts/pii-purge-followup.md`。清理前備份：`backup-before-pii-purge-20260706.bundle`。
+> - **R4**：程式碼已切換到 `audit_logs`（含過渡 fallback）；006 的欄位刪除延後到 014；`add_course_progress.sql` 改名修正排序。
+> - **R5 聊天欄位分裂**：程式碼統一為 `message`，歷史資料由 012 Section 0 合併。
+> - **R6／唯一鍵／email 枚舉**：都在 012。
+> - **R7 照片 bucket**：013 已備好，需配合程式碼改 signed URL 後套用（檔頭有說明），暫列封測後第一週。
+> - **🟡1 班級三套資料源**：admin 頁指派班級現在會同步寫 `teacher_assignments`。
+> - **死頁面**（/dashboard、/staff）已改為導回首頁；公告權限已收斂（老師只能管自己的、不能發全員）。
+> - onboarding 綁定與聊天聯絡人改走 SECURITY DEFINER RPC（012 內建，未套用前自動 fallback 舊查詢，不影響現行運作）。
+>
+> 驗證：全部修改後 `tsc --noEmit` 0 錯誤。**剩下需要你做的**：①GitHub force-push（見 scripts/pii-purge-followup.md）②在 preview branch 套用 migrations 並跑 012 驗收清單 ③本機跑一次 `npm run build`。
+
 目標時程：**7 月底封測 → 9 月正式開放家長使用**。
 本次掃描範圍：23 個頁面、5 個共用 lib、19 個 SQL migration、types、專案設定。
 技術棧確認：TypeScript + Next.js 14（App Router）+ React 18 + Tailwind + Supabase（純前端直連，anon key）。
@@ -80,29 +97,4 @@
 7. 大量查詢忽略 `error` 回傳值——RLS 上線後如有 policy 問題會靜默顯示空資料、極難除錯。建議至少在 manager／chat／pickup 補上錯誤處理。
 8. 老師預設可編輯／刪除主任發的公告、可發「全員」公告——建議收斂。
 9. `types/database.ts` 與實際 schema 嚴重脫節（還有已刪除的表、缺 `tenants`／`chat_messages` 等）——migration 定案後用 `supabase gen types` 重新產生。
-10. `chat_messages`、`pickup_requests` 等現役表在 repo 中沒有 CREATE TABLE——建議 `supabase db pull` 產出 baseline，否則無法重建環境。
-
-## 四、🟢 次要（封測後再說）
-
-`schema.sql` 已是死文件（標註 deprecated 即可）、7 支散裝 legacy SQL 應歸檔到 `legacy/`、`add_course_progress.sql` 缺時間戳前綴會排錯順序、`public/logo.png.png` 雙重副檔名、兩套稽核寫入格式不一致、`get_profile_id_by_email` 函式可被匿名者做 email 枚舉（REVOKE 即可）、manager 頁「每月學費收入趨勢」仍是 placeholder。
-
----
-
-## 五、時程建議（對照 7/31 封測）
-
-| 週次 | 重點 |
-|---|---|
-| **本週（7/2–7/5）** | R3 個資清理（急）；決定 R4 的 `system_logs` 歸屬；R5 確認 live DB 欄位資料 |
-| **第 2 週（7/6–7/12)** | R1 RLS policy 重寫 + R2 Auth Hook 修正，在 preview branch 完整演練（`999_PRE_FLIGHT_CHECKLIST` 的 8 個 gate 目前 39 個檢查項全部未勾，必須走完） |
-| **第 3 週（7/13–7/19)** | 套 migration 到 production；修 R4 程式碼配合；🟡1 班級資料源統一 |
-| **第 4 週（7/20–7/26)** | 用「家長帳號」實測隔離（讀不到別人小孩＝過關）；R6/R7；回歸測試 |
-| **7/27–7/31** | 緩衝＋封測名單上線 |
-
-判斷標準很簡單：**「家長 A 登入後，用瀏覽器開發者工具直接打 API，讀不到家長 B 小孩的任何資料」——這件事沒做到之前，不能給真實家長使用。**
-
----
-
-### 附註：本次修改的驗證方式
-所有修改完成後以乾淨副本重放全部變更並執行 `npx tsc --noEmit`（**0 錯誤**）。完整 `next build` 受沙盒執行時間限制未能跑完，請在本機執行 `npm run build` 確認（另注意：本機 build 需要網路抓取 Google Fonts）。
-
-另：本次工作中發現沙盒同步層對大檔案偶發截斷寫入，已逐檔比對修復（grades／students／payment 三檔的檔尾曾被截斷數行，已從 git 原始檔尾補回並驗證完整）。你電腦上的檔案為最終正確版本。commit 前建議先 `git diff` 過目一次今天的變更。
+10. `chat_messages`、`pickup_re

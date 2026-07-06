@@ -160,7 +160,7 @@ export default function PickupPage() {
     }
 
     async function fetchQueue() {
-        const { data } = await supabase
+        const { data, error } = await supabase
             .from('pickup_requests')
             .select(`
                 *,
@@ -170,6 +170,10 @@ export default function PickupPage() {
             .neq('status', 'completed')
             .order('created_at', { ascending: true });
 
+        if (error) {
+            console.error('接送清單載入失敗:', error);
+            setStatusText('🔴 資料載入失敗');
+        }
         if (data) setQueue(data);
         // 如果是老師，這時才關閉 loading，家長的話在 fetchMyChildrenStatus 就關了
         if (role !== 'parent') setLoading(false);

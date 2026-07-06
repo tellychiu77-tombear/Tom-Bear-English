@@ -55,6 +55,17 @@ Step 5：寫一個 RLS 隔離測試確認可運作
 -- ==========================================================================
 -- Custom Access Token Hook — 把 tenant_id 與 business role 注入 JWT
 -- ==========================================================================
+-- ⚠️⚠️ 2026-07-02 重大修正 ⚠️⚠️
+-- 原版把業務角色寫進頂層 `role` claim —— 那是 PostgREST 的保留欄位
+-- （用來做資料庫 SET ROLE，正常值必須是 'authenticated'）。
+-- 一旦覆寫成 'teacher'/'parent'，Postgres 找不到同名 DB role，
+-- 所有 API 請求會直接 500，全站癱瘓。
+-- 修正：業務角色一律放在自訂 claim `user_role`。
+--
+-- 另注意：migration 012 之後，RLS 的角色判斷改為直接查 users 表，
+-- 不再依賴 JWT claim —— 本 Hook 變成「輔助性質」（前端可讀 user_role 顯示身分），
+-- 未設定也不影響 RLS 正確性。
+--
 -- 此 function 由 Supabase Auth 在每次發 access token 前呼叫。
 -- 詳見 Supabase 官方文件：
 --   https://supabase.com/docs/guides/auth/auth-hooks/custom-access-token-hook
@@ -89,12 +100,12 @@ BEGIN
     -- 使用者剛註冊還沒有 users 表紀錄 → 給預設值
     -- 註冊流程應該在 onboarding 階段建立 users 紀錄，此處只是保險
     claims := jsonb_set(claims, '{tenant_id}', 'null'::jsonb);
-    claims := jsonb_set(claims, '{role}', '"pending"'::jsonb);
+    claims := jsonb_set(claims, '{user_role}', '"pending"'::jsonb);  -- ⚠️ 不可用 {role}（PostgREST 保留欄位）
     claims := jsonb_set(claims, '{is_approved}', 'false'::jsonb);
   ELSE
     -- 正常情況：注入業務層的 tenant_id 與 role
     claims := jsonb_set(claims, '{tenant_id}', to_jsonb(user_record.tenant_id));
-    claims := jsonb_set(claims, '{role}', to_jsonb(user_record.role));
+    claims := jsonb_set(claims, '{user_role}', to_jsonb(user_record.role));  -- ⚠️ 不可用 {role}（PostgREST 保留欄位）
     claims := jsonb_set(claims, '{is_approved}', to_jsonb(user_record.is_approved));
   END IF;
 
@@ -168,13 +179,15 @@ CREATE POLICY users_auth_hook_bypass ON public.users
   "sub": "<your-uuid>",
   "email": "tellychiu77@gmail.com",
   
+  "role": "authenticated",               ← 保留欄位，必須維持 authenticated（不可被覆寫！）
   "tenant_id": "<Tom Bear UUID>",       ← 必須出現！
-  "role": "platform_admin",              ← 必須出現！（Telly 的話）
+  "user_role": "platform_admin",         ← 必須出現！（Telly 的話；2026-07-02 起改用 user_role）
   "is_approved": true                    ← 必須出現！
 }
 ```
 
-如果 `tenant_id` / `role` / `is_approved` 三個 claim 缺一，hook 沒運作 — 看 §5 troubleshooting。
+如果 `tenant_id` / `user_role` / `is_approved` 三個 claim 缺一，hook 沒運作 — 看 §5 troubleshooting。
+⚠️ 若看到頂層 `role` 變成 teacher/parent 等業務角色 = hook 寫錯了，全站 API 會 500，立刻停用 hook。
 
 ### Step 5：寫一個 RLS 隔離測試確認
 
@@ -188,13 +201,13 @@ RETURNING id;
 -- 假設回傳 id = '<fake_tenant_uuid>'
 
 -- 假裝 Telly（platform_admin）切換到此 tenant 看
-SET LOCAL "request.jwt.claims" = '{"tenant_id":"<fake_tenant_uuid>","role":"platform_admin"}';
+SET LOCAL "request.jwt.claims" = '{"tenant_id":"<fake_tenant_uuid>","user_role":"platform_admin"}';
 
 SELECT count(*) FROM public.students;
 -- platform_admin 應看到所有 tenant 的學生（含真的 Tom Bear 152 + 假的 0 = 152）
 
 -- 假裝是 fake_test tenant 的 teacher
-SET LOCAL "request.jwt.claims" = '{"tenant_id":"<fake_tenant_uuid>","role":"teacher"}';
+SET LOCAL "request.jwt.claims" = '{"tenant_id":"<fake_tenant_uuid>","user_role":"teacher"}';
 
 SELECT count(*) FROM public.students;
 -- 應回 0（看不到 Tom Bear 的 152 個學生）
@@ -347,43 +360,4 @@ DROP FUNCTION IF EXISTS public.custom_access_token_hook(jsonb);
 - [ ] Dashboard → Auth → Hooks 顯示「Enabled」
 - [ ] 自己登出再登入，JWT 解碼後含 `tenant_id`, `role`, `is_approved`
 - [ ] Telly 的 role 是 `platform_admin`
-- [ ] 假 tenant 隔離測試通過（platform_admin 看全部、teacher 看 0）
-- [ ] 應用層登入流程正常，沒有意外 redirect
-
-全部勾完才能進 Phase A 的下一階段（封測前修整）。
-
----
-
-## 9. 進階：未來如何擴充 Hook
-
-需要加新 claim（例如 `monthly_ai_quota_remaining`）：
-
-```sql
--- 改 hook function，加 SELECT 與 jsonb_set
-SELECT 
-  u.tenant_id, u.role, u.is_approved,
-  t.monthly_ai_token_limit - t.current_month_ai_tokens_used AS ai_quota_remaining
-INTO user_record
-FROM public.users u
-JOIN public.tenants t ON t.id = u.tenant_id
-WHERE u.id = user_id_uuid;
-
--- ...
-claims := jsonb_set(claims, '{ai_quota_remaining}', to_jsonb(user_record.ai_quota_remaining));
-```
-
-⚠️ Claim 越多 JWT 越大。大型 SaaS 通常控制在 1KB 以下。台灣補教規模這個不是問題，但仍避免亂加。
-
----
-
-## 變更日誌
-
-| 日期 | 變更 | 維護人 |
-|------|------|--------|
-| 2026-05-08 | v1.0 草擬（Telly 出差期間） | Claude |
-
----
-
-**文件結束**
-
-> 任何修改 Hook 邏輯前，請先在 preview branch 演練。Hook 出錯會影響全平台登入體驗。
+- [ ] 假 tenant 隔離測試通過（platform_admin 看全部、

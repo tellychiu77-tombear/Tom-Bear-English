@@ -114,6 +114,17 @@ export default function AnnouncementsPage() {
             showToast('error', '標題和內容不能為空');
             return;
         }
+        if (!isAdminLevel && formData.target_audience === 'all') {
+            showToast('error', '只有管理階層可發布「全員」公告');
+            return;
+        }
+        if (editingId) {
+            const orig = announcements.find(a => a.id === editingId);
+            if (orig && !canEditItem(orig)) {
+                showToast('error', '只能編輯自己發布的公告');
+                return;
+            }
+        }
         setSaving(true);
         const payload = { ...formData, author_id: userId };
         const { error } = editingId
@@ -131,6 +142,7 @@ export default function AnnouncementsPage() {
 
     const handleDelete = async (id: string) => {
         const ann = announcements.find(a => a.id === id);
+        if (ann && !canEditItem(ann)) { showToast('error', '只能刪除自己發布的公告'); setConfirmDeleteId(null); return; }
         const { error } = await supabase.from('announcements').delete().eq('id', id);
         setConfirmDeleteId(null);
         if (error) { showToast('error', '刪除失敗'); return; }
@@ -139,13 +151,18 @@ export default function AnnouncementsPage() {
         setAnnouncements(prev => prev.filter(a => a.id !== id));
     };
 
+    // 管理階層可管理所有公告、發全員公告；老師只能管理自己發的、且不能發「全員」
+    const isAdminLevel = ['director', 'english_director', 'care_director', 'admin', 'manager'].includes(role || '');
+    const canEditItem = (ann: any) => canManage && (isAdminLevel || ann.author_id === userId);
+
     function openModal(ann: any = null) {
         if (ann) {
+            if (!canEditItem(ann)) { showToast('error', '只能編輯自己發布的公告'); return; }
             setEditingId(ann.id);
             setFormData({ title: ann.title, content: ann.content, target_audience: ann.target_audience, is_pinned: ann.is_pinned });
         } else {
             setEditingId(null);
-            setFormData({ title: '', content: '', target_audience: 'all', is_pinned: false });
+            setFormData({ title: '', content: '', target_audience: isAdminLevel ? 'all' : 'parent', is_pinned: false });
         }
         setIsModalOpen(true);
     }
@@ -304,7 +321,7 @@ export default function AnnouncementsPage() {
                                             </h2>
                                         </div>
 
-                                        {canManage && (
+                                        {canEditItem(item) && (
                                             <div className="flex gap-1 shrink-0 -mt-0.5">
                                                 <button onClick={e => { e.stopPropagation(); openModal(item); }}
                                                     className="text-xs text-gray-400 hover:text-indigo-600 px-2 py-1.5 hover:bg-indigo-50 rounded-lg transition">
@@ -420,7 +437,7 @@ export default function AnnouncementsPage() {
                                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                                         value={formData.target_audience}
                                         onChange={e => setFormData({ ...formData, target_audience: e.target.value })}>
-                                        <option value="all">📢 全員可見</option>
+                                        <option value="all" disabled={!isAdminLevel}>📢 全員可見{!isAdminLevel ? '（限管理階層）' : ''}</option>
                                         <option value="parent">👨‍👩‍👧 僅家長</option>
                                         <option value="teacher">👩‍🏫 僅教師</option>
                                     </select>

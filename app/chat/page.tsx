@@ -101,14 +101,24 @@ export default function ChatPage() {
         const u = user || currentUser;
         if (!u) return;
 
-        // 只取顯示聯絡人所需欄位（修正：之前 select('*') 會把整列個資〔電話、權限設定等〕載到瀏覽器）
-        let query = supabase.from('users').select('id, name, email, role, job_title').order('name');
-        if (u.role === 'parent') {
-            query = query.in('role', ['teacher', 'director', 'english_director', 'care_director']);
+        // 優先走 RPC（migration 012）：RLS 收緊後家長無法直接 SELECT users 表，
+        // 此 RPC 只回傳聯絡人所需的最小欄位。
+        let people: any[] | null = null;
+        const { data: rpcPeople, error: rpcError } = await supabase.rpc('list_chat_contacts');
+        if (!rpcError && rpcPeople) {
+            people = rpcPeople;
         } else {
-            query = query.eq('role', 'parent');
+            // Fallback：RPC 尚未部署時走直接查詢（只取最小欄位）
+            let query = supabase.from('users').select('id, name, email, role, job_title').order('name');
+            if (u.role === 'parent') {
+                query = query.in('role', ['teacher', 'director', 'english_director', 'care_director']);
+            } else {
+                query = query.eq('role', 'parent');
+            }
+            const { data: legacyPeople, error: peopleError } = await query;
+            if (peopleError) { console.error('聯絡人載入失敗:', peopleError); return; }
+            people = legacyPeople;
         }
-        const { data: people } = await query;
         if (!people) return;
 
         const { data: unreadData } = await supabase

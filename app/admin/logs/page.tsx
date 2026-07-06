@@ -52,12 +52,22 @@ export default function SystemLogsPage() {
         setLoading(true);
         const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
         const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
-        const { data } = await supabase
-            .from('system_logs').select('*')
-            .gte('created_at', start.toISOString())
-            .lte('created_at', end.toISOString())
-            .order('created_at', { ascending: false });
-        setLogs(data ?? []);
+        // 讀取新表 audit_logs（正式稽核表）＋舊表 system_logs（過渡期資料）並合併。
+        // migration 003 套用後 system_logs 不存在，該查詢回 error → 自動只顯示 audit_logs。
+        const [auditRes, legacyRes] = await Promise.all([
+            supabase.from('audit_logs').select('*')
+                .gte('created_at', start.toISOString())
+                .lte('created_at', end.toISOString())
+                .order('created_at', { ascending: false }),
+            supabase.from('system_logs').select('*')
+                .gte('created_at', start.toISOString())
+                .lte('created_at', end.toISOString())
+                .order('created_at', { ascending: false }),
+        ]);
+        const audit = (auditRes.data ?? []).map((l: any) => ({ ...l, operator_email: l.user_name ?? l.user_id ?? '未知' }));
+        const legacy = legacyRes.data ?? [];
+        const merged = [...audit, ...legacy].sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1));
+        setLogs(merged);
         setLoading(false);
     }
 

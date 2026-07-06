@@ -54,6 +54,7 @@ function getDateRange(period: string): { from: string | null; to: string | null 
 // ─── 主元件 ──────────────────────────────────────────────────────────────────
 export default function ManagerDashboard() {
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isDirector, setIsDirector] = useState(false);
     const [activeTab, setActiveTab] = useState('overview');
@@ -123,7 +124,15 @@ export default function ManagerDashboard() {
         // 1. 全員工清單（teacher + admin + admin_staff + director 等，排除家長/待審）
         //    不在 DB 層做 dept 篩選，避免 department 欄未設值時查不到人
         const STAFF_ROLES = ['director', 'manager', 'english_director', 'care_director', 'admin', 'admin_staff', 'teacher'];
-        const { data: allStaff } = await supabase.from('users').select('*').in('role', STAFF_ROLES);
+        const { data: allStaff, error: staffError } = await supabase.from('users').select('*').in('role', STAFF_ROLES);
+        if (staffError) {
+            // RLS／連線問題時明確告知，不再靜默顯示空資料
+            console.error('戰情室資料載入失敗:', staffError);
+            setLoadError(`資料載入失敗：${staffError.message}（若剛套用權限設定，請通知系統管理員檢查 RLS policy）`);
+            setLoading(false);
+            return;
+        }
+        setLoadError(null);
 
         // 部門篩選：client 端處理
         //   - 若 selectedDept 為 null（全校總覽）→ 取全部員工
@@ -401,6 +410,17 @@ export default function ManagerDashboard() {
             <div className="text-center">
                 <div className="text-4xl mb-3 animate-pulse">📊</div>
                 <p className="text-gray-500 font-medium">數據分析中...</p>
+            </div>
+        </div>
+    );
+
+    if (loadError) return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
+            <div className="bg-white border border-red-200 rounded-2xl p-8 max-w-md text-center shadow-sm">
+                <div className="text-4xl mb-3">⚠️</div>
+                <p className="text-red-600 font-bold mb-2">戰情室資料載入失敗</p>
+                <p className="text-sm text-gray-500">{loadError}</p>
+                <button onClick={() => fetchAll()} className="mt-4 px-5 py-2 bg-indigo-600 text-white rounded-xl font-bold text-sm">重試</button>
             </div>
         </div>
     );

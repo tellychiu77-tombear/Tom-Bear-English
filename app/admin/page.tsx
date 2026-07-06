@@ -8,6 +8,7 @@ import {
     HARDCODED_DEFAULTS, PermissionKey
 } from '../../lib/permissions';
 import { useToast, TOAST_CLASSES } from '../../lib/useToast';
+import { logAction } from '../../lib/logService';
 
 const ENGLISH_CLASS_OPTIONS = [
     { value: 'NONE', label: '❌ 無英文主修 (純課後輔導)' },
@@ -147,9 +148,7 @@ export default function AdminPage() {
         }
     }
 
-    async function logAction(action: string, details: string) {
-        await supabase.from('system_logs').insert({ operator_email: currentUser?.email, action, details });
-    }
+    // 稽核日誌統一走 lib/logService（寫入 audit_logs，格式含操作者姓名）
 
     async function openEditModal(user: any) {
         setEditingUser(user);
@@ -202,6 +201,29 @@ export default function AdminPage() {
             if (selectedRole === 'parent') updates.is_super_admin = false;
             const { error } = await supabase.from('users').update(updates).eq('id', editingUser.id);
             if (error) throw error;
+
+            // 同步 teacher_assignments —— 點名／學生資料庫／課程進度都以這張表為準。
+            // 修正：之前只寫 users.responsible_classes，在此指派班級的老師到點名頁會查無學生。
+            if (['teacher', 'english_director', 'care_director'].includes(selectedRole)) {
+                const { data: existingAssigns } = await supabase
+                    .from('teacher_assignments').select('id, class_group').eq('teacher_id', editingUser.id);
+                const existingClasses = new Set((existingAssigns || []).map((a: any) => a.class_group));
+                const toRemove = (existingAssigns || []).filter((a: any) => !teacherClasses.includes(a.class_group));
+                if (toRemove.length > 0) {
+                    await supabase.from('teacher_assignments').delete().in('id', toRemove.map((a: any) => a.id));
+                }
+                const toAdd = teacherClasses.filter(c => !existingClasses.has(c)).map(c => ({
+                    teacher_id: editingUser.id,
+                    class_group: c,
+                    slot_type: c.includes('課後輔導') ? '課後輔導' : '英文綜合',
+                    role: 'lead',
+                }));
+                if (toAdd.length > 0) {
+                    const { error: taError } = await supabase.from('teacher_assignments').insert(toAdd);
+                    if (taError) showToast('⚠️ 班級指派同步失敗：' + taError.message, 'error');
+                }
+            }
+
             await logAction('更新用戶設定', `更新 ${editingUser.email} → 角色:${selectedRole}, 職稱:${editingJobTitle}`);
             showToast('✅ 設定已更新');
             fetchUsers();

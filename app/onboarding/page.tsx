@@ -65,15 +65,30 @@ export default function Onboarding() {
 
         const cleanPhone = phone.trim().replace(/[-\s]/g, '');
 
-        let query = supabase
-            .from('students')
-            .select('id, chinese_name, english_name, grade, school_grade')
-            .or(`parent_phone.eq.${cleanPhone},parent_2_phone.eq.${cleanPhone}`);
+        // 優先走 SECURITY DEFINER RPC（migration 012）：
+        // 只回傳最小欄位、且必須「電話＋姓名」同時命中，防止用電話枚舉學生資料。
+        // RLS 上線後家長無法直接 SELECT 未綁定的學生，此 RPC 是唯一的比對通道。
+        let matched: any = null;
+        const { data: rpcData, error: rpcError } = await supabase.rpc('match_student_for_binding', {
+            p_phone: cleanPhone,
+            p_chinese_name: chineseName.trim() || null,
+            p_english_name: englishName.trim() || null,
+        });
+        if (!rpcError) {
+            matched = Array.isArray(rpcData) ? rpcData[0] ?? null : rpcData;
+        } else {
+            // Fallback：RPC 尚未部署（migration 012 未套用）時走舊查詢
+            let query = supabase
+                .from('students')
+                .select('id, chinese_name, english_name, grade, school_grade')
+                .or(`parent_phone.eq.${cleanPhone},parent_2_phone.eq.${cleanPhone}`);
 
-        if (chineseName.trim()) query = query.eq('chinese_name', chineseName.trim());
-        if (englishName.trim()) query = query.ilike('english_name', englishName.trim());
+            if (chineseName.trim()) query = query.eq('chinese_name', chineseName.trim());
+            if (englishName.trim()) query = query.ilike('english_name', englishName.trim());
 
-        const { data: matched } = await query.limit(1).maybeSingle();
+            const { data: legacyMatched } = await query.limit(1).maybeSingle();
+            matched = legacyMatched;
+        }
 
         if (matched) {
             setMatchedStudent(matched);

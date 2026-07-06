@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { logAction } from '@/lib/logService';
+import { getEffectivePermissions } from '@/lib/permissions';
 
 export default function LeavePage() {
     const [loading, setLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [canApprove, setCanApprove] = useState(false);
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
 
     // Data
@@ -26,8 +29,8 @@ export default function LeavePage() {
         studentId: '',
         type: '病假',
         reason: '',
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0]
+        startDate: localDateStr(),
+        endDate: localDateStr()
     });
 
     const router = useRouter();
@@ -47,6 +50,10 @@ export default function LeavePage() {
         if (profile.role === 'parent') {
             await fetchParentData(session.user.id);
         } else {
+            // 依 approveLeave 權限決定能否核准／駁回（修正：之前所有非家長角色都能審核）
+            const { data: roleConfigRow } = await supabase.from('role_configs').select('permissions').eq('role', profile.role).single();
+            const perms = getEffectivePermissions(profile.role, roleConfigRow?.permissions ?? null, profile.extra_permissions ?? null);
+            setCanApprove(perms.approveLeave);
             await fetchStaffData();
         }
         setLoading(false);
@@ -54,7 +61,7 @@ export default function LeavePage() {
 
     const fetchParentData = async (parentId: string) => {
         // 1. Get Children
-        const { data: kids } = await supabase.from('students').select('*').eq('parent_id', parentId);
+        const { data: kids } = await supabase.from('students').select('*').or(`parent_id.eq.${parentId},parent_id_2.eq.${parentId}`);
         if (kids) {
             setMyChildren(kids);
             if (kids.length > 0) setFormData(prev => ({ ...prev, studentId: kids[0].id }));
@@ -110,6 +117,7 @@ export default function LeavePage() {
     // ... (previous)
 
     const updateStatus = async (id: string, newStatus: string) => {
+        if (!canApprove) { showToast('您沒有審核請假的權限', 'error'); return; }
         const confirmed = confirm(`確定要將此申請標記為「${newStatus === 'approved' ? '核准' : '駁回'}」嗎？`);
         if (!confirmed) return;
 
@@ -175,7 +183,7 @@ export default function LeavePage() {
                     </div>
 
                     <div className="flex gap-4">
-                        <StatCard label="本月累積人次" value={leaves.length} color="bg-blue-50" textColor="text-blue-600" />
+                        <StatCard label="全部請假單" value={leaves.length} color="bg-blue-50" textColor="text-blue-600" />
                         <StatCard label="待審核案件" value={pendingLeaves.length} color="bg-orange-50" textColor="text-orange-600" highlight={pendingLeaves.length > 0} />
                     </div>
 
@@ -255,7 +263,7 @@ export default function LeavePage() {
                                                 </div>
                                             </div>
 
-                                            {isStaff ? (
+                                            {isStaff && canApprove ? (
                                                 <div className="flex gap-3">
                                                     <button
                                                         onClick={() => updateStatus(leave.id, 'approved')}
@@ -269,6 +277,10 @@ export default function LeavePage() {
                                                     >
                                                         ❌ 駁回
                                                     </button>
+                                                </div>
+                                            ) : isStaff ? (
+                                                <div className="text-center text-gray-400 font-bold bg-gray-50 py-2 rounded-lg text-sm">
+                                                    🔒 您沒有審核權限
                                                 </div>
                                             ) : (
                                                 <div className="text-center text-orange-500 font-bold bg-orange-50 py-2 rounded-lg text-sm">
@@ -290,18 +302,18 @@ export default function LeavePage() {
                                 <CalendarView
                                     historyLeaves={historyLeaves}
                                     onDateSelect={(date: string) => setSearchTerm(date)}
-                                    selectedDate={searchTerm || new Date().toISOString().split('T')[0]}
+                                    selectedDate={searchTerm || localDateStr()}
                                 />
                             </div>
 
                             {/* Right: Detailed List for Selected Date */}
                             <div className="p-4 md:w-1/3 bg-gray-50/50 flex flex-col">
                                 <h3 className="font-bold text-gray-700 mb-4 flex items-center gap-2">
-                                    📅 {searchTerm || new Date().toISOString().split('T')[0]} ({historyLeaves.filter(l => l.start_date <= (searchTerm || new Date().toISOString().split('T')[0]) && l.end_date >= (searchTerm || new Date().toISOString().split('T')[0])).length})
+                                    📅 {searchTerm || localDateStr()} ({historyLeaves.filter(l => l.start_date <= (searchTerm || localDateStr()) && l.end_date >= (searchTerm || localDateStr())).length})
                                 </h3>
                                 <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar" style={{ maxHeight: '400px' }}>
                                     {(() => {
-                                        const targetDate = searchTerm || new Date().toISOString().split('T')[0];
+                                        const targetDate = searchTerm || localDateStr();
                                         const daysLeaves = historyLeaves.filter(l => l.start_date <= targetDate && l.end_date >= targetDate);
 
                                         if (daysLeaves.length === 0) return (
@@ -458,7 +470,7 @@ function CalendarView({ historyLeaves, onDateSelect, selectedDate }: any) {
 
     const daysInMonth = getDaysInMonth(currentDate);
     const firstDay = getFirstDayOfMonth(currentDate);
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateStr();
 
     const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));

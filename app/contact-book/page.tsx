@@ -160,7 +160,7 @@ export default function ContactBookPage() {
         if (!currentUser) return;
         const { data } = await supabase
             .from('chat_messages')
-            .select('id, sender_id, receiver_id, content, is_read, created_at, sender:users!sender_id(id, name, email), receiver:users!receiver_id(id, name, email)')
+            .select('id, sender_id, receiver_id, message, is_read, created_at, sender:users!sender_id(id, name, email), receiver:users!receiver_id(id, name, email)')
             .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
             .order('created_at', { ascending: false });
         if (!data) return;
@@ -201,7 +201,7 @@ export default function ContactBookPage() {
         const { data } = await supabase.from('chat_messages').insert({
             sender_id: currentUser.id,
             receiver_id: selectedChatUserId,
-            content: replyText,
+            message: replyText, // 統一使用 message 欄位（原本此頁用 content，與聊天主頁互相看不到）
             is_read: false
         }).select().single();
         if (data) setChatMessages(prev => [...prev, data]);
@@ -695,7 +695,7 @@ export default function ContactBookPage() {
                                                         <span className="text-sm font-bold text-gray-800 truncate">{c.partner?.name || c.partner?.email}</span>
                                                         <span className="text-[10px] text-gray-400 flex-shrink-0">{new Date(c.lastMsg.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}</span>
                                                     </div>
-                                                    <p className="text-xs text-gray-400 truncate">{c.lastMsg.content}</p>
+                                                    <p className="text-xs text-gray-400 truncate">{c.lastMsg.message}</p>
                                                 </div>
                                                 {c.unread > 0 && <span className="w-5 h-5 bg-red-500 text-white text-[10px] font-black rounded-full flex items-center justify-center flex-shrink-0">{c.unread}</span>}
                                             </button>
@@ -716,7 +716,7 @@ export default function ContactBookPage() {
                                             {chatMessages.map((m, i) => (
                                                 <div key={i} className={`flex ${m.sender_id === currentUser?.id ? 'justify-end' : 'justify-start'}`}>
                                                     <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-xs font-medium ${m.sender_id === currentUser?.id ? 'bg-indigo-600 text-white rounded-br-sm' : 'bg-gray-100 text-gray-700 rounded-bl-sm'}`}>
-                                                        {m.content}
+                                                        {m.message}
                                                         <span className={`block text-[9px] mt-0.5 ${m.sender_id === currentUser?.id ? 'text-indigo-200' : 'text-gray-400'}`}>
                                                             {new Date(m.created_at).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
