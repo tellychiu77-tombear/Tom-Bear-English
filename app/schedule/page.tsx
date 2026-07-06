@@ -155,8 +155,8 @@ export default function SchedulePage() {
         try {
             const { createClient } = await import('@supabase/supabase-js');
             const isolatedClient = createClient(
-                process.env.NEXT_PUBLIC_SUPABASE_URL,
-                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                process.env.NEXT_PUBLIC_SUPABASE_URL!,
+                process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
                 { auth: { persistSession: false, autoRefreshToken: false, storageKey: '__teacher_signup_tmp__' } }
             );
             const placeholderEmail = 'teacher_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7) + '@tombear.internal';

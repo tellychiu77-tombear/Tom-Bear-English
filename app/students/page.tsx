@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { localDateStr } from '../../lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '../../lib/permissions';
 import { useToast, TOAST_CLASSES } from '../../lib/useToast';
@@ -54,6 +55,7 @@ export default function StudentsPage() {
     const [currentPage, setCurrentPage] = useState(1);
     const [isTeacherView, setIsTeacherView] = useState(false);
     const [teacherClasses, setTeacherClasses] = useState<string[]>([]);
+    const [noClassTeacher, setNoClassTeacher] = useState(false);
 
     // 列表選中的學生 → 開啟 Profile Modal
     const [profileStudent, setProfileStudent] = useState<any>(null);
@@ -84,6 +86,12 @@ export default function StudentsPage() {
             setTeacherClasses(classes);
             setIsTeacherView(true);
             setCanEditStudents(false);
+            if (classes.length === 0) {
+                // 尚未分配班級的老師：不顯示學生，顯示提示訊息
+                setNoClassTeacher(true);
+                setLoading(false);
+                return;
+            }
             fetchStudents(classes);
             return;
         }
@@ -130,6 +138,17 @@ export default function StudentsPage() {
 
     if (loading) return <div className="p-10 text-center font-bold text-gray-400">載入中...</div>;
 
+    if (noClassTeacher) return (
+        <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4 text-center p-8">
+            <div className="text-6xl">🏫</div>
+            <h2 className="text-2xl font-black text-gray-700">尚未被分配班級</h2>
+            <p className="text-gray-500 font-medium max-w-sm">您目前沒有負責的班級，請聯絡管理員為您設定班級指派後，再查看學生資料。</p>
+            <button onClick={() => router.push('/')} className="mt-2 px-6 py-2 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition">
+                返回首頁
+            </button>
+        </div>
+    );
+
     return (
         <div className="min-h-screen bg-gray-50">
             {toast && (
@@ -138,9 +157,9 @@ export default function StudentsPage() {
                 </div>
             )}
             {/* 老師視角提示橫條 */}
-            {isTeacherView && (
+            {isTeacherView && !noClassTeacher && (
                 <div className="bg-blue-50 border-b border-blue-200 px-4 py-2 text-center text-sm font-bold text-blue-700">
-                    👩‍🏫 老師視角：僅顯示您負責班級（{teacherClasses.length > 0 ? teacherClasses.join('、') : '尚未設定班級'}）的學生
+                    👩‍🏫 老師視角：僅顯示您負責班級（{teacherClasses.join('、')}）的學生
                 </div>
             )}
             {/* Header */}
@@ -806,7 +825,7 @@ function AnalyticsTab({ studentId, studentName }: { studentId: string; studentNa
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const since = localDateStr(new Date(Date.now() - 90 * 24 * 60 * 60 * 1000));
         supabase.from('contact_books')
             .select('date, mood, focus, participation, expression, is_absent, parent_signature')
             .eq('student_id', studentId)
@@ -1068,7 +1087,7 @@ function AddStudentModal({ onClose, onSaved, showToast }: any) {
 
 // ── 小工具元件 ─────────────────────────────────────────────────────────────────
 
-function Field({ label, value, onChange, type = 'text', disabled = false }: any) {
+function Field({ label, value, onChange, type = 'text', disabled = false }: { label: string; value: any; onChange: (v: string) => void; type?: string; disabled?: boolean }) {
     return (
         <div>
             <label className="text-xs font-bold text-gray-400 ml-1">{label}</label>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 
 const BRAND = '#E8695A';
@@ -60,7 +61,7 @@ export default function ProgressPage() {
     const [editingSession, setEditingSession] = useState<CourseSession | null>(null);
     const [form, setForm] = useState({
         class_group: '',
-        date: new Date().toISOString().split('T')[0],
+        date: localDateStr(),
         topic: '',
         content: '',
         homework: '',
@@ -94,7 +95,7 @@ export default function ProgressPage() {
 
         if (role === 'parent') {
             // Get child's class
-            const { data: kids } = await supabase.from('students').select('grade').eq('parent_id', session.user.id).limit(1);
+            const { data: kids } = await supabase.from('students').select('grade').or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`).limit(1);
             const childClass = kids?.[0]?.grade ?? '';
             setMyClass(childClass);
             if (childClass) {
@@ -240,7 +241,7 @@ export default function ProgressPage() {
             currentUser?.role === 'teacher' ? (teacherClasses[0] ?? '') : selectedClass;
         setForm({
             class_group: defaultClass,
-            date: new Date().toISOString().split('T')[0],
+            date: localDateStr(),
             topic: '',
             content: '',
             homework: '',
@@ -726,7 +727,7 @@ function ParentView({
     }, [childId, sessions]);
 
     async function fetchChild() {
-        const { data } = await supabase.from('students').select('id').eq('parent_id', currentUserId).limit(1);
+        const { data } = await supabase.from('students').select('id').or(`parent_id.eq.${currentUserId},parent_id_2.eq.${currentUserId}`).limit(1);
         if (data?.[0]) setChildId(data[0].id);
     }
 

@@ -95,7 +95,7 @@ export default function MyChildPage() {
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) { router.push('/'); return; }
         const { data: children } = await supabase
-            .from('students').select('*').eq('parent_id', session.user.id);
+            .from('students').select('*').or(`parent_id.eq.${session.user.id},parent_id_2.eq.${session.user.id}`);
         if (children && children.length > 0) {
             setMyChildren(children);
             setSelectedChild(children[0]);
@@ -143,11 +143,19 @@ export default function MyChildPage() {
     };
 
     const handleSign = async (logId: string) => {
+        // 只允許簽自己孩子的聯絡簿（前端防呆；正式防線為 RLS）
+        const ownLog = recentLogs.find(l => l.id === logId);
+        const myChildIds = myChildren.map(c => c.id);
+        if (!ownLog || !myChildIds.includes(ownLog.student_id)) {
+            showToast('簽名失敗：非本人孩子的聯絡簿', 'error');
+            return;
+        }
         setSigningId(logId);
         const { error } = await supabase
             .from('contact_books')
             .update({ parent_signature: true })
-            .eq('id', logId);
+            .eq('id', logId)
+            .in('student_id', myChildIds);
         if (!error) {
             setRecentLogs(prev => prev.map(l => l.id === logId ? { ...l, parent_signature: true } : l));
             showToast('簽名完成！', 'success');

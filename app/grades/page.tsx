@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '@/lib/permissions';
 import {
@@ -63,7 +64,7 @@ export default function GradesPage() {
 
     // ============ Tab 1: 成績登錄 ============
     const [entryClass, setEntryClass]       = useState('');
-    const [entryDate, setEntryDate]         = useState(new Date().toISOString().split('T')[0]);
+    const [entryDate, setEntryDate]         = useState(localDateStr());
     const [entryExamName, setEntryExamName] = useState('');
     const [classStudents, setClassStudents] = useState<any[]>([]);
     const [scores, setScores]               = useState<Record<string, string>>({});
@@ -365,7 +366,7 @@ export default function GradesPage() {
 
     const fetchMyChildren = async (uid: string) => {
         const { data } = await supabase
-            .from('students').select('id, chinese_name, grade').eq('parent_id', uid);
+            .from('students').select('id, chinese_name, grade').or(`parent_id.eq.${uid},parent_id_2.eq.${uid}`);
         if (data && data.length > 0) {
             setMyChildren(data);
             setSelectedChild(data[0].id);

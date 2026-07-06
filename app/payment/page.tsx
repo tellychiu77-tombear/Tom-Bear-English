@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { logAction } from '@/lib/logService';
+import { getEffectivePermissions } from '@/lib/permissions';
 
 const BRAND = '#E8695A';
-
-const ADMIN_ROLES = ['director', 'manager', 'admin', 'english_director', 'care_director'];
 
 const ITEM_OPTIONS = ['學費', '材料費', '活動費', '其他'];
 const STATUS_OPTIONS = [
@@ -79,6 +79,7 @@ export default function PaymentPage() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [canViewPayments, setCanViewPayments] = useState(false);
 
     // Data
     const [records, setRecords] = useState<PaymentRecord[]>([]);
@@ -98,7 +99,7 @@ export default function PaymentPage() {
         item: '學費',
         item_custom: '',
         amount: '',
-        paid_date: new Date().toISOString().split('T')[0],
+        paid_date: localDateStr(),
         payment_method: 'cash',
         status: 'paid',
         note: '',
@@ -115,7 +116,7 @@ export default function PaymentPage() {
     const [batchSelected, setBatchSelected] = useState<Set<string>>(new Set());
     const [batchForm, setBatchForm] = useState({
         item: '學費', item_custom: '', amount: '',
-        paid_date: new Date().toISOString().split('T')[0],
+        paid_date: localDateStr(),
         payment_method: 'cash', status: 'paid', note: '',
     });
     const [batchLoading, setBatchLoading] = useState(false);
@@ -139,18 +140,19 @@ export default function PaymentPage() {
 
         const role = profile.role as string;
 
-        if (role === 'teacher') {
-            router.push('/');
-            return;
-        }
-
         if (role === 'parent') {
             await fetchParentData(session.user.id);
-        } else if (ADMIN_ROLES.includes(role)) {
-            await fetchAdminData(session.user.id);
         } else {
-            router.push('/');
-            return;
+            // 員工一律依 viewPayments 權限判斷（與首頁卡片顯示邏輯一致，
+            // 修正：之前硬編碼角色清單，被授予 viewPayments 的老師會被踢回首頁）
+            const { data: roleConfigRow } = await supabase.from('role_configs').select('permissions').eq('role', role).single();
+            const perms = getEffectivePermissions(role, roleConfigRow?.permissions ?? null, profile.extra_permissions ?? null);
+            if (!perms.viewPayments) {
+                router.push('/');
+                return;
+            }
+            setCanViewPayments(true);
+            await fetchAdminData(session.user.id);
         }
 
         setLoading(false);
@@ -160,7 +162,7 @@ export default function PaymentPage() {
         const { data: kids } = await supabase
             .from('students')
             .select('id, chinese_name, grade')
-            .eq('parent_id', parentId);
+            .or(`parent_id.eq.${parentId},parent_id_2.eq.${parentId}`);
         if (kids) {
             setMyChildren(kids);
             const kidIds = kids.map(k => k.id);
@@ -260,7 +262,7 @@ export default function PaymentPage() {
             setShowBatchForm(false);
             setBatchSelected(new Set());
             setBatchClass('');
-            setBatchForm({ item: '學費', item_custom: '', amount: '', paid_date: new Date().toISOString().split('T')[0], payment_method: 'cash', status: 'paid', note: '' });
+            setBatchForm({ item: '學費', item_custom: '', amount: '', paid_date: localDateStr(), payment_method: 'cash', status: 'paid', note: '' });
             await fetchAdminData(currentUser?.id);
         }
         setBatchLoading(false);
@@ -303,7 +305,7 @@ export default function PaymentPage() {
             item: '學費',
             item_custom: '',
             amount: '',
-            paid_date: new Date().toISOString().split('T')[0],
+            paid_date: localDateStr(),
             payment_method: 'cash',
             status: 'paid',
             note: '',
@@ -313,8 +315,8 @@ export default function PaymentPage() {
     }
 
     const role = currentUser?.role as string;
-    const isAdmin = ADMIN_ROLES.includes(role);
     const isParent = role === 'parent';
+    const isAdmin = canViewPayments && !isParent;
 
     // Filtered records for admin list
     const filteredRecords = records.filter(r => {
@@ -897,3 +899,4 @@ export default function PaymentPage() {
         </div>
     );
 }
+       

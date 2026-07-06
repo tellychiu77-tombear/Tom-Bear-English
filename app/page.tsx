@@ -116,7 +116,7 @@ export default function DashboardPage() {
 
     // ✅ Issue #4：pending 時偵測是家長或老師
     async function detectPendingRole(userId: string) {
-        const { data } = await supabase.from('students').select('id').eq('parent_id', userId).limit(1);
+        const { data } = await supabase.from('students').select('id').or(`parent_id.eq.${userId},parent_id_2.eq.${userId}`).limit(1);
         setPendingRole(data && data.length > 0 ? 'parent' : 'teacher');
     }
 
@@ -143,7 +143,7 @@ export default function DashboardPage() {
 
     async function fetchPendingCounts() {
         const { count: uCount } = await supabase.from('users').select('*', { count: 'exact', head: true }).eq('role', 'pending');
-        const { count: bCount } = await supabase.from('parent_student_links').select('*', { count: 'exact', head: true }).eq('status', 'pending');
+        const { count: bCount } = await supabase.from('student_link_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending');
         setPendingCounts({ users: uCount || 0, bindings: bCount || 0 });
     }
 

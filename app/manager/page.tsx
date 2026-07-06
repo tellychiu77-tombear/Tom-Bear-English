@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '@/lib/permissions';
 import {
@@ -34,17 +35,17 @@ const TAB_OPTIONS = [
 
 function getDateRange(period: string): { from: string | null; to: string | null } {
     const now = new Date();
-    const to = now.toISOString().split('T')[0];
+    const to = localDateStr(now);
     if (period === 'week') {
-        const from = new Date(now.getTime() - 7 * 86400000).toISOString().split('T')[0];
+        const from = localDateStr(new Date(now.getTime() - 7 * 86400000));
         return { from, to };
     }
     if (period === 'month') {
-        const from = new Date(now.getTime() - 30 * 86400000).toISOString().split('T')[0];
+        const from = localDateStr(new Date(now.getTime() - 30 * 86400000));
         return { from, to };
     }
     if (period === 'semester') {
-        const from = new Date(now.getTime() - 180 * 86400000).toISOString().split('T')[0];
+        const from = localDateStr(new Date(now.getTime() - 180 * 86400000));
         return { from, to };
     }
     return { from: null, to: null };
@@ -59,7 +60,8 @@ export default function ManagerDashboard() {
 
     // 篩選條件
     const [selectedDept, setSelectedDept] = useState<string | null>(null);
-    const [period, setPeriod] = useState('month');
+    // 預設 'semester'（180 天）— 涵蓋整個學期成績。原本預設 'month' 會把 exam_results 924 筆濾掉幾乎全部，導致平均成績顯示 0 分。
+    const [period, setPeriod] = useState('semester');
 
     // ── 總覽資料
     const [teachers, setTeachers] = useState<any[]>([]);
@@ -251,7 +253,7 @@ export default function ManagerDashboard() {
         const monthlyMap: Record<string, { sum: number; count: number }> = {};
         const allStudentIds = deptStudentIds.length > 0 ? deptStudentIds : (allStudents?.map(s => s.id) || []);
         const { data: trendExams } = allStudentIds.length > 0
-            ? await supabase.from('exam_results').select('score, exam_date').in('student_id', allStudentIds).gte('exam_date', new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0])
+            ? await supabase.from('exam_results').select('score, exam_date').in('student_id', allStudentIds).gte('exam_date', localDateStr(new Date(Date.now() - 180 * 86400000)))
             : { data: [] };
 
         trendExams?.forEach(e => {
@@ -284,7 +286,7 @@ export default function ManagerDashboard() {
         setFillRateData(fillArr);
 
         // ── 新功能 3：學生流失 / 留存趨勢（最近 12 個月新生）──────────────
-        const twelveMonthsAgo = new Date(Date.now() - 365 * 86400000).toISOString().split('T')[0];
+        const twelveMonthsAgo = localDateStr(new Date(Date.now() - 365 * 86400000));
         const { data: recentStudents } = await supabase.from('students').select('id, created_at').gte('created_at', twelveMonthsAgo);
         const retMap: Record<string, number> = {};
         recentStudents?.forEach((s: any) => {
@@ -321,7 +323,7 @@ export default function ManagerDashboard() {
 
         // Monthly absence trend (last 6 months)
         const absMonthMap: Record<string, number> = {};
-        allTimeLeaves?.filter((l: any) => l.start_date >= new Date(Date.now() - 180 * 86400000).toISOString().split('T')[0])
+        allTimeLeaves?.filter((l: any) => l.start_date >= localDateStr(new Date(Date.now() - 180 * 86400000)))
             .forEach((l: any) => {
                 const month = l.start_date?.slice(0, 7);
                 if (month) absMonthMap[month] = (absMonthMap[month] || 0) + 1;
@@ -572,7 +574,7 @@ export default function ManagerDashboard() {
                                         <XAxis dataKey="class" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" height={50} />
                                         <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
                                         <Tooltip
-                                            formatter={(val: any, name: string, props: any) => [
+                                            formatter={(val: any, _name: any, props: any) => [
                                                 `${props.payload.enrolled} / ${props.payload.capacity} 人（${val}%）`, '飽和率'
                                             ]}
                                             contentStyle={{ borderRadius: 8, fontSize: 12 }}

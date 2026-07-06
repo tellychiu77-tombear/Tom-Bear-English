@@ -101,7 +101,8 @@ export default function ChatPage() {
         const u = user || currentUser;
         if (!u) return;
 
-        let query = supabase.from('users').select('*').order('name');
+        // 只取顯示聯絡人所需欄位（修正：之前 select('*') 會把整列個資〔電話、權限設定等〕載到瀏覽器）
+        let query = supabase.from('users').select('id, name, email, role, job_title').order('name');
         if (u.role === 'parent') {
             query = query.in('role', ['teacher', 'director', 'english_director', 'care_director']);
         } else {

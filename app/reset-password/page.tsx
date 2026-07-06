@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'next/navigation';
 
@@ -11,15 +11,30 @@ export default function ResetPasswordPage() {
     const [errorMsg, setErrorMsg] = useState('');
     const [success, setSuccess] = useState(false);
     const [sessionReady, setSessionReady] = useState(false);
+    const [linkExpired, setLinkExpired] = useState(false);
+    const sessionReadyRef = useRef(false);  // 在 timeout callback 內讀最新 ready 狀態
     const router = useRouter();
 
     useEffect(() => {
         const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
             if (event === 'PASSWORD_RECOVERY') {
+                sessionReadyRef.current = true;
                 setSessionReady(true);
             }
         });
-        return () => subscription.unsubscribe();
+
+        // 10 秒 timeout fallback — 若仍未收到 PASSWORD_RECOVERY event，視為連結失效
+        // 解決原本「驗證連結中」永久 loading 的 bug
+        const timeoutId = setTimeout(() => {
+            if (!sessionReadyRef.current) {
+                setLinkExpired(true);
+            }
+        }, 10000);
+
+        return () => {
+            subscription.unsubscribe();
+            clearTimeout(timeoutId);
+        };
     }, []);
 
     const handleReset = async (e: React.FormEvent) => {
@@ -59,13 +74,34 @@ export default function ResetPasswordPage() {
         );
     }
 
+    if (linkExpired) {
+        return (
+            <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl shadow-xl p-10 max-w-sm w-full text-center">
+                    <div className="text-5xl mb-4">⚠️</div>
+                    <h2 className="text-xl font-bold text-gray-800 mb-2">連結無效或已過期</h2>
+                    <p className="text-gray-500 text-sm mb-6">
+                        密碼重設連結僅在點開信件當下 10 分鐘內有效。<br />
+                        請回到登入頁重新申請密碼重設信。
+                    </p>
+                    <button
+                        onClick={() => router.push('/')}
+                        className="w-full py-3 bg-indigo-700 text-white font-bold rounded-lg hover:bg-indigo-800 transition"
+                    >
+                        回登入頁
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     if (!sessionReady) {
         return (
             <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
                 <div className="bg-white rounded-2xl shadow-xl p-10 max-w-sm w-full text-center">
                     <div className="text-4xl mb-4">⏳</div>
                     <p className="text-gray-600 text-sm">驗證連結中，請稍候…</p>
-                    <p className="text-gray-400 text-xs mt-2">若超過 10 秒仍無反應，請重新點選信件中的連結</p>
+                    <p className="text-gray-400 text-xs mt-2">若超過 10 秒仍無反應，將自動提示重新申請</p>
                 </div>
             </div>
         );

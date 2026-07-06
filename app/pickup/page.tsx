@@ -13,6 +13,9 @@ export default function PickupPage() {
     const [queue, setQueue] = useState<any[]>([]);
     const [statusText, setStatusText] = useState('🔵 連線中...');
     const [audioEnabled, setAudioEnabled] = useState(false);
+    // refs 讓 realtime callback（閉包）能讀到最新的 role / audioEnabled
+    const roleRef = useRef<string | null>(null);
+    const audioEnabledRef = useRef(false);
     const { toast, showToast } = useToast();
 
     const router = useRouter();
@@ -42,8 +45,8 @@ export default function PickupPage() {
                             setTimeout(() => setStatusText('🟢 即時連線正常'), 3000);
                         }, 200);
 
-                        // 🔊 語音廣播
-                        if (payload.new.status === 'notified') {
+                        // 🔊 語音廣播（只在教職員端、且已手動開啟廣播時播報，家長端不播其他學生姓名）
+                        if (payload.new.status === 'notified' && roleRef.current && roleRef.current !== 'parent' && audioEnabledRef.current) {
                             const studentId = payload.new.student_id;
                             const { data: student } = await supabase.from('students').select('chinese_name').eq('id', studentId).single();
                             if (student) {
@@ -57,7 +60,7 @@ export default function PickupPage() {
 
                     // --- 🏠 家長端邏輯 (更新按鈕狀態) ---
                     // 不管是誰呼叫，都檢查一下是不是我的小孩，如果是就更新按鈕
-                    const relevantId = payload.new?.student_id || payload.old?.student_id;
+                    const relevantId = (payload.new as any)?.student_id || (payload.old as any)?.student_id;
 
                     setMyChildren(prev => prev.map(child => {
                         // 如果變動的資料跟這個小孩無關，就跳過
@@ -107,6 +110,7 @@ export default function PickupPage() {
     function enableAudio() {
         speak('廣播系統啟動');
         setAudioEnabled(true);
+        audioEnabledRef.current = true;
     }
 
     async function init() {
@@ -116,6 +120,7 @@ export default function PickupPage() {
         const { data: profile } = await supabase.from('users').select('role').eq('id', session.user.id).single();
         const userRole = profile?.role || 'parent';
         setRole(userRole);
+        roleRef.current = userRole;
 
         if (userRole === 'parent') {
             await fetchMyChildrenStatus(session.user.id);
@@ -128,7 +133,7 @@ export default function PickupPage() {
     async function fetchMyChildrenStatus(parentId: string) {
         setLoading(true);
         // 1. 先抓小孩
-        const { data: students } = await supabase.from('students').select('*').eq('parent_id', parentId);
+        const { data: students } = await supabase.from('students').select('*').or(`parent_id.eq.${parentId},parent_id_2.eq.${parentId}`);
 
         if (students && students.length > 0) {
             // 2. 再抓這些小孩目前有沒有「未完成」的接送請求

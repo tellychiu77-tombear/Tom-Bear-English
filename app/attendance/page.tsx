@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { localDateStr } from '@/lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { getEffectivePermissions } from '@/lib/permissions';
 
@@ -36,7 +37,7 @@ export default function AttendancePage() {
     const [canViewAll, setCanViewAll] = useState(false);
 
     // 點名設定
-    const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(() => localDateStr());
     const [selectedClass, setSelectedClass] = useState('');
 
     // 學生與記錄

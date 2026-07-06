@@ -169,8 +169,16 @@ export default function AdminPage() {
         setIsModalOpen(true);
     }
 
+    // 只有總園長／超級管理員可指派管理階層角色（防止一般行政人員把任何人升為主任／總園長）
+    const MGMT_ROLES = ['director', 'english_director', 'care_director', 'admin'];
+    const canAssignMgmtRoles = !!(currentUser?.is_super_admin || currentUser?.role === 'director');
+
     async function handleSaveUserConfig() {
         if (!editingUser) return;
+        if (!canAssignMgmtRoles && MGMT_ROLES.includes(selectedRole) && selectedRole !== editingUser.role) {
+            showToast('❌ 只有總園長可指派管理階層角色', 'error');
+            return;
+        }
         try {
             const cleanedExtraPerms: Record<string, boolean> = {};
             Object.entries(editingExtraPerms).forEach(([k, v]) => {
@@ -724,10 +732,10 @@ export default function AdminPage() {
                                     <option value="parent">🏠 家長</option>
                                     <option value="teacher">👩‍🏫 老師</option>
                                     <option disabled>──────────</option>
-                                    <option value="director">👑 總園長</option>
-                                    <option value="english_director">🇬🇧 英文部主任</option>
-                                    <option value="care_director">🧸 安親部主任</option>
-                                    <option value="admin">💼 行政人員</option>
+                                    <option value="director" disabled={!canAssignMgmtRoles}>👑 總園長</option>
+                                    <option value="english_director" disabled={!canAssignMgmtRoles}>🇬🇧 英文部主任</option>
+                                    <option value="care_director" disabled={!canAssignMgmtRoles}>🧸 安親部主任</option>
+                                    <option value="admin" disabled={!canAssignMgmtRoles}>💼 行政人員</option>
                                 </select>
                                 <div className={`mt-3 p-3 rounded-xl border flex items-center justify-between ${isApproved ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                     <div>

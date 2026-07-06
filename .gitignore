@@ -30,3 +30,7 @@ ts-debug.log*
 
 # typescript
 *.tsbuildinfo
+
+# private research notes (Telly personal, never public, see docs/week0-tech-decisions.md)
+/private-research
+

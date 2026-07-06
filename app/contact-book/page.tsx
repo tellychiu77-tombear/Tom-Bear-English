@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
+import { localDateStr } from '../../lib/dateUtils';
 import { useRouter } from 'next/navigation';
 import { useToast, TOAST_CLASSES } from '../../lib/useToast';
 
@@ -29,7 +30,7 @@ export default function ContactBookPage() {
     const [students, setStudents] = useState<any[]>([]);
     const [forms, setForms] = useState<Record<string, typeof DEFAULT_FORM>>({});
 
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(localDateStr());
     const [selectedClass, setSelectedClass] = useState<string | null>(null);
     const [uniqueClasses, setUniqueClasses] = useState<string[]>([]);
     const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
@@ -132,7 +133,7 @@ export default function ContactBookPage() {
         const year = date.getFullYear();
         const month = date.getMonth() + 1;
         const startOfMonth = `${year}-${String(month).padStart(2, '0')}-01`;
-        const endOfMonth = new Date(year, month, 0).toISOString().split('T')[0];
+        const endOfMonth = localDateStr(new Date(year, month, 0));
         const targetStudents = (userRole === 'parent' || selectedClass === 'ALL') ? students : students.filter(s => parseClassTags(s.grade).includes(selectedClass));
         const ids = targetStudents.map(s => s.id);
         if (ids.length === 0) { setMonthStats({}); return; }
@@ -369,7 +370,7 @@ export default function ContactBookPage() {
         for (let i = 0; i < firstDay.getDay(); i++) days.push(<div key={`e-${i}`} className="h-16 bg-gray-50/50" />);
         for (let i = 1; i <= lastDay.getDate(); i++) {
             const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
-            const isToday = dateStr === new Date().toISOString().split('T')[0];
+            const isToday = dateStr === localDateStr();
             const isSelected = dateStr === selectedDate;
             const isWeekend = new Date(dateStr).getDay() === 0 || new Date(dateStr).getDay() === 6;
             const stats = monthStats[dateStr];
@@ -659,8 +660,8 @@ export default function ContactBookPage() {
                                             略過
                                         </button>
                                         <button onClick={() => handleSave(desktopStudent, true)}
-                                            className={`flex-1 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                            {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : '💾 儲存並跳下一位'}
+                                            className={`flex-1 py-2.5 text-sm font-bold text-white rounded-xl shadow-md transition ${selectedDate !== localDateStr() ? 'bg-orange-500 hover:bg-orange-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                            {selectedDate !== localDateStr() ? '💾 修改歷史紀錄' : '💾 儲存並跳下一位'}
                                         </button>
                                     </div>
                                 </>
@@ -767,7 +768,7 @@ export default function ContactBookPage() {
                                         </h1>
                                         <p className="text-[10px] text-gray-400 font-bold flex items-center gap-1">
                                             {selectedDate}
-                                            {selectedDate !== new Date().toISOString().split('T')[0] && <span className="text-orange-500">(歷史紀錄)</span>}
+                                            {selectedDate !== localDateStr() && <span className="text-orange-500">(歷史紀錄)</span>}
                                         </p>
                                     </div>
                                 </div>
@@ -965,8 +966,8 @@ export default function ContactBookPage() {
                                                             </div>
                                                             <div className="pt-1">
                                                                 {isTeacher ? (
-                                                                    <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== new Date().toISOString().split('T')[0] ? 'bg-orange-500 hover:bg-orange-600' : isSaved ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
-                                                                        {selectedDate !== new Date().toISOString().split('T')[0] ? '💾 修改歷史紀錄' : isSaved ? '✅ 已儲存（再次儲存）' : '💾 儲存'}
+                                                                    <button onClick={() => handleSave(student)} className={`w-full py-2.5 rounded-xl font-bold text-sm text-white shadow-sm transition-all active:scale-95 ${selectedDate !== localDateStr() ? 'bg-orange-500 hover:bg-orange-600' : isSaved ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                                                        {selectedDate !== localDateStr() ? '💾 修改歷史紀錄' : isSaved ? '✅ 已儲存（再次儲存）' : '💾 儲存'}
                                                                     </button>
                                                                 ) : !form.signature && (
                                                                     <button onClick={() => handleSign(student)} className="w-full py-3 bg-green-500 hover:bg-green-600 text-white rounded-xl font-black text-base shadow-lg shadow-green-200 animate-pulse">✍️ 簽名確認</button>
