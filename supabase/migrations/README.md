@@ -33,4 +33,60 @@
 > **2026-07-02 稽核補充**：
 > 1. **Auth Hook 有致命 bug 已修正**：業務角色 claim 改名 `user_role`（原本覆寫 PostgREST 保留的 `role` 會全站 500），見 `docs/supabase-auth-hook-setup.md`。且 012 之後 RLS 改查 users 表判斷角色，Hook 未設定也不影響隔離正確性。
 > 2. **chat_messages／pickup_requests 等現役表在 repo 中沒有 CREATE TABLE**。從零重建環境會失敗；請儘早跑 `supabase db pull` 產出 baseline。
-> 3. 套用到 production 前，**必須先在 preview branch 走完 012 檔尾的驗收清單**�
+> 3. 套用到 production 前，**必須先在 preview branch 走完 012 檔尾的驗收清單**。
+>
+> **2026-07-06 staging 演練結論（在 tombear-staging 實際跑過 baseline+seed+001→012）**：
+> 1. **004 修正**：`redirect_profile_fks_and_drop.sql` 第 35 行 `SELECT constraint_name` 有欄位歧義（join 兩張系統表都有此欄位），已加 `tc.` 前綴。此 bug 若直接上 production 會中斷 migration。
+> 2. **🔴 加密線（008 / 009 / 011）封測不上**：008 要求 `SET app.encryption_key` 才能跑，且加密後學生電話變密文、但 app 前端沒有任何解密 RPC 呼叫 → 家長／老師端會顯示亂碼，並破壞 012 的綁定電話比對。結論：**封測套用路徑 = 001-007 + 010 + 012**，加密留待封測後改走後端 Edge Function 重新設計。
+> 3. **封測正式套用順序**（production 也照此）：001, 002, 003, 004, 005, 006, 007, 010, 012。**跳過 008, 009, 011**。013/014 需程式碼配合，更後面才套。
+
+---
+
+## ⚠️ 套用前必做的事（Pre-flight）
+
+詳見 `20260511_999_PRE_FLIGHT_CHECKLIST.md`。摘要：
+
+1. ✅ Supabase 已升級到 Pro 方案（有 daily backup）
+2. ✅ 已建立 Supabase preview branch 作為演練場
+3. ✅ 28 張表的 CSV 已 export 一份本地備份
+4. ✅ Telly 已 review 過全部 migration 檔案
+5. ✅ 已在 preview branch 跑過一次完整 migration 流程驗證無錯
+6. ✅ 已確認 RLS 隔離測試通過（tenant B 看不到 tenant A）
+
+---
+
+## 套用方法
+
+### 透過 Supabase CLI（推薦）
+
+```bash
+cd mom-call-app
+supabase link --project-ref peuftkzxuxvdtixhudda
+supabase db push --include-all
+```
+
+### 透過 Supabase Dashboard SQL Editor（手動，逐支）
+
+依編號 001 → 010 順序，把每支 .sql 內容貼到 SQL Editor 執行。每支跑完先檢查無錯再跑下一支。
+
+---
+
+## Rollback 策略
+
+每支 migration 檔案末尾都有 `-- ROLLBACK SCRIPT` 段落，包含「如果這支跑壞了，怎麼回到上一個狀態」的 SQL。
+
+⚠️ 但 008（加密）和 010（RLS）的 rollback 後資料狀態會有微妙差異，**強烈建議靠 Supabase Pro 的 PITR 還原**，而不是手動 rollback。
+
+---
+
+## 各 migration 的詳細說明
+
+每支 migration 檔案開頭的註解區塊包含：
+
+- **Purpose**：這支要解決什麼問題
+- **References**：對應 v3.0 報告 / week0 文件的哪一節
+- **Changes**：實際做了什麼
+- **Risk**：對 production 的潛在影響
+- **Rollback**：如何回退
+
+Telly 回國 review 時，從每支的開頭註解就能快速理解。

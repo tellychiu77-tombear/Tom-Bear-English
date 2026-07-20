@@ -13,8 +13,14 @@ function getChineseRegisterError(message: string): string {
         return '此電子郵件已有帳號，請直接登入';
     }
     if (message.includes('Password should be at least')) return '密碼至少需要 6 個字元';
-    if (message.includes('Unable to validate email')) return '電子郵件格式不正確';
+    if (message.includes('Unable to validate email') || message.includes('is invalid')) {
+        // 含 Supabase「email_address_invalid」：格式錯誤或網域不存在（例如打錯 gmial.com）
+        return '此電子郵件無法使用，請確認拼字是否正確（例如 gmail.com 是否打錯）';
+    }
     if (message.includes('Signup is disabled')) return '目前暫停開放新帳號申請';
+    if (message.includes('rate limit') || message.includes('For security purposes') || message.includes('you can only request this after')) {
+        return '嘗試次數過多，請稍等一分鐘後再試';
+    }
     return '註冊失敗，請確認資料後再試';
 }
 

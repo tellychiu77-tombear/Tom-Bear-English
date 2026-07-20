@@ -487,22 +487,26 @@ CREATE POLICY role_configs_delete ON public.role_configs FOR DELETE
 
 -- ── 稽核／合規表：append-only（防滅證）───────────────────────────────────
 -- INSERT：tenant 內登入者。SELECT：管理階層。UPDATE/DELETE：不建 policy = 禁止。
-CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT WITH CHECK (
-  auth.uid() IS NOT NULL
+-- 稽核／合規表 append-only：用「角色限定」TO authenticated + WITH CHECK(true)。
+-- 2026-07-06 staging 演練修正：原本 WITH CHECK (auth.uid() IS NOT NULL) 會被 RLS
+-- 在 append-only INSERT 時誤擋（即使 auth.uid() 實際有值，postgres 直插驗證 FK/NOT NULL 皆正常）。
+-- 角色限定寫法不依賴函式求值，且語義正確（任何登入者可寫稽核、只有 admin 可讀、永不可改刪）。
+CREATE POLICY audit_logs_insert ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (
+  true
 );
 CREATE POLICY audit_logs_select ON public.audit_logs FOR SELECT USING (
   public.is_admin_level()
 );
 
-CREATE POLICY access_log_insert ON public.access_log FOR INSERT WITH CHECK (
-  auth.uid() IS NOT NULL
+CREATE POLICY access_log_insert ON public.access_log FOR INSERT TO authenticated WITH CHECK (
+  true
 );
 CREATE POLICY access_log_select ON public.access_log FOR SELECT USING (
   public.is_admin_level()
 );
 
-CREATE POLICY op_events_insert ON public.operational_events FOR INSERT WITH CHECK (
-  auth.uid() IS NOT NULL
+CREATE POLICY op_events_insert ON public.operational_events FOR INSERT TO authenticated WITH CHECK (
+  true
 );
 CREATE POLICY op_events_select ON public.operational_events FOR SELECT USING (
   public.is_platform_admin()

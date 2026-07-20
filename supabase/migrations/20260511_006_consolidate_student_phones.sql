@@ -119,4 +119,7 @@ COMMENT ON COLUMN public.students.secondary_contact_relationship IS
 -- ==========================================================================
 -- 若 005 跑壞需 rollback：
 -- 1. 還原原 4 個欄位 + 2 個 relationship 欄位（schema 重建）
--- 2. UPDATE 把 p
+-- 2. UPDATE 把 primary_contact_phone 寫回 parent_phone_1
+-- 3. DROP 新欄位
+-- 完整 SQL 略，建議用 PITR 還原到本 migration 套用之前。
+-- ==========================================================================

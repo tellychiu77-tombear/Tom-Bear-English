@@ -360,4 +360,43 @@ DROP FUNCTION IF EXISTS public.custom_access_token_hook(jsonb);
 - [ ] Dashboard → Auth → Hooks 顯示「Enabled」
 - [ ] 自己登出再登入，JWT 解碼後含 `tenant_id`, `role`, `is_approved`
 - [ ] Telly 的 role 是 `platform_admin`
-- [ ] 假 tenant 隔離測試通過（platform_admin 看全部、
+- [ ] 假 tenant 隔離測試通過（platform_admin 看全部、teacher 看 0）
+- [ ] 應用層登入流程正常，沒有意外 redirect
+
+全部勾完才能進 Phase A 的下一階段（封測前修整）。
+
+---
+
+## 9. 進階：未來如何擴充 Hook
+
+需要加新 claim（例如 `monthly_ai_quota_remaining`）：
+
+```sql
+-- 改 hook function，加 SELECT 與 jsonb_set
+SELECT 
+  u.tenant_id, u.role, u.is_approved,
+  t.monthly_ai_token_limit - t.current_month_ai_tokens_used AS ai_quota_remaining
+INTO user_record
+FROM public.users u
+JOIN public.tenants t ON t.id = u.tenant_id
+WHERE u.id = user_id_uuid;
+
+-- ...
+claims := jsonb_set(claims, '{ai_quota_remaining}', to_jsonb(user_record.ai_quota_remaining));
+```
+
+⚠️ Claim 越多 JWT 越大。大型 SaaS 通常控制在 1KB 以下。台灣補教規模這個不是問題，但仍避免亂加。
+
+---
+
+## 變更日誌
+
+| 日期 | 變更 | 維護人 |
+|------|------|--------|
+| 2026-05-08 | v1.0 草擬（Telly 出差期間） | Claude |
+
+---
+
+**文件結束**
+
+> 任何修改 Hook 邏輯前，請先在 preview branch 演練。Hook 出錯會影響全平台登入體驗。

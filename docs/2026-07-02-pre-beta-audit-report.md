@@ -97,4 +97,29 @@
 7. 大量查詢忽略 `error` 回傳值——RLS 上線後如有 policy 問題會靜默顯示空資料、極難除錯。建議至少在 manager／chat／pickup 補上錯誤處理。
 8. 老師預設可編輯／刪除主任發的公告、可發「全員」公告——建議收斂。
 9. `types/database.ts` 與實際 schema 嚴重脫節（還有已刪除的表、缺 `tenants`／`chat_messages` 等）——migration 定案後用 `supabase gen types` 重新產生。
-10. `chat_messages`、`pickup_re
+10. `chat_messages`、`pickup_requests` 等現役表在 repo 中沒有 CREATE TABLE——建議 `supabase db pull` 產出 baseline，否則無法重建環境。
+
+## 四、🟢 次要（封測後再說）
+
+`schema.sql` 已是死文件（標註 deprecated 即可）、7 支散裝 legacy SQL 應歸檔到 `legacy/`、`add_course_progress.sql` 缺時間戳前綴會排錯順序、`public/logo.png.png` 雙重副檔名、兩套稽核寫入格式不一致、`get_profile_id_by_email` 函式可被匿名者做 email 枚舉（REVOKE 即可）、manager 頁「每月學費收入趨勢」仍是 placeholder。
+
+---
+
+## 五、時程建議（對照 7/31 封測）
+
+| 週次 | 重點 |
+|---|---|
+| **本週（7/2–7/5）** | R3 個資清理（急）；決定 R4 的 `system_logs` 歸屬；R5 確認 live DB 欄位資料 |
+| **第 2 週（7/6–7/12)** | R1 RLS policy 重寫 + R2 Auth Hook 修正，在 preview branch 完整演練（`999_PRE_FLIGHT_CHECKLIST` 的 8 個 gate 目前 39 個檢查項全部未勾，必須走完） |
+| **第 3 週（7/13–7/19)** | 套 migration 到 production；修 R4 程式碼配合；🟡1 班級資料源統一 |
+| **第 4 週（7/20–7/26)** | 用「家長帳號」實測隔離（讀不到別人小孩＝過關）；R6/R7；回歸測試 |
+| **7/27–7/31** | 緩衝＋封測名單上線 |
+
+判斷標準很簡單：**「家長 A 登入後，用瀏覽器開發者工具直接打 API，讀不到家長 B 小孩的任何資料」——這件事沒做到之前，不能給真實家長使用。**
+
+---
+
+### 附註：本次修改的驗證方式
+所有修改完成後以乾淨副本重放全部變更並執行 `npx tsc --noEmit`（**0 錯誤**）。完整 `next build` 受沙盒執行時間限制未能跑完，請在本機執行 `npm run build` 確認（另注意：本機 build 需要網路抓取 Google Fonts）。
+
+另：本次工作中發現沙盒同步層對大檔案偶發截斷寫入，已逐檔比對修復（grades／students／payment 三檔的檔尾曾被截斷數行，已從 git 原始檔尾補回並驗證完整）。你電腦上的檔案為最終正確版本。commit 前建議先 `git diff` 過目一次今天的變更。

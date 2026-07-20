@@ -32,7 +32,8 @@ DECLARE
   fk_name TEXT;
 BEGIN
   -- 找出 contact_books 表上指向 profiles 的 FK constraint 名稱
-  SELECT constraint_name INTO fk_name
+  -- 2026-07-06 修正：constraint_name 需加 tc. 前綴，否則 join 後兩表同名欄位歧義（staging 演練發現）
+  SELECT tc.constraint_name INTO fk_name
   FROM information_schema.table_constraints tc
   JOIN information_schema.constraint_column_usage ccu
     ON tc.constraint_name = ccu.constraint_name
