@@ -45,5 +45,9 @@ supabase/seed_*_real*.sql
 # git 歷史備份 bundle（含清理前的個資歷史，勿上傳）
 *.bundle
 
+# 資料庫備份（含全部學生與家長個資）— 絕不進版本庫
+/backups
+supabase/baseline_from_prod.sql
+
 # 舊 git 資料夾殘骸（同步層幽靈目錄，可整個刪除）
 .git.old/
