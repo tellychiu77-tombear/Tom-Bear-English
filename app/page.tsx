@@ -304,6 +304,14 @@ export default function DashboardPage() {
                             <p className="text-xs text-blue-600">通常需要 1～2 個工作天，請耐心等候。</p>
                         )}
                     </div>
+                    {/* 家長綁定入口：/onboarding 原本沒有任何連結可到達，導致綁定申請永遠送不出去 */}
+                    {pendingRole === 'parent' && (
+                        <button
+                            onClick={() => router.push('/onboarding')}
+                            className="w-full py-3 mb-3 bg-[#1A4B2E] text-white font-bold rounded-lg hover:bg-[#143d25] transition">
+                            🔗 綁定我的孩子
+                        </button>
+                    )}
                     <button onClick={handleLogout} className="w-full py-3 border border-gray-300 text-gray-600 font-bold rounded-lg hover:bg-gray-50">登出並返回</button>
                 </div>
             </div>

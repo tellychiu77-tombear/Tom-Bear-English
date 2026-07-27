@@ -24,10 +24,32 @@ export default function Onboarding() {
     const [session, setSession] = useState<any>(null);
 
     useEffect(() => {
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            if (!session) router.push('/');
-            else setSession(session);
-        });
+        (async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) { router.push('/'); return; }
+            setSession(session);
+
+            // 已在註冊頁填過基本資料者，直接跳到「綁定孩子」步驟，不重複問姓名／身分
+            const { data: profile } = await supabase
+                .from('users').select('name, phone, pending_role').eq('id', session.user.id).single();
+            if (profile?.name) setFullName(profile.name);
+            if (profile?.phone) setPhone(profile.phone);
+            if (profile?.pending_role === 'parent' && profile?.name) {
+                setApplyRole('parent');
+                setStep('bind');
+            }
+
+            // 帶入註冊時填的孩子姓名與電話，家長不必再打一次
+            try {
+                const raw = sessionStorage.getItem('pending_bind_children');
+                if (raw) {
+                    const kids = JSON.parse(raw);
+                    if (Array.isArray(kids) && kids[0]?.name) setChineseName(kids[0].name);
+                }
+                const storedPhone = sessionStorage.getItem('pending_bind_phone');
+                if (storedPhone && !profile?.phone) setPhone(storedPhone);
+            } catch { /* ignore */ }
+        })();
     }, []);
 
     // Step 1 → Step 2：儲存基本資料

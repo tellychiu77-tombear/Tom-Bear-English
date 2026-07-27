@@ -118,8 +118,23 @@ export default function AdminPage() {
 
     async function handleApproveLinkRequest(req: any) {
         try {
-            // 綁定學生
-            await supabase.from('students').update({ parent_id: req.parent_id }).eq('id', req.matched_student_id);
+            if (!req.matched_student_id) {
+                showToast('❌ 此申請未比對到學生，請先在學生資料庫確認姓名／電話後再處理', 'error');
+                return;
+            }
+            // 綁定學生：第一位家長寫 parent_id；若已有第一位家長，第二位寫 parent_id_2（雙親情境）
+            // 修正：舊版一律覆寫 parent_id，第二位家長綁定會把第一位家長踢掉
+            const { data: stu } = await supabase.from('students')
+                .select('parent_id, parent_id_2').eq('id', req.matched_student_id).single();
+            if (stu?.parent_id && stu.parent_id !== req.parent_id) {
+                if (stu.parent_id_2 && stu.parent_id_2 !== req.parent_id) {
+                    showToast('❌ 此學生已綁定兩位家長，請先解除其中一位再綁定', 'error');
+                    return;
+                }
+                await supabase.from('students').update({ parent_id_2: req.parent_id }).eq('id', req.matched_student_id);
+            } else {
+                await supabase.from('students').update({ parent_id: req.parent_id }).eq('id', req.matched_student_id);
+            }
             // 標記已審核
             await supabase.from('student_link_requests').update({ status: 'approved', reviewed_by: currentUser.id }).eq('id', req.id);
             await logAction('審核綁定申請', `批准 ${req.parent?.email} 綁定 ${req.student?.chinese_name}`);

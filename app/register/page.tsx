@@ -118,18 +118,28 @@ export default function RegisterPage() {
                 console.error('users upsert error:', upsertError);
             }
 
-            // 家長：建立子女資料
+            // 家長：⚠️ 2026-07-06 修正 — 不再直接 INSERT 學生資料。
+            // 舊行為會新建一筆空白學生掛在家長名下，與補習班預先建好的學生檔（含成績、班級）
+            // 形成重複，導致老師看到同一個小孩出現兩次、家長看到的是空白那筆。
+            // 新流程：導向 /onboarding 做「電話＋姓名比對」→ 送出綁定申請 → 行政人員審核批准
+            // → 由後台把既有的學生檔掛到此家長名下（admin 的「綁定申請」分頁）。
             if (role === 'parent') {
-                const studentsToInsert = children.map(child => {
-                    let finalGrade = child.grade;
-                    if (child.afterSchool) finalGrade += ', 課後輔導';
-                    return {
-                        parent_id: user.id,
-                        chinese_name: child.name,
-                        grade: finalGrade
-                    };
-                });
-                await supabase.from('students').insert(studentsToInsert);
+                try {
+                    sessionStorage.setItem('pending_bind_children', JSON.stringify(
+                        children.map(c => ({ name: c.name, grade: c.grade, afterSchool: c.afterSchool }))
+                    ));
+                    sessionStorage.setItem('pending_bind_phone', phone || '');
+                } catch { /* sessionStorage 不可用時略過，onboarding 仍可手動填寫 */ }
+
+                if (signUpData?.session) {
+                    router.push('/onboarding');
+                    setLoading(false);
+                    return;
+                }
+                // email 驗證開啟時尚無 session，請家長驗證後登入再綁定
+                setErrorMsg('📧 註冊申請已送出，請至信箱完成驗證後登入，即可進行孩子綁定。');
+                setLoading(false);
+                return;
             }
 
             router.push('/');
